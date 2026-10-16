@@ -38,11 +38,11 @@ dependencies:
   path: ^1.9.1
   intl: ^0.20.3
   path_provider: ^2.1.5
-  shared_preferences: ^2.5.5
+  shared_preferences: ^2.5.6
   file_picker: ^11.0.3
   http: ^1.6.0
   saf: ^2.1.2
-  camera: ^0.12.0+1
+  camera: ^0.12.1
   yaml: ^3.1.4
   pdf: ^3.13.1
   flutter_secure_storage: ^10.3.4
