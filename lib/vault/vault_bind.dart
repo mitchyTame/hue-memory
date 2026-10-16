@@ -18,6 +18,28 @@ class VaultBindResult {
   final String label;
 }
 
+/// Cold-start restore of a previously saved vault root.
+class VaultResolveResult {
+  const VaultResolveResult({
+    required this.bound,
+    this.repickHint,
+    this.restoredFromPrefs = false,
+  });
+
+  final VaultBindResult bound;
+
+  /// Set when a saved vault could not be restored (grant revoked / unwritable).
+  /// Calm UI copy — never silent empty.
+  final String? repickHint;
+
+  /// True when [bound] came from the saved prefs root (not the app default).
+  final bool restoredFromPrefs;
+}
+
+/// Shown when a previously chosen vault folder is no longer writable.
+const String kVaultRepickHint =
+    'Choose vault folder again — the previous folder permission expired.';
+
 /// User-visible bind / pick failure — never an unhandled crash.
 class VaultBindException implements Exception {
   VaultBindException(this.userMessage, {this.cause});
@@ -129,7 +151,11 @@ VaultBindResult bindVaultRoot({
 }
 
 /// Resolve a previously persisted root, or fall back to [fallbackDirectory].
-Future<VaultBindResult> resolvePersistedVaultRoot({
+///
+/// On Android, [saved] must be the durable tree URI string (bare `tree/<id>`)
+/// and the OS persistable grant must still be valid. Document-normalized pick
+/// URIs are matched via [safSameTreeUri].
+Future<VaultResolveResult> resolvePersistedVaultRoot({
   required String? saved,
   required SafDocuments documents,
   required Future<Directory> Function() fallbackDirectory,
@@ -140,29 +166,47 @@ Future<VaultBindResult> resolvePersistedVaultRoot({
       // Match bare tree ↔ document-normalized forms (see [safSameTreeUri]).
       for (final g in grants) {
         if (g.write && safSameTreeUri(g.uri, saved!)) {
-          return bindVaultRoot(rootRef: g.uri, documents: documents);
+          return VaultResolveResult(
+            bound: bindVaultRoot(rootRef: g.uri, documents: documents),
+            restoredFromPrefs: true,
+          );
         }
       }
       // Grant list may lag or use a different encoding — try the saved URI.
       final bound = bindVaultRoot(rootRef: saved!, documents: documents);
       await verifyVaultWritable(bound.vault);
-      return bound;
+      return VaultResolveResult(bound: bound, restoredFromPrefs: true);
     } catch (_) {
-      // Grant revoked or unwritable — fall through to default.
+      // Grant revoked or unwritable — fall through with a calm re-pick hint.
+      final root = await fallbackDirectory();
+      return VaultResolveResult(
+        bound: bindVaultRoot(rootRef: root.path, documents: documents),
+        repickHint: kVaultRepickHint,
+      );
     }
   } else if (saved != null &&
       isLocalFilesystemPath(saved) &&
       !looksLikeAndroidSharedStorage(saved) &&
       Directory(saved).existsSync()) {
     try {
-      return bindVaultRoot(rootRef: saved, documents: documents);
+      return VaultResolveResult(
+        bound: bindVaultRoot(rootRef: saved, documents: documents),
+        restoredFromPrefs: true,
+      );
     } catch (_) {
       // Fall through to default.
     }
   }
 
   final root = await fallbackDirectory();
-  return bindVaultRoot(rootRef: root.path, documents: documents);
+  final savedTrimmed = saved?.trim() ?? '';
+  final hadUnusableSaved = savedTrimmed.isNotEmpty;
+  return VaultResolveResult(
+    bound: bindVaultRoot(rootRef: root.path, documents: documents),
+    repickHint: hadUnusableSaved && looksLikeAndroidSharedStorage(savedTrimmed)
+        ? kVaultRepickHint
+        : null,
+  );
 }
 
 /// Smoke-write to confirm the bound vault is writable (pack mirror / probe).

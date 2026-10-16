@@ -1,11 +1,13 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hue_memory/settings/vault_settings_store.dart';
 import 'package:hue_memory/vault/local_vault_fs.dart';
 import 'package:hue_memory/vault/saf_documents.dart';
 import 'package:hue_memory/vault/saf_vault_fs.dart';
 import 'package:hue_memory/vault/vault_bind.dart';
 import 'package:saf/saf.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   late MemorySafDocuments docs;
@@ -94,13 +96,15 @@ void main() {
   });
 
   test('resolvePersistedVaultRoot restores granted tree URI', () async {
-    final bound = await resolvePersistedVaultRoot(
+    final resolved = await resolvePersistedVaultRoot(
       saved: docs.rootUri,
       documents: docs,
       fallbackDirectory: () async => temp,
     );
-    expect(bound.vault, isA<SafVaultFs>());
-    expect(bound.persist, docs.rootUri);
+    expect(resolved.restoredFromPrefs, isTrue);
+    expect(resolved.repickHint, isNull);
+    expect(resolved.bound.vault, isA<SafVaultFs>());
+    expect(resolved.bound.persist, docs.rootUri);
   });
 
   test(
@@ -112,14 +116,15 @@ void main() {
       const document =
           'content://com.android.externalstorage.documents/tree/primary%3AVault/document/primary%3AVault';
       final mem = MemorySafDocuments(rootUri: bare)..grantRoot();
-      final bound = await resolvePersistedVaultRoot(
+      final resolved = await resolvePersistedVaultRoot(
         saved: document,
         documents: mem,
         fallbackDirectory: () async => temp,
       );
-      expect(bound.vault, isA<SafVaultFs>());
-      expect(bound.persist, bare);
-      expect(safSameTreeUri(bound.persist, document), isTrue);
+      expect(resolved.restoredFromPrefs, isTrue);
+      expect(resolved.bound.vault, isA<SafVaultFs>());
+      expect(resolved.bound.persist, bare);
+      expect(safSameTreeUri(resolved.bound.persist, document), isTrue);
     },
   );
 
@@ -136,13 +141,62 @@ void main() {
 
   test('resolvePersistedVaultRoot skips unwritable shared-storage prefs',
       () async {
-    final bound = await resolvePersistedVaultRoot(
+    final resolved = await resolvePersistedVaultRoot(
       saved: '/storage/emulated/0/Documents/ObsidianVault',
       documents: docs,
       fallbackDirectory: () async => temp,
     );
-    expect(bound.vault, isA<LocalVaultFs>());
-    expect(bound.persist, temp.path);
+    expect(resolved.bound.vault, isA<LocalVaultFs>());
+    expect(resolved.bound.persist, temp.path);
+    expect(resolved.restoredFromPrefs, isFalse);
+    expect(resolved.repickHint, kVaultRepickHint);
+  });
+
+  test('cold start: pick → prefs → reopen still bound (no re-pick)', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final store = PrefsVaultSettingsStore(prefs: prefs);
+
+    const bare =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault';
+    const document =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault/document/primary%3AVault';
+    final mem = MemorySafDocuments(rootUri: bare)..grantRoot();
+
+    // Session: pick document-form URI, bind, save prefs (bare tree).
+    final picked = bindVaultRoot(rootRef: document, documents: mem);
+    await verifyVaultWritable(picked.vault);
+    await store.writeVaultRoot(picked.persist);
+    expect(await store.readVaultRoot(), bare);
+
+    // Process death: new resolve with same prefs + OS grants.
+    final saved = await store.readVaultRoot();
+    final resolved = await resolvePersistedVaultRoot(
+      saved: saved,
+      documents: mem,
+      fallbackDirectory: () async => temp,
+    );
+    expect(resolved.restoredFromPrefs, isTrue);
+    expect(resolved.repickHint, isNull);
+    expect(resolved.bound.vault, isA<SafVaultFs>());
+    expect(resolved.bound.persist, bare);
+  });
+
+  test('cold start: revoked grant asks to choose folder again', () async {
+    const bare =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault';
+    // Unrelated tree — no grant and no nodes for [bare] → write check fails.
+    final mem = MemorySafDocuments(
+      rootUri: 'content://hue.test/tree/unrelated',
+    );
+    final resolved = await resolvePersistedVaultRoot(
+      saved: bare,
+      documents: mem,
+      fallbackDirectory: () async => temp,
+    );
+    expect(resolved.restoredFromPrefs, isFalse);
+    expect(resolved.repickHint, kVaultRepickHint);
+    expect(resolved.bound.persist, temp.path);
   });
 
   test('verifyVaultWritable succeeds on memory SAF vault', () async {

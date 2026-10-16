@@ -163,19 +163,20 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
     try {
       final saved = await _vaultSettings.readVaultRoot();
-      final bound = await resolvePersistedVaultRoot(
+      final resolved = await resolvePersistedVaultRoot(
         saved: saved,
         documents: _safDocuments,
         fallbackDirectory: defaultVaultDirectory,
       );
-      // Only rewrite prefs when the bound root changed (e.g. normalize a
-      // document URI → bare tree URI). Never clobber a content:// pick with
-      // the app-default path after a flaky grant check.
-      final keepSavedSaf = isSafTreeUri(saved) &&
-          !isSafTreeUri(bound.persist) &&
-          saved != null &&
-          saved.isNotEmpty;
-      if (!keepSavedSaf && bound.persist != saved) {
+      final bound = resolved.bound;
+      // Only rewrite prefs when restore succeeded and the bound root changed
+      // (e.g. normalize document URI → bare tree). Never clobber a content://
+      // pick with the app-default path after a revoked/flaky grant.
+      if (resolved.restoredFromPrefs && bound.persist != saved) {
+        await _vaultSettings.writeVaultRoot(bound.persist);
+      } else if (!resolved.restoredFromPrefs &&
+          resolved.repickHint == null &&
+          bound.persist != saved) {
         await _vaultSettings.writeVaultRoot(bound.persist);
       }
       try {
@@ -184,9 +185,19 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       if (!mounted) return;
       setState(() {
         _vault = bound.vault;
-        _vaultLabel = bound.label;
+        _vaultLabel = resolved.repickHint != null
+            ? 'Choose vault folder again'
+            : bound.label;
         _ready = true;
       });
+      if (resolved.repickHint != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(resolved.repickHint!),
+            backgroundColor: MemoryHues.danger,
+          ),
+        );
+      }
     } catch (_) {
       try {
         final root = await defaultVaultDirectory();
@@ -226,6 +237,19 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       documents: _safDocuments,
     );
     await verifyVaultWritable(bound.vault);
+    // Persistable grant must exist for content:// roots to survive process death.
+    if (isSafTreeUri(bound.persist)) {
+      final grants = await _safDocuments.persistedPermissions();
+      final ok = grants.any(
+        (g) => g.write && safSameTreeUri(g.uri, bound.persist),
+      );
+      if (!ok) {
+        throw VaultBindException(
+          'Android did not keep folder permission. '
+          'Choose the Obsidian vault folder again.',
+        );
+      }
+    }
     await _vaultSettings.writeVaultRoot(bound.persist);
     try {
       await _packStore.mirrorToVault(bound.vault, _activePack);
