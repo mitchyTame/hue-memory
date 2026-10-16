@@ -58,6 +58,15 @@ flutter run -d linux
 # or, without a display: flutter build linux --debug
 ```
 
+If CMake fails on `flutter/ephemeral/.plugin_symlinks/jni/linux` (broken symlink, often after a Docker build), regenerate host plugins:
+
+```bash
+# if ephemeral is root-owned: sudo chown -R "$USER:$USER" linux/flutter/ephemeral build
+flutter clean
+flutter pub get
+flutter run -d linux
+```
+
 1. Home is capture — tap the **teal shutter** (loads `assets/sample_page.png`; no camera required on Linux).
 2. Mock OCR assigns a symbol chip (default ∼ fleeting) + region overlays.
 3. Edit title/body, optionally **Link** recent pages, tap **Commit**.
