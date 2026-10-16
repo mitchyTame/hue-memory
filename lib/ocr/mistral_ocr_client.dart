@@ -19,12 +19,19 @@ final Uint8List kMistralProbePng = Uint8List.fromList(const [
   0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ]);
 
-/// Prepares capture bytes before OCR (decode / scale / PNG).
+/// Prepares capture bytes before OCR / vision (decode / scale / PNG).
 typedef MistralOcrImagePreparer = Future<PreparedOcrImage> Function(
   Uint8List bytes, {
   String? imageMimeType,
   String? extensionHint,
+  int maxSide,
 });
+
+/// △ vision structure model — Mistral Large 3 (Chat Completions + image).
+///
+/// Exact API id from current Mistral Vision docs (`mistral-large-2512`).
+/// Same API key as OCR; vision runs for △ / visual only.
+const String kDefaultVisionModel = 'mistral-large-2512';
 
 /// Cloud OCR via [mistralai_dart] — key check + OCR; △ also runs vision structure.
 ///
@@ -37,11 +44,11 @@ class MistralOcrClient implements OcrClient {
     http.Client? httpClient,
     this.baseUrl = 'https://api.mistral.ai',
     this.model = 'mistral-ocr-latest',
-    this.visionModel = 'pixtral-12b-2409',
+    this.visionModel = kDefaultVisionModel,
     this.parser = const MistralOcrParser(),
     MistralOcrImagePreparer? prepareImage,
     MistralSdk? sdk,
-  })  : prepareImage = prepareImage ?? prepareImageForMistralOcr,
+  })  : prepareImage = prepareImage ?? _defaultPrepare,
         _sdk = sdk ??
             LiveMistralSdk(
               apiKey: apiKey,
@@ -50,11 +57,27 @@ class MistralOcrClient implements OcrClient {
             ),
         _ownsSdk = sdk == null;
 
+  static Future<PreparedOcrImage> _defaultPrepare(
+    Uint8List bytes, {
+    String? imageMimeType,
+    String? extensionHint,
+    int maxSide = kOcrMaxImageSide,
+  }) {
+    return prepareImageForMistralOcr(
+      bytes,
+      imageMimeType: imageMimeType,
+      extensionHint: extensionHint,
+      maxSide: maxSide,
+    );
+  }
+
   final String apiKey;
   final String baseUrl;
   final String model;
 
-  /// Vision model for △ structure (coords) — separate from [model] OCR.
+  /// Vision model for △ structure — separate from [model] OCR.
+  ///
+  /// Default [kDefaultVisionModel] (`mistral-large-2512` = Mistral Large 3).
   final String visionModel;
   final MistralOcrParser parser;
   final MistralOcrImagePreparer prepareImage;
@@ -157,7 +180,13 @@ class MistralOcrClient implements OcrClient {
       }
       // Vision structure pass is △ / visual only — never on inbox/fleeting/etc.
       if (result.pageGenre == 'visual') {
-        result = await _enrichVisualWithVision(result, prepared);
+        result = await _enrichVisualWithVision(
+          result,
+          originalBytes: imageBytes,
+          imageMimeType: imageMimeType,
+          extensionHint: extensionHint,
+          ocrPrepared: prepared,
+        );
       }
       return result;
     } on MistralOcrException {
@@ -196,19 +225,35 @@ class MistralOcrClient implements OcrClient {
   /// Second pass for △: vision JSON (coords) + OCR label merge.
   ///
   /// Soft-fails to OCR-only structure if vision errors or returns empty nodes.
+  /// Uses a **sharper** prepare than OCR ([kVisionMaxImageSide]) so handwriting
+  /// in boxes stays readable.
   Future<MeaningResult> _enrichVisualWithVision(
-    MeaningResult ocrResult,
-    PreparedOcrImage prepared,
-  ) async {
+    MeaningResult ocrResult, {
+    required Uint8List originalBytes,
+    String? imageMimeType,
+    String? extensionHint,
+    required PreparedOcrImage ocrPrepared,
+  }) async {
     final ocrLabels = ocrResult.regions
         .map((r) => r.text.trim())
         .where((t) => t.isNotEmpty)
         .toList();
     try {
+      PreparedOcrImage visionImage;
+      try {
+        visionImage = await prepareImage(
+          originalBytes,
+          imageMimeType: imageMimeType,
+          extensionHint: extensionHint,
+          maxSide: kVisionMaxImageSide,
+        );
+      } catch (_) {
+        visionImage = ocrPrepared;
+      }
       final raw = await _sdk.chatVisionStructure(
         model: visionModel,
-        bytes: prepared.bytes,
-        mimeType: prepared.mime,
+        bytes: visionImage.bytes,
+        mimeType: visionImage.mime,
         ocrLabels: ocrLabels,
         maxTokens: MindmapPropose.visionMaxTokens,
       );

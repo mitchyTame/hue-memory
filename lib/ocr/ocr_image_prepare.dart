@@ -6,6 +6,12 @@ import 'mistral_ocr_request.dart';
 /// Longest edge for OCR uploads — keeps payloads small and reliable.
 const int kOcrMaxImageSide = 2048;
 
+/// Longest edge for △ vision structure — sharper handwriting than OCR thumb.
+///
+/// Still capped for API size; higher than [kOcrMaxImageSide] so box text stays
+/// readable for the vision model.
+const int kVisionMaxImageSide = 3072;
+
 /// Prepared bytes + MIME ready for a Mistral `image_url` data URL.
 typedef PreparedOcrImage = ({Uint8List bytes, String mime});
 

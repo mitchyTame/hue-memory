@@ -154,6 +154,8 @@ class FakeMistralSdk implements MistralSdk {
   String? lastVisionModel;
   List<String>? lastVisionOcrLabels;
   int? lastVisionMaxTokens;
+  Uint8List? lastVisionBytes;
+  String? lastVisionMime;
 
   @override
   Future<void> verifyApiKey() async {
@@ -201,6 +203,8 @@ class FakeMistralSdk implements MistralSdk {
     lastVisionModel = model;
     lastVisionOcrLabels = List<String>.from(ocrLabels);
     lastVisionMaxTokens = maxTokens;
+    lastVisionBytes = Uint8List.fromList(bytes);
+    lastVisionMime = mimeType;
     final err = visionError;
     if (err != null) {
       if (err is Exception) throw err;

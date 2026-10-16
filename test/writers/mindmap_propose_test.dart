@@ -43,12 +43,14 @@ Here is noise {"nodes":[{"id":"a","label":"Hub","x":0.4,"y":0.3},
     expect(structure.source, 'vision');
   });
 
-  test('vision prompts stay short and mention OCR labels', () {
+  test('vision prompts prioritize handwriting and coverage', () {
     final user = MindmapPropose.visionUserPrompt(const ['Hub', 'Spoke']);
     expect(user, contains('Hub'));
     expect(user, contains('Spoke'));
     expect(MindmapPropose.visionSystemPrompt, contains('JSON'));
-    expect(MindmapPropose.visionMaxTokens, 384);
+    expect(MindmapPropose.visionSystemPrompt, contains('handwriting'));
+    expect(MindmapPropose.visionSystemPrompt, contains('EVERY major'));
+    expect(MindmapPropose.visionMaxTokens, greaterThanOrEqualTo(768));
   });
 
   test('merge keeps vision text when OCR disagrees; keeps vision xy', () {
@@ -65,8 +67,20 @@ Here is noise {"nodes":[{"id":"a","label":"Hub","x":0.4,"y":0.3},
     expect(merged.nodes.first.label, 'Focus loop');
     expect(merged.nodes.first.x, closeTo(0.3, 0.001));
     expect(merged.nodes[1].label, 'Deep work');
-    // OCR leftovers must not invent extra nodes when vision already decided.
-    expect(merged.nodes, hasLength(2));
+    // Unmatched OCR labels are appended (missing-box recovery).
+    expect(merged.nodes.length, greaterThanOrEqualTo(2));
+    expect(
+      merged.nodes.any((n) => n.label.toLowerCase().contains('central')),
+      isTrue,
+    );
+  });
+
+  test('placeNormBox preserves vision coords near edges', () {
+    final box = MindmapPropose.placeNormBox(left: 0.85, top: 0.9);
+    expect(box.left + box.width, lessThanOrEqualTo(1.0 + 1e-9));
+    expect(box.top + box.height, lessThanOrEqualTo(1.0 + 1e-9));
+    expect(box.left, greaterThan(0.5));
+    expect(box.top, greaterThan(0.5));
   });
 
   test('merge fills empty vision stub from fuzzy OCR hint only', () {

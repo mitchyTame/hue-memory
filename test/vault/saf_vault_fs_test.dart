@@ -38,9 +38,22 @@ void main() {
 
   test('mimeForVaultPath covers note + image + canvas', () {
     expect(mimeForVaultPath('a/b.md'), 'text/markdown');
-    expect(mimeForVaultPath('x.canvas'), 'application/json');
+    // .canvas must NOT be application/json — SAF would rename to *.json.canvas
+    // or *.canvas.json. Octet-stream keeps the literal .canvas display name.
+    expect(mimeForVaultPath('x.canvas'), 'application/octet-stream');
+    expect(mimeForVaultPath('x.canvas'), isNot(equals('application/json')));
     expect(mimeForVaultPath('raw/page.png'), 'image/png');
     expect(mimeForVaultPath('raw/page.weird'), 'application/octet-stream');
+  });
+
+  test('canvas write keeps .canvas basename (not .json.canvas)', () async {
+    await vault.writeText(
+      'mindmaps/20261016-p7k2-topic.canvas',
+      '{"nodes":[],"edges":[]}',
+    );
+    final names = await vault.list('mindmaps');
+    expect(names, ['20261016-p7k2-topic.canvas']);
+    expect(names.any((n) => n.contains('.json')), isFalse);
   });
 
   test('writeText / readText / exists / list round-trip', () async {

@@ -54,13 +54,17 @@ String joinVaultRelative(String? folder, String fileName) {
 
 /// Vault must only hold `.md`, `.canvas`, images, yaml printables — never `*.json`.
 ///
-/// Canvas **content** is JSON inside a `.canvas` file; the extension must not
-/// be `.json`.
+/// Canvas **content** is JSON inside a `.canvas` file; the extension must be
+/// exactly `.canvas` (not `.json`, `.json.canvas`, or `.canvas.json`).
 void assertVaultWriteAllowed(String relativePath) {
   final cleaned =
       relativePath.replaceAll('\\', '/').replaceAll(RegExp(r'^/+'), '');
   final lower = cleaned.toLowerCase();
-  if (lower.endsWith('.json')) {
+  final base = lower.split('/').last;
+  if (lower.endsWith('.json') ||
+      base.endsWith('.json.canvas') ||
+      base.endsWith('.canvas.json') ||
+      base.contains('.json.')) {
     throw ArgumentError(
       'Vault must not contain .json files (got $relativePath). '
       'Use .md or .canvas only.',

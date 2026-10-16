@@ -24,7 +24,9 @@ void main() {
     expect(await store.readActivePackId(), 'blank-custom');
     final active = await store.activePack();
     expect(active.symbols.map((s) => s.id), containsAll(['inbox', 'permanent']));
-    expect(await vault.exists(ActivePackStore.vaultCustomPath), isTrue);
+    // Pack YAML is prefs-only — never land packs/ YAML in the Obsidian vault.
+    expect(await vault.exists('symbol-journal/packs/custom.yaml'), isFalse);
+    expect(vault.filePaths, isEmpty);
 
     final available = await store.availablePacks();
     expect(available.any((p) => p.id == 'blank-custom'), isTrue);

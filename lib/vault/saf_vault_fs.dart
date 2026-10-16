@@ -68,12 +68,19 @@ String safVaultLabel(String treeUri) {
   return '…${decoded.substring(decoded.length - 40)}';
 }
 
+/// MIME for SAF [DocumentsContract.createDocument].
+///
+/// **`.canvas` must not use `application/json`.** Android External Storage
+/// Provider maps that MIME to a `.json` extension and rewrites
+/// `note.canvas` → `note.canvas.json` (or `note.json.canvas`). Obsidian needs
+/// the literal `.canvas` suffix — use octet-stream so the display name is kept.
 String mimeForVaultPath(String relativePath) {
   final ext = p.extension(relativePath).toLowerCase();
   return switch (ext) {
     '.md' => 'text/markdown',
     '.txt' => 'text/plain',
-    '.json' || '.canvas' => 'application/json',
+    '.json' => 'application/json',
+    '.canvas' => 'application/octet-stream',
     '.png' => 'image/png',
     '.jpg' || '.jpeg' => 'image/jpeg',
     '.webp' => 'image/webp',

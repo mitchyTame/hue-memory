@@ -38,6 +38,14 @@ void main() {
       throwsA(isA<ArgumentError>()),
     );
     expect(
+      () => assertVaultWriteAllowed('mindmaps/a.json.canvas'),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(
+      () => assertVaultWriteAllowed('mindmaps/a.canvas.json'),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(
       () => assertVaultWriteAllowed('mindmaps/a.canvas'),
       returnsNormally,
     );

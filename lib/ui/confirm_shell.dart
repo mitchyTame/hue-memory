@@ -280,8 +280,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                               const SizedBox(height: 4),
                               Text(
                                 _isCanvas
-                                    ? 'Tap a marker on the photo, then edit below. '
-                                        'Words come from vision — change anything wrong.'
+                                    ? 'Vision is a draft — wrong words are common. '
+                                        'Tap a marker, edit the text below, add or '
+                                        'remove nodes, then Save.'
                                     : 'Check the title and note, then save.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,

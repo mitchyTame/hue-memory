@@ -13,9 +13,12 @@ Future<({Uint8List bytes, String mime})> _identityPrepare(
   Uint8List bytes, {
   String? imageMimeType,
   String? extensionHint,
+  int maxSide = 2048,
 }) async {
+  // Encode maxSide into payload length so tests can tell OCR vs vision prepare.
+  final pad = maxSide >= 3000 ? 2 : 0;
   return (
-    bytes: bytes,
+    bytes: Uint8List.fromList([...bytes, ...List.filled(pad, 0)]),
     mime: imageMimeType ?? 'image/png',
   );
 }
@@ -139,7 +142,7 @@ void main() {
       apiKey: 'test-key',
       prepareImage: _identityPrepare,
       sdk: fake,
-      visionModel: 'pixtral-12b-2409',
+      visionModel: kDefaultVisionModel,
     );
 
     final result = await client.extractMeaning(
@@ -149,9 +152,12 @@ void main() {
 
     expect(fake.ocrCalls, 1);
     expect(fake.visionCalls, 1);
-    expect(fake.lastVisionModel, 'pixtral-12b-2409');
+    expect(fake.lastVisionModel, kDefaultVisionModel);
     expect(fake.lastVisionMaxTokens, MindmapPropose.visionMaxTokens);
+    expect(MindmapPropose.visionMaxTokens, greaterThanOrEqualTo(768));
     expect(fake.lastVisionOcrLabels, isNotEmpty);
+    // Vision prepare uses a higher maxSide than OCR (padded identity prepare).
+    expect(fake.lastVisionBytes!.length, greaterThan(fake.lastOcrBytes!.length));
     expect(result.pageGenre, 'visual');
     expect(result.rawJson['vision_used'], isTrue);
     expect(result.rawJson['hybrid_mindmap'], isTrue);

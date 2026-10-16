@@ -165,26 +165,36 @@ class MindmapPropose {
   static const int maxLabels = 12;
   static const int maxOcrChars = 2400;
   static const int maxLabelChars = 64;
-  static const int visionMaxTokens = 384;
+
+  /// Chat completion budget for △ vision JSON (still capped; `json_object`).
+  /// Raised above 384 so major boxes are not truncated mid-list.
+  static const int visionMaxTokens = 768;
 
   /// Default node size in normalized image space when vision gives only x,y.
-  static const double defaultNodeW = 0.28;
-  static const double defaultNodeH = 0.09;
+  /// Slightly compact so clamped layouts stay closer to vision coords.
+  static const double defaultNodeW = 0.24;
+  static const double defaultNodeH = 0.08;
 
   /// System prompt for Mistral vision structure (JSON only, tight).
   ///
-  /// Vision **reads** box text — OCR strings are optional hints only.
+  /// Priority: (1) accurate handwriting `text`, (2) every major labeled box,
+  /// (3) normalized x,y layout. Edges are lowest priority.
   static const String visionSystemPrompt =
-      'You map a hand-drawn mindmap photo to JSON. '
-      'Reply with ONE JSON object only — no markdown, no prose. '
-      'Schema: {"nodes":[{"id":"n1","text":"words","x":0.0,"y":0.0}],'
+      'You read a hand-drawn mindmap PHOTO and return ONE JSON object only — '
+      'no markdown fences, no prose, no repetition. '
+      'Schema: {"nodes":[{"id":"n1","text":"exact words","x":0.0,"y":0.0}],'
       '"edges":[{"from":"n1","to":"n2"}]}. '
-      'Read handwriting inside boxes carefully; correct spelling from context. '
-      'Every node needs non-empty "text" from what you see (not empty stubs). '
-      'x,y are normalized 0–1 image coords (origin top-left, node top-left). '
-      'Max $maxLabels nodes. Text ≤$maxLabelChars chars. '
-      'OCR hints may be wrong — trust the image when they disagree. '
-      'Uncertain edges → omit.';
+      'PRIORITY 1 — WORDS: Carefully read handwriting inside each box/bubble. '
+      'Copy letters as written; fix only clear misspellings from context. '
+      'Never invent labels. Never leave "text" empty. '
+      'PRIORITY 2 — COVERAGE: Include EVERY major labeled box you can see '
+      '(hub + all branch labels), up to $maxLabels nodes. Do not skip spokes. '
+      'PRIORITY 3 — LAYOUT: x,y are normalized 0–1 image coords, origin '
+      'top-left, for the TOP-LEFT of each box (not center). '
+      'Text ≤$maxLabelChars chars. '
+      'OCR hints may be wrong — when they disagree, trust the image. '
+      'Edges only when a clear ink line connects two boxes; omit if unsure. '
+      'Never loop or repeat nodes.';
 
   /// User text beside the image for the vision structure call.
   static String visionUserPrompt(List<String> ocrLabels) {
@@ -194,10 +204,11 @@ class MindmapPropose {
         .take(maxLabels)
         .toList();
     final hint = labels.isEmpty
-        ? 'No OCR hints — read all node text from the drawing.'
-        : 'OCR hints (candidates only, may be wrong): ${labels.join(' | ')}';
-    return 'Hand-drawn mindmap. Return nodes/edges JSON; '
-        'put vision-read words in each node "text", plus x,y.\n$hint';
+        ? 'No OCR hints — read every labeled box from the drawing.'
+        : 'OCR hints (may be wrong — image wins): ${labels.join(' | ')}';
+    return 'Hand-drawn mindmap photo. Return nodes/edges JSON. '
+        'Read the actual handwriting for each "text". '
+        'Cover all major boxes. Put accurate x,y (0–1, top-left).\n$hint';
   }
 
   static double? readNorm(Object? v) {
@@ -410,9 +421,8 @@ class MindmapPropose {
   ///
   /// - Non-empty vision `text`/`label` is kept (OCR never overrides).
   /// - Empty vision stubs may be filled from a fuzzy-matched OCR hint.
-  /// - OCR leftovers are **not** appended when vision already returned nodes
-  ///   (avoids inventing extra wrong words). Fallback to OCR-only only when
-  ///   vision produced zero nodes.
+  /// - Unmatched OCR labels are **appended** (missing-box recovery) with
+  ///   heuristic positions so spokes vision skipped still appear for edit.
   /// - Vision x,y and edges kept when endpoints survive.
   static MindmapStructure mergeOcrLabelsOntoVision({
     required List<String> ocrLabels,
@@ -434,6 +444,7 @@ class MindmapPropose {
 
     final unusedOcr = List<String>.from(ocrLabels);
     final mergedNodes = <MindmapNode>[];
+    final seenKeys = <String>{};
     for (final vn in vision.nodes) {
       var label = clipLabel(vn.label);
       final vKey = _normKey(label);
@@ -457,9 +468,32 @@ class MindmapPropose {
         }
       }
       if (label.isEmpty) continue;
+      final key = _normKey(label);
+      if (key.isNotEmpty && !seenKeys.add(key)) continue;
       mergedNodes.add(
         MindmapNode(id: vn.id, label: label, x: vn.x, y: vn.y),
       );
+      if (mergedNodes.length >= maxLabels) break;
+    }
+
+    // Missing-box recovery: keep unmatched OCR spokes vision skipped.
+    if (mergedNodes.length < maxLabels) {
+      for (final leftover in unusedOcr) {
+        if (mergedNodes.length >= maxLabels) break;
+        final label = clipLabel(leftover);
+        final key = _normKey(label);
+        if (label.isEmpty || key.isEmpty || seenKeys.contains(key)) continue;
+        seenKeys.add(key);
+        final i = mergedNodes.length;
+        mergedNodes.add(
+          MindmapNode(
+            id: 'ocr$i',
+            label: label,
+            x: 0.10 + (i % 3) * 0.30,
+            y: 0.72 + (i ~/ 3) * 0.08,
+          ),
+        );
+      }
     }
 
     if (mergedNodes.isEmpty) {
@@ -489,6 +523,10 @@ class MindmapPropose {
   }
 
   /// Map structure → [OcrRegion] bboxes in normalized 0–1 image space.
+  ///
+  /// Vision x,y are treated as box **top-left**. We size the card compactly and
+  /// only nudge inward when the default width/height would overflow the frame
+  /// (avoids stacking every edge node at the same clamp wall).
   static List<OcrRegion> regionsFromStructure(MindmapStructure structure) {
     if (structure.nodes.isEmpty) {
       return const [
@@ -503,18 +541,39 @@ class MindmapPropose {
     final regions = <OcrRegion>[];
     for (var i = 0; i < structure.nodes.length; i++) {
       final n = structure.nodes[i];
-      final left = (n.x ?? (0.12 + (i % 3) * 0.28)).clamp(0.0, 1.0 - defaultNodeW);
-      final top = (n.y ?? (0.12 + (i ~/ 3) * 0.18)).clamp(0.0, 1.0 - defaultNodeH);
+      final rawLeft = n.x ?? (0.12 + (i % 3) * 0.28);
+      final rawTop = n.y ?? (0.12 + (i ~/ 3) * 0.18);
+      final placed = placeNormBox(left: rawLeft, top: rawTop);
       regions.add(
         OcrRegion(
           id: n.id,
           text: n.label,
           confidence: 0.8,
-          bbox: [left, top, defaultNodeW, defaultNodeH],
+          bbox: [placed.left, placed.top, placed.width, placed.height],
         ),
       );
     }
     return regions;
+  }
+
+  /// Fit a default-sized node into 0–1 without crushing vision coords.
+  static ({double left, double top, double width, double height}) placeNormBox({
+    required double left,
+    required double top,
+    double width = defaultNodeW,
+    double height = defaultNodeH,
+  }) {
+    var w = width.clamp(0.08, 0.55);
+    var h = height.clamp(0.05, 0.25);
+    var x = left.isNaN ? 0.1 : left;
+    var y = top.isNaN ? 0.1 : top;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x + w > 1.0) x = (1.0 - w).clamp(0.0, 1.0);
+    if (y + h > 1.0) y = (1.0 - h).clamp(0.0, 1.0);
+    if (x + w > 1.0) w = (1.0 - x).clamp(0.08, 0.55);
+    if (y + h > 1.0) h = (1.0 - y).clamp(0.05, 0.25);
+    return (left: x, top: y, width: w, height: h);
   }
 
   static List<OcrRegion> regionsFromMarkdown(String markdown) {

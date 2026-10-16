@@ -10,6 +10,7 @@ Future<({Uint8List bytes, String mime})> _identityPrepare(
   Uint8List bytes, {
   String? imageMimeType,
   String? extensionHint,
+  int maxSide = 2048,
 }) async {
   return (
     bytes: bytes,
