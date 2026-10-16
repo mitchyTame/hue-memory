@@ -67,11 +67,11 @@ flutter pub get
 flutter run -d linux
 ```
 
-1. Home is capture — tap the **teal shutter** (loads `assets/sample_page.png`; no camera required on Linux).
+1. Home is capture — **teal shutter** = sample page; **gallery** = pick a photo.
 2. Mock OCR assigns a symbol chip (default ∼ fleeting) + region overlays.
 3. Edit title/body, optionally **Link** recent pages, tap **Commit**.
-4. Writes into an in-memory `FakeVaultFs`: `captures/raw/{page_id}.png` + `.meaning.json` + routed `.md` / `.canvas` / Daily Note append.
-5. Snackbar + “Last commit” path on the capture screen.
+4. Writes into a **on-disk** vault (`LocalVaultFs`, default under app Documents `hue-memory-vault`): `captures/raw/…` + routed `.md` / `.canvas` / Daily Note.
+5. Gear → choose another vault folder or **Write test note**.
 
 Switch the confirm chip to **△ visual** or **· daily-tasks** to exercise those writers.
 
@@ -89,12 +89,14 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | --- | --- |
 | Capture session / page id | `lib/capture/` |
 | Commit pipeline + daily append | `lib/vault/commit_pipeline.dart`, `daily_tasks_appender.dart` |
-| Sample capture | `lib/camera/sample_capture.dart`, `assets/sample_page.png` |
+| Local vault (desktop) | `lib/vault/local_vault_fs.dart` — default `…/Documents/hue-memory-vault` |
+| Vault settings | gear → choose folder / write test note |
+| Sample + file pick | shutter = sample; gallery icon = pick image |
 | Confirm + link picker | `lib/ui/confirm_shell.dart`, `link_picker_sheet.dart` |
 | Symbol pack + routing | `lib/symbols/` |
 | Writers | `lib/writers/` |
 
-**Still TODO:** real Android camera, SAF `VaultFs`, Mistral OCR.
+**Still TODO:** real Android camera, SAF `VaultFs` (replace LocalVaultFs on device), Mistral OCR.
 
 ## Tests
 
