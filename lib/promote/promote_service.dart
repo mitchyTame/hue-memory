@@ -1,3 +1,4 @@
+import '../symbols/symbol_models.dart';
 import '../vault/commit_pipeline.dart';
 import '../vault/vault_fs.dart';
 import '../writers/markdown_writer.dart';
@@ -35,15 +36,42 @@ class PromoteResult {
 }
 
 /// Lists fleeting notes and promotes them to permanents with an own-words gate.
+///
+/// Folder names come from the active pack (∼ fleeting / ◇ permanent symbols).
 class PromoteService {
   PromoteService({
     MarkdownWriter markdownWriter = const MarkdownWriter(),
+    this.fleetingFolder = defaultFleetingFolder,
+    this.permanentFolder = defaultPermanentFolder,
   }) : _markdown = markdownWriter;
+
+  static const defaultFleetingFolder = 'fleeting';
+  static const defaultPermanentFolder = 'permanent';
 
   final MarkdownWriter _markdown;
 
-  static const fleetingFolder = 'fleeting';
-  static const permanentFolder = 'permanent';
+  /// Vault-relative folder for ∼ fleeting notes.
+  final String fleetingFolder;
+
+  /// Vault-relative folder for ◇ permanents.
+  final String permanentFolder;
+
+  /// Resolve folders from an active [SymbolPack] (falls back to ZK defaults).
+  factory PromoteService.forPack(
+    SymbolPack pack, {
+    MarkdownWriter markdownWriter = const MarkdownWriter(),
+  }) {
+    final fleeting = pack.byId('fleeting')?.folder?.trim();
+    final permanent = pack.byId('permanent')?.folder?.trim();
+    return PromoteService(
+      markdownWriter: markdownWriter,
+      fleetingFolder:
+          (fleeting == null || fleeting.isEmpty) ? defaultFleetingFolder : fleeting,
+      permanentFolder: (permanent == null || permanent.isEmpty)
+          ? defaultPermanentFolder
+          : permanent,
+    );
+  }
 
   /// Immediate children of [fleetingFolder] that look like notes.
   Future<List<PromoteCandidate>> listFleeting(VaultFs vault) async {
@@ -61,7 +89,7 @@ class PromoteService {
     return out;
   }
 
-  /// Promote [source] → `permanent/` with own-words body.
+  /// Promote [source] → [permanentFolder] with own-words body.
   Future<PromoteResult> promote({
     required VaultFs vault,
     required PromoteCandidate source,
@@ -81,8 +109,7 @@ class PromoteService {
 
     final when = now ?? DateTime.now().toUtc();
     final slug = CommitPipeline.slugify(title);
-    final permanentPath =
-        '$permanentFolder/${source.pageId}-$slug.md';
+    final permanentPath = '$permanentFolder/${source.pageId}-$slug.md';
     final body = keepOcrShallow && ownWords.trim().isEmpty
         ? source.body.trim()
         : ownWords.trim();

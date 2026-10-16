@@ -394,7 +394,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   String? _lastPrintablePath;
   OcrSettings _ocrDraft = const OcrSettings();
   final PaperKitPdf _paperKit = const PaperKitPdf();
-  final PromoteService _promote = PromoteService();
+  late PromoteService _promote =
+      PromoteService.forPack(widget.activePack);
   final List<LinkPick> _recentPages = [
     const LinkPick(
       targetPath: 'permanent/seed-attention',
@@ -414,6 +415,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     if (oldWidget.vault != widget.vault ||
         oldWidget.activePack != widget.activePack) {
       _pipeline = _buildPipeline(widget.vault, widget.activePack);
+      _promote = PromoteService.forPack(widget.activePack);
     }
   }
 

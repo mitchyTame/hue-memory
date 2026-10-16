@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hue_memory/promote/promote_service.dart';
+import 'package:hue_memory/symbols/default_packs.dart';
+import 'package:hue_memory/symbols/pack_editor.dart';
 import 'package:hue_memory/vault/fake_vault_fs.dart';
 
 void main() {
@@ -126,5 +128,46 @@ Attention is a muscle
       ),
       throwsA(isA<StateError>()),
     );
+  });
+
+  test('forPack uses custom fleeting/permanent folders', () async {
+    var pack = DefaultPacks.zettelkastenInk;
+    pack = PackEditor.updateSymbol(
+      pack,
+      pack.byId('fleeting')!.copyWith(folder: 'inbox-waves'),
+    );
+    pack = PackEditor.updateSymbol(
+      pack,
+      pack.byId('permanent')!.copyWith(folder: 'evergreen'),
+    );
+    final custom = PromoteService.forPack(pack);
+    expect(custom.fleetingFolder, 'inbox-waves');
+    expect(custom.permanentFolder, 'evergreen');
+
+    await vault.writeText(
+      'inbox-waves/20261016-p7k2-attention.md',
+      '''
+---
+type: fleeting
+page_id: 20261016-p7k2
+status: confirmed
+---
+
+## Note
+
+Custom folder fleeting
+''',
+    );
+
+    final list = await custom.listFleeting(vault);
+    expect(list, hasLength(1));
+    final result = await custom.promote(
+      vault: vault,
+      source: list.first,
+      title: 'Evergreen note',
+      ownWords: 'Rewritten in my own words for the evergreen shelf.',
+    );
+    expect(result.permanentPath, startsWith('evergreen/'));
+    expect(await vault.exists(result.permanentPath), isTrue);
   });
 }
