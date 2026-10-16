@@ -8,69 +8,48 @@ Paper → confirm → Obsidian vault files. Flutter, Android-first.
 
 | Where | Path |
 | --- | --- |
-| WSL / this checkout | `/home/mitch/projects/hue-memory` |
-| Windows (if synced) | `D:\source\repos\hue-memory` |
-| Product brief (Project store) | `docs/obsidian-zettel-memory-journal.md` in the hue-memory Project Agent Store |
+| Home (mgtroaming) | `/home/mgtroaming/Projects/hue-memory` |
+| Mitch-Dev (WSL) | `/home/mitch/projects/hue-memory` |
+| Remote | `https://github.com/mitchyTame/hue-memory` |
+| Product brief | Project store `docs/obsidian-zettel-memory-journal.md` |
 
 ## Prerequisites
 
-### Flutter SDK (WSL)
+### Flutter + Android toolchain (mgtroaming)
+
+Already on `~/.bashrc` (open a new shell):
 
 ```bash
-export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$PATH"
-# already appended to ~/.bashrc on this machine
+# JAVA_HOME → ~/.local/share/jdk/jdk-17…
+# Flutter   → ~/.local/share/flutter/bin
+# Android   → ~/Android/Sdk (platform-tools + cmdline-tools)
+flutter doctor
+adb version
 ```
 
-### Linux desktop build deps — run once (`sudo`)
+### Wireless debugging (phone over Wi‑Fi)
 
-Required for `flutter run -d linux` / `flutter build linux` (fixes CMake “unable to find Ninja” / missing `CMAKE_CXX_COMPILER` / GTK). Password prompt is expected:
+PC side is ready (`adb` on PATH). On the phone (Android 11+):
 
-```bash
-sudo DEBIAN_FRONTEND=noninteractive apt-get update
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  clang \
-  cmake \
-  ninja-build \
-  pkg-config \
-  libgtk-3-dev \
-  liblzma-dev \
-  mesa-utils
-```
-
-Then verify (no sudo):
+1. **Settings → Developer options → Wireless debugging** → On  
+2. Tap **Pair device with pairing code** — note **IP:pairing-port** and the **6-digit code**  
+3. On this PC:
 
 ```bash
-export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$PATH"
-flutter doctor -v
-# Linux toolchain should show clang++, cmake, ninja, GTK 3.0
-```
-
-### Android (phone / emulator)
-
-On this WSL machine the Android SDK is installed at `~/Android/Sdk` (cmdline-tools; licenses accepted). Ensure:
-
-```bash
-export ANDROID_HOME="$HOME/Android/Sdk"
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$ANDROID_HOME/platform-tools:$PATH"
-flutter doctor   # Android toolchain should be ✓
-```
-
-**No device is attached yet.** Options:
-
-1. **Physical phone (easiest for WSL):** enable Developer options → USB debugging, plug in, then from **Windows** use `usbipd` to attach the device into WSL (`usbipd bind/attach`), or copy the debug APK:
-   ```bash
-   cd /home/mitch/projects/hue-memory
-   flutter build apk --debug
-   # APK: build/app/outputs/flutter-apk/app-debug.apk
-   # Copy to phone and install, or: adb install -r build/app/outputs/flutter-apk/app-debug.apk
-   ```
-2. **Emulator:** install system images + emulator via `sdkmanager` / Android Studio (heavy on WSL); often simpler to run Flutter from Windows once Studio is installed there.
-
-```bash
+adb pair <PHONE_IP>:<PAIRING_PORT>
+# enter the pairing code when prompted
+adb connect <PHONE_IP>:<DEBUG_PORT>
+# DEBUG_PORT is shown on the Wireless debugging main screen (not the pairing port)
+adb devices
 flutter devices
 flutter run -d <device_id>
 ```
+
+Same Wi‑Fi for phone + PC. Re-connect after sleep with `adb connect IP:port` (pairing only once until revoked).
+
+### Linux desktop build deps (optional)
+
+Needs `ninja`, GTK, etc. for `flutter run -d linux`. Android phone path does not require them.
 
 ## Run (slice 2 flow)
 
@@ -131,7 +110,7 @@ After capture → meaning pass. Default **mock**. Enable live: **Settings → OC
 
 Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; a copy is mirrored to `symbol-journal/packs/active.yaml` in the vault. Dart `DefaultPacks` remains a fallback if assets fail.
 
-**Still TODO:** offline OCR queue, secure key storage, full 18-glyph library editor.
+**Still TODO:** offline OCR queue, full 18-glyph library editor.
 
 ### Ink-ghost Canvas
 
@@ -147,6 +126,14 @@ Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switche
 ### Promote ritual
 
 Capture-home **recall** icon (or Settings → Promote ritual): list `fleeting/` notes, rewrite in own words (gate), write `permanent/` with wikilink back, stamp fleeting `status: promoted`.
+
+### Thread tick `›`
+
+Meta-zone chevron (or confirm **Thread › from last**) pre-checks the previous session page as a wikilink. Picker can still clear/merge. `meaning.json` records `thread_tick`.
+
+### OCR API key
+
+Stored via platform **secure store** (migrates any legacy SharedPreferences copy on read).
 
 ## Tests
 

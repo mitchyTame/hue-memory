@@ -23,6 +23,7 @@ import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
+import 'links/thread_tick.dart';
 import 'printables/hue_code.dart';
 import 'printables/paper_kit_pdf.dart';
 import 'promote/promote_service.dart';
@@ -374,6 +375,11 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
       final routed = SymbolRouter(pack: widget.activePack)
           .route(meaning.detectedGlyph);
+      final seededLinks = meaning.threadTick
+          ? ThreadTick.mergePrevious(
+              previous: _recentPages.isEmpty ? null : _recentPages.first,
+            )
+          : const <LinkPick>[];
       final pending = PendingCapture(
         pageId: pageId,
         imageBytes: shot.imageBytes,
@@ -381,6 +387,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         meaning: meaning,
         imageExtension: shot.imageExtension,
         symbolId: routed.symbol.id,
+        links: seededLinks,
       );
       if (!mounted) return;
       setState(() {

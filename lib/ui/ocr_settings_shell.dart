@@ -100,7 +100,7 @@ class _OcrSettingsShellState extends State<OcrSettingsShell> {
           const SizedBox(height: 8),
           Text(
             'Or set env MISTRAL_API_KEY (overrides empty field on next launch). '
-            'Key is stored in SharedPreferences — TODO: secure storage.',
+            'Key is stored in the platform secure store (Keystore / Keychain).',
             style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 16),
