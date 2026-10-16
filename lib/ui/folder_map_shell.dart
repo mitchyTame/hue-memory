@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../symbols/pack_editor.dart';
 import '../symbols/symbol_models.dart';
 import '../theme/memory_hues.dart';
+import '../vault/vault_paths.dart';
 import 'ink_glyph_painter.dart';
 
 /// Edit vault folder paths for each symbol in the active pack.
@@ -54,18 +55,19 @@ class _FolderMapShellState extends State<FolderMapShell> {
     final next = <PackSymbol>[];
     for (final s in _pack.symbols) {
       final text = _controllers[s.id]?.text.trim() ?? '';
+      final normalized = normalizeVaultFolder(text);
       if (s.output == SymbolOutput.dailyNoteAppend) {
         // Daily notes: folder is where the daily file lives.
         next.add(
           s.copyWith(
-            folder: text.isEmpty ? 'Daily Notes' : text,
+            folder: normalized ?? 'Daily Notes',
           ),
         );
       } else {
         next.add(
           s.copyWith(
-            folder: text.isEmpty ? null : text,
-            clearFolder: text.isEmpty,
+            folder: normalized,
+            clearFolder: normalized == null,
           ),
         );
       }

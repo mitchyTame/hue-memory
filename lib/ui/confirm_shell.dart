@@ -19,10 +19,12 @@ typedef ConfirmCommitCallback = Future<void> Function({
   List<OcrRegion>? regions,
 });
 
-/// Confirm-on-photo — photo hero, chips, edit title/body, Link picker, Commit.
+/// Confirm-on-photo — photo hero, symbol chips, edits, Commit.
 ///
-/// For △ visual: ink-ghost toggle dims the page under editable region cards.
-/// Nodes are OCR guesses; the photo stays under them (hybrid mindmap).
+/// - **△ / visual:** ink-ghost photo + tap markers; large node fields in the
+///   sheet (vision-primary text). Add / remove nodes. No tiny overlays fighting
+///   the photo.
+/// - **Everything else:** title + note body from OCR — no vision pass.
 class ConfirmShell extends StatefulWidget {
   const ConfirmShell({
     super.key,
@@ -54,6 +56,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
   bool _inkGhost = true;
   late bool _threadFromLast;
   late List<OcrRegion> _regions;
+  late List<TextEditingController> _nodeControllers;
+  int? _focusedNode;
 
   @override
   void initState() {
@@ -68,6 +72,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
     _links = List<LinkPick>.from(widget.capture.links);
     _threadFromLast = widget.capture.meaning.threadTick || _links.isNotEmpty;
     _regions = List<OcrRegion>.from(widget.capture.meaning.regions);
+    _nodeControllers = [
+      for (final r in _regions) TextEditingController(text: r.text),
+    ];
   }
 
   LinkPick? get _previousCandidate =>
@@ -94,6 +101,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
   void dispose() {
     _titleController.dispose();
     _bodyController.dispose();
+    for (final c in _nodeControllers) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -111,7 +121,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
     }
   }
 
-  void _onRegionText(int index, String text) {
+  void _syncNodeText(int index, String text) {
     if (index < 0 || index >= _regions.length) return;
     final r = _regions[index];
     setState(() {
@@ -124,30 +134,62 @@ class _ConfirmShellState extends State<ConfirmShell> {
     });
   }
 
-  void _onRegionDrag(int index, Offset delta, Size parentSize) {
-    if (index < 0 || index >= _regions.length || parentSize.width <= 0) {
-      return;
-    }
-    final r = _regions[index];
-    final bbox = List<double>.from(
-      r.bbox ?? [0.12, 0.18 + index * 0.14, 0.5, 0.1],
-    );
-    if (bbox.length < 4) return;
-    bbox[0] = (bbox[0] + delta.dx / parentSize.width).clamp(0.0, 0.85);
-    bbox[1] = (bbox[1] + delta.dy / parentSize.height).clamp(0.0, 0.85);
+  void _focusNode(int index) {
+    if (widget.committing) return;
+    setState(() => _focusedNode = index);
+  }
+
+  void _addNode() {
+    if (widget.committing || _regions.length >= 12) return;
+    final i = _regions.length;
+    final top = (0.18 + (i % 6) * 0.12).clamp(0.05, 0.85);
+    final left = i < 6 ? 0.12 : 0.52;
     setState(() {
-      _regions[index] = OcrRegion(
-        id: r.id,
-        text: r.text,
-        confidence: r.confidence,
-        bbox: bbox,
+      _regions.add(
+        OcrRegion(
+          id: 'n${i + 1}',
+          text: '',
+          confidence: 0.5,
+          bbox: [left, top, 0.36, 0.1],
+        ),
       );
+      _nodeControllers.add(TextEditingController());
+      _focusedNode = i;
+    });
+  }
+
+  void _removeNode(int index) {
+    if (widget.committing || index < 0 || index >= _regions.length) return;
+    setState(() {
+      _nodeControllers[index].dispose();
+      _nodeControllers.removeAt(index);
+      _regions.removeAt(index);
+      if (_focusedNode == index) {
+        _focusedNode = null;
+      } else if (_focusedNode != null && _focusedNode! > index) {
+        _focusedNode = _focusedNode! - 1;
+      }
     });
   }
 
   Future<void> _commit() async {
     final callback = widget.onCommit;
     if (callback == null || widget.committing) return;
+    // Pull latest text from controllers for canvas nodes.
+    if (_isCanvas) {
+      for (var i = 0; i < _regions.length && i < _nodeControllers.length; i++) {
+        final t = _nodeControllers[i].text;
+        final r = _regions[i];
+        if (r.text != t) {
+          _regions[i] = OcrRegion(
+            id: r.id,
+            text: t,
+            confidence: r.confidence,
+            bbox: r.bbox,
+          );
+        }
+      }
+    }
     await callback(
       symbolId: _selectedId,
       title: _titleController.text.trim().isEmpty
@@ -171,8 +213,6 @@ class _ConfirmShellState extends State<ConfirmShell> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Short (landscape) phones need a taller notes sheet; wide test
-            // windows that are still tall keep the photo-first split.
             final short = constraints.maxHeight < 480;
             final sheetFlex = short ? 3 : 2;
             final photoFlex = short ? 2 : 3;
@@ -197,18 +237,16 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                 gaplessPlayback: true,
                               ),
                             ),
-                            // Clean photo only — no OCR bbox / guide lines.
-                            // △ / visual: intentional editable node cards on top.
                             if (_isCanvas)
-                              _InkGhostNodeLayer(
+                              _MindmapMarkerLayer(
                                 regions: _regions,
                                 parentSize: Size(
                                   photoConstraints.maxWidth,
                                   photoConstraints.maxHeight,
                                 ),
+                                focusedIndex: _focusedNode,
                                 enabled: !widget.committing,
-                                onTextChanged: _onRegionText,
-                                onDrag: _onRegionDrag,
+                                onTap: _focusNode,
                               ),
                           ],
                         );
@@ -233,33 +271,29 @@ class _ConfirmShellState extends State<ConfirmShell> {
                         ),
                         Expanded(
                           child: ListView(
-                            padding: EdgeInsets.zero,
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                             children: [
-                              Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        'Confirm meaning',
-                                        style: textTheme.titleLarge,
-                                      ),
-                                    ),
-                                    Text(
-                                      widget.capture.pageId,
-                                      style: textTheme.labelMedium,
-                                    ),
-                                  ],
+                              Text(
+                                _isCanvas ? 'Fix mindmap words' : 'Confirm',
+                                style: textTheme.titleLarge,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _isCanvas
+                                    ? 'Tap a marker on the photo, then edit below. '
+                                        'Words come from vision — change anything wrong.'
+                                    : 'Check the title and note, then save.',
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: MemoryHues.inkMuted,
                                 ),
                               ),
+                              const SizedBox(height: 12),
+                              Text('Symbol', style: textTheme.labelLarge),
+                              const SizedBox(height: 8),
                               SizedBox(
-                                height: 48,
+                                height: 44,
                                 child: ListView.separated(
                                   scrollDirection: Axis.horizontal,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
                                   itemCount: symbols.length,
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(width: 8),
@@ -267,8 +301,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     final s = symbols[index];
                                     final selected = s.id == _selectedId;
                                     return ChoiceChip(
-                                      label:
-                                          Text('${s.primaryGlyph} ${s.id}'),
+                                      label: Text('${s.primaryGlyph} ${s.id}'),
                                       selected: selected,
                                       onSelected: widget.committing
                                           ? null
@@ -285,13 +318,25 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   },
                                 ),
                               ),
+                              if (route.folder != null || route.isDailyTasks)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    route.isDailyTasks
+                                        ? 'Saves to ${route.folder ?? 'Daily Notes'}'
+                                        : route.isCanvas
+                                            ? 'Saves to ${route.folder}/ as .canvas'
+                                            : 'Saves to ${route.folder}/',
+                                    style: textTheme.labelMedium?.copyWith(
+                                      color: MemoryHues.inkMuted,
+                                    ),
+                                  ),
+                                ),
                               if (!_isDaily && _previousCandidate != null)
                                 SwitchListTile(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
+                                  contentPadding: EdgeInsets.zero,
                                   title: Text(
-                                    'Thread › from last',
+                                    'Link from last page',
                                     style: textTheme.titleMedium,
                                   ),
                                   subtitle: Text(
@@ -309,34 +354,11 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                       : _setThreadFromLast,
                                 ),
                               if (_isCanvas) ...[
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    8,
-                                    16,
-                                    0,
-                                  ),
-                                  child: Text(
-                                    'Nodes are guesses — photo stays under them. '
-                                    'Edit labels here; fix edges in Obsidian.',
-                                    style: textTheme.bodySmall?.copyWith(
-                                      color: MemoryHues.inkMuted,
-                                    ),
-                                  ),
-                                ),
                                 SwitchListTile(
-                                  contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                  ),
+                                  contentPadding: EdgeInsets.zero,
                                   title: Text(
-                                    'Ink ghost',
+                                    'Dim photo under nodes',
                                     style: textTheme.titleMedium,
-                                  ),
-                                  subtitle: Text(
-                                    'Page photo under proposed nodes',
-                                    style: textTheme.bodySmall?.copyWith(
-                                      color: MemoryHues.inkMuted,
-                                    ),
                                   ),
                                   value: _inkGhost,
                                   activeThumbColor: MemoryHues.accent,
@@ -345,86 +367,73 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                       ? null
                                       : (v) => setState(() => _inkGhost = v),
                                 ),
+                                const SizedBox(height: 4),
+                                for (var i = 0; i < _regions.length; i++)
+                                  _NodeEditTile(
+                                    index: i,
+                                    controller: _nodeControllers[i],
+                                    focused: _focusedNode == i,
+                                    enabled: !widget.committing,
+                                    onChanged: (t) => _syncNodeText(i, t),
+                                    onFocus: () => _focusNode(i),
+                                    onRemove: () => _removeNode(i),
+                                  ),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                    onPressed: widget.committing ||
+                                            _regions.length >= 12
+                                        ? null
+                                        : _addNode,
+                                    icon: const Icon(Icons.add),
+                                    label: const Text('Add node'),
+                                  ),
+                                ),
                               ],
                               Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                                padding: const EdgeInsets.only(top: 8),
                                 child: TextField(
                                   controller: _titleController,
                                   enabled:
                                       !widget.committing && !_isDaily,
+                                  style: textTheme.titleMedium,
                                   decoration: const InputDecoration(
                                     labelText: 'Title',
                                     border: OutlineInputBorder(),
-                                    isDense: true,
                                   ),
                                 ),
                               ),
                               if (!_isCanvas)
                                 Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    12,
-                                    16,
-                                    0,
-                                  ),
+                                  padding: const EdgeInsets.only(top: 12),
                                   child: TextField(
                                     controller: _bodyController,
                                     enabled: !widget.committing,
-                                    minLines: _isDaily ? 2 : 3,
-                                    maxLines: 5,
+                                    minLines: _isDaily ? 2 : 4,
+                                    maxLines: 8,
+                                    style: textTheme.bodyLarge,
                                     decoration: InputDecoration(
                                       labelText: _isDaily
                                           ? 'Tasks (one per line)'
                                           : 'Note',
                                       border: const OutlineInputBorder(),
-                                      isDense: true,
-                                    ),
-                                  ),
-                                ),
-                              if (route.folder != null || route.isDailyTasks)
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    8,
-                                    16,
-                                    0,
-                                  ),
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      route.isDailyTasks
-                                          ? '→ ${route.folder ?? 'Daily Notes'} (## Tasks)'
-                                          : route.isCanvas
-                                              ? '→ ${route.folder}/ (.canvas'
-                                                  '${_inkGhost ? ', ink-ghost' : ''})'
-                                              : '→ ${route.folder}/',
-                                      style: textTheme.labelMedium,
+                                      alignLabelWithHint: true,
                                     ),
                                   ),
                                 ),
                               if (_links.isNotEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    8,
-                                    16,
-                                    0,
-                                  ),
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      'Links: ${_links.map((l) => l.displayTitle ?? l.targetPath).join(', ')}',
-                                      style: textTheme.bodySmall,
-                                    ),
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    'Links: ${_links.map((l) => l.displayTitle ?? l.targetPath).join(', ')}',
+                                    style: textTheme.bodySmall,
                                   ),
                                 ),
-                              const SizedBox(height: 8),
                             ],
                           ),
                         ),
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
                           child: Row(
                             children: [
                               TextButton(
@@ -433,14 +442,15 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     : widget.onCancel,
                                 child: const Text('Cancel'),
                               ),
-                              TextButton(
-                                onPressed: widget.committing || _isDaily
-                                    ? null
-                                    : _openLinks,
-                                child: Text(
-                                  'Link${_links.isEmpty ? '' : ' (${_links.length})'}',
+                              if (!_isDaily)
+                                TextButton(
+                                  onPressed: widget.committing
+                                      ? null
+                                      : _openLinks,
+                                  child: Text(
+                                    'Link${_links.isEmpty ? '' : ' (${_links.length})'}',
+                                  ),
                                 ),
-                              ),
                               const Spacer(),
                               FilledButton(
                                 onPressed:
@@ -453,7 +463,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                           strokeWidth: 2,
                                         ),
                                       )
-                                    : const Text('Commit'),
+                                    : const Text('Save'),
                               ),
                             ],
                           ),
@@ -471,132 +481,171 @@ class _ConfirmShellState extends State<ConfirmShell> {
   }
 }
 
+/// Large node editor in the confirm sheet — not overlaid on the photo.
+class _NodeEditTile extends StatelessWidget {
+  const _NodeEditTile({
+    required this.index,
+    required this.controller,
+    required this.focused,
+    required this.enabled,
+    required this.onChanged,
+    required this.onFocus,
+    required this.onRemove,
+  });
 
-/// Editable / draggable region cards over the (optionally ghosted) page photo.
-class _InkGhostNodeLayer extends StatelessWidget {
-  const _InkGhostNodeLayer({
+  final int index;
+  final TextEditingController controller;
+  final bool focused;
+  final bool enabled;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onFocus;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: focused ? MemoryHues.accentSoft : MemoryHues.paper,
+          border: Border.all(
+            color: focused ? MemoryHues.accent : MemoryHues.rule,
+            width: focused ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  '${index + 1}',
+                  style: textTheme.labelLarge?.copyWith(
+                    color: MemoryHues.inkMuted,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: controller,
+                  enabled: enabled,
+                  minLines: 1,
+                  maxLines: 3,
+                  style: textTheme.titleMedium?.copyWith(color: MemoryHues.ink),
+                  onTap: onFocus,
+                  onChanged: onChanged,
+                  decoration: const InputDecoration(
+                    hintText: 'Node words',
+                    border: InputBorder.none,
+                    isDense: true,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Remove node',
+                onPressed: enabled ? onRemove : null,
+                icon: const Icon(Icons.close, size: 20),
+                color: MemoryHues.inkMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tap markers on the ghost photo — open the matching sheet field.
+class _MindmapMarkerLayer extends StatelessWidget {
+  const _MindmapMarkerLayer({
     required this.regions,
     required this.parentSize,
+    required this.focusedIndex,
     required this.enabled,
-    required this.onTextChanged,
-    required this.onDrag,
+    required this.onTap,
   });
 
   final List<OcrRegion> regions;
   final Size parentSize;
+  final int? focusedIndex;
   final bool enabled;
-  final void Function(int index, String text) onTextChanged;
-  final void Function(int index, Offset delta, Size parentSize) onDrag;
+  final void Function(int index) onTap;
 
   @override
   Widget build(BuildContext context) {
     return Stack(
       children: [
         for (var i = 0; i < regions.length; i++)
-          _InkGhostNodeCard(
+          _MindmapMarker(
             key: ValueKey(regions[i].id),
             region: regions[i],
             index: i,
             parentSize: parentSize,
+            focused: focusedIndex == i,
             enabled: enabled,
-            onTextChanged: onTextChanged,
-            onDrag: onDrag,
+            onTap: () => onTap(i),
           ),
       ],
     );
   }
 }
 
-class _InkGhostNodeCard extends StatefulWidget {
-  const _InkGhostNodeCard({
+class _MindmapMarker extends StatelessWidget {
+  const _MindmapMarker({
     super.key,
     required this.region,
     required this.index,
     required this.parentSize,
+    required this.focused,
     required this.enabled,
-    required this.onTextChanged,
-    required this.onDrag,
+    required this.onTap,
   });
 
   final OcrRegion region;
   final int index;
   final Size parentSize;
+  final bool focused;
   final bool enabled;
-  final void Function(int index, String text) onTextChanged;
-  final void Function(int index, Offset delta, Size parentSize) onDrag;
-
-  @override
-  State<_InkGhostNodeCard> createState() => _InkGhostNodeCardState();
-}
-
-class _InkGhostNodeCardState extends State<_InkGhostNodeCard> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.region.text);
-  }
-
-  @override
-  void didUpdateWidget(covariant _InkGhostNodeCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.region.text != widget.region.text &&
-        _controller.text != widget.region.text) {
-      _controller.text = widget.region.text;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
-    final bbox = widget.region.bbox;
-    final parentSize = widget.parentSize;
-    final left = (bbox != null && bbox.length >= 4 ? bbox[0] : 0.12) *
-        parentSize.width;
+    final bbox = region.bbox;
+    final left =
+        (bbox != null && bbox.length >= 4 ? bbox[0] : 0.12) * parentSize.width;
     final top = (bbox != null && bbox.length >= 4
             ? bbox[1]
-            : 0.18 + widget.index * 0.14) *
+            : 0.18 + index * 0.14) *
         parentSize.height;
-    final width = (bbox != null && bbox.length >= 4 ? bbox[2] : 0.5) *
-        parentSize.width;
-    final height = (bbox != null && bbox.length >= 4 ? bbox[3] : 0.1) *
-        parentSize.height;
+    final label = region.text.trim().isEmpty ? 'Node ${index + 1}' : region.text;
+    final short =
+        label.length <= 28 ? label : '${label.substring(0, 26)}…';
 
     return Positioned(
-      left: left.clamp(0, parentSize.width - 48),
-      top: top.clamp(0, parentSize.height - 32),
-      width: width.clamp(96, parentSize.width),
-      height: height.clamp(40, parentSize.height),
-      child: GestureDetector(
-        onPanUpdate: widget.enabled
-            ? (d) => widget.onDrag(widget.index, d.delta, parentSize)
-            : null,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: MemoryHues.paperElevated.withValues(alpha: 0.92),
-            border: Border.all(color: MemoryHues.accent, width: 1.2),
-            borderRadius: BorderRadius.circular(4),
-          ),
+      left: left.clamp(0, parentSize.width - 72),
+      top: top.clamp(0, parentSize.height - 40),
+      child: Material(
+        color: focused
+            ? MemoryHues.accent
+            : MemoryHues.paperElevated.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(8),
+        elevation: focused ? 2 : 0,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(8),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            child: TextField(
-              controller: _controller,
-              enabled: widget.enabled,
-              maxLines: 3,
-              style: textTheme.labelMedium?.copyWith(color: MemoryHues.ink),
-              decoration: const InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                contentPadding: EdgeInsets.zero,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Text(
+              short,
+              style: textTheme.labelLarge?.copyWith(
+                color: focused ? MemoryHues.paperElevated : MemoryHues.ink,
               ),
-              onChanged: (v) => widget.onTextChanged(widget.index, v),
             ),
           ),
         ),

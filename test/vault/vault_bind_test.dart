@@ -6,6 +6,7 @@ import 'package:hue_memory/vault/local_vault_fs.dart';
 import 'package:hue_memory/vault/saf_documents.dart';
 import 'package:hue_memory/vault/saf_vault_fs.dart';
 import 'package:hue_memory/vault/vault_bind.dart';
+import 'package:hue_memory/vault/vault_paths.dart';
 import 'package:saf/saf.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -202,13 +203,14 @@ void main() {
   test('verifyVaultWritable succeeds on memory SAF vault', () async {
     final vault = SafVaultFs(treeUri: docs.rootUri, documents: docs);
     await verifyVaultWritable(vault);
-    expect(await vault.exists('hue-memory/.write-check'), isTrue);
+    expect(await vault.exists(kVaultWriteCheckRelative), isTrue);
+    expect(await vault.exists('hue-memory/.write-check'), isFalse);
   });
 
   test('verifyVaultWritable succeeds on local vault', () async {
     final vault = LocalVaultFs(temp);
     await verifyVaultWritable(vault);
-    expect(await vault.exists('hue-memory/.write-check'), isTrue);
+    expect(await vault.exists(kVaultWriteCheckRelative), isTrue);
   });
 
   test('pickDirectory + bind round-trip for Obsidian coexistence', () async {
@@ -226,14 +228,8 @@ void main() {
     expect(picked, isNotNull);
     final bound = bindVaultRoot(rootRef: picked!.uri, documents: docs);
     await verifyVaultWritable(bound.vault);
-    await bound.vault.writeText(
-      'symbol-journal/packs/active.yaml',
-      'id: test\n',
-    );
-    expect(
-      await bound.vault.readText('symbol-journal/packs/active.yaml'),
-      'id: test\n',
-    );
+    await bound.vault.writeText('fleeting/note.md', '# ok\n');
+    expect(await bound.vault.readText('fleeting/note.md'), '# ok\n');
   });
 
   test('safVaultLabel has no SAF jargon', () {

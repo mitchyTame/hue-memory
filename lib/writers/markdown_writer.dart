@@ -1,4 +1,6 @@
 /// Frontmatter + body for a text note (inbox / fleeting / literature / permanent).
+///
+/// No `meaning.json` path — vault holds `.md` / `.canvas` / images only.
 class NoteFrontmatter {
   const NoteFrontmatter({
     required this.type,
@@ -7,10 +9,10 @@ class NoteFrontmatter {
     required this.pageId,
     required this.capturedAt,
     required this.sourceImage,
-    required this.meaning,
     this.ocrConfidence,
     this.status = 'confirmed',
     this.links = const [],
+    this.threadTick = false,
   });
 
   final String type;
@@ -19,10 +21,10 @@ class NoteFrontmatter {
   final String pageId;
   final DateTime capturedAt;
   final String sourceImage;
-  final String meaning;
   final double? ocrConfidence;
   final String status;
   final List<String> links;
+  final bool threadTick;
 }
 
 class MarkdownNoteDraft {
@@ -54,12 +56,14 @@ class MarkdownWriter {
       ..writeln('glyph: ${fm.glyph}')
       ..writeln('page_id: ${fm.pageId}')
       ..writeln('captured_at: ${fm.capturedAt.toUtc().toIso8601String()}')
-      ..writeln('source_image: ${fm.sourceImage}')
-      ..writeln('meaning: ${fm.meaning}');
+      ..writeln('source_image: ${fm.sourceImage}');
     if (fm.ocrConfidence != null) {
       buffer.writeln(
         'ocr_confidence: ${fm.ocrConfidence!.toStringAsFixed(2)}',
       );
+    }
+    if (fm.threadTick) {
+      buffer.writeln('thread_tick: true');
     }
     buffer
       ..writeln('status: ${fm.status}')

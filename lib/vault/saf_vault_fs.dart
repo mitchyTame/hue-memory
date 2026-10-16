@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import 'saf_documents.dart';
 import 'vault_fs.dart';
+import 'vault_paths.dart';
 
 /// Whether [value] looks like an Android SAF tree URI (not a filesystem path).
 bool isSafTreeUri(String? value) =>
@@ -166,6 +167,7 @@ class SafVaultFs implements VaultFs {
 
   @override
   Future<void> writeBytes(String relativePath, Uint8List bytes) async {
+    assertVaultWriteAllowed(relativePath);
     final parts = _segments(relativePath);
     if (parts.isEmpty) {
       throw ArgumentError('Cannot write vault root as a file');

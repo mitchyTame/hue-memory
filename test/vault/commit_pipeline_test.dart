@@ -11,7 +11,6 @@ import 'package:hue_memory/vault/fake_vault_fs.dart';
 import 'package:hue_memory/writers/link_writer.dart';
 
 Uint8List _tinyPng() {
-  // Minimal 1x1 PNG
   return Uint8List.fromList([
     0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
     0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -55,7 +54,7 @@ void main() {
     );
   });
 
-  test('commits markdown note + raw image + meaning.json', () async {
+  test('commits markdown note + raw image — no meaning.json', () async {
     final capture = _capture();
     final result = await pipeline.commit(
       CommitInput(
@@ -73,13 +72,16 @@ void main() {
     );
 
     expect(result.rawImagePath, 'captures/raw/20261016-p7k2.png');
-    expect(result.meaningPath, 'captures/raw/20261016-p7k2.meaning.json');
     expect(
       result.notePath,
       'fleeting/20261016-p7k2-attention-is-a-muscle.md',
     );
     expect(await vault.exists(result.rawImagePath), isTrue);
-    expect(await vault.exists(result.meaningPath), isTrue);
+    expect(await vault.exists(result.notePath!), isTrue);
+    expect(
+      vault.filePaths.any((p) => p.endsWith('.json')),
+      isFalse,
+    );
 
     final md = await vault.readText(result.notePath!);
     expect(md, contains('type: fleeting'));
@@ -88,14 +90,10 @@ void main() {
     expect(md, contains('![[captures/raw/20261016-p7k2.png]]'));
     expect(md, contains('Practice on paper first.'));
     expect(md, contains('[[permanent/seed-attention|Seed]]'));
-
-    final meaning =
-        jsonDecode(await vault.readText(result.meaningPath)) as Map;
-    expect(meaning['page_id'], '20261016-p7k2');
-    expect(meaning['symbol'], 'fleeting');
+    expect(md, isNot(contains('meaning:')));
   });
 
-  test('commits canvas for visual symbol', () async {
+  test('commits canvas for visual symbol without sidecar json', () async {
     final capture = _capture(
       glyph: '△',
       regions: MockOcrClient.defaultVisualRegions,
@@ -113,6 +111,7 @@ void main() {
       result.canvasPath,
       'mindmaps/20261016-p7k2-mindmap-topic.canvas',
     );
+    expect(result.notePath, isNull);
     final json =
         jsonDecode(await vault.readText(result.canvasPath!)) as Map;
     final nodes = json['nodes'] as List;
@@ -120,16 +119,10 @@ void main() {
     expect(nodes.first['file'], 'captures/raw/20261016-p7k2.png');
     expect(nodes.first['color'], '4');
     expect(nodes.length, greaterThan(1));
-    // bbox-scaled: n1 at ~0.35*480, 0.28*640
-    final n1 = nodes[1] as Map;
-    expect(n1['id'], 'n1');
-    expect(n1['x'], (0.35 * 480).round());
-    final edges = json['edges'] as List;
-    expect(edges, isNotEmpty);
-
-    final meaning =
-        jsonDecode(await vault.readText(result.meaningPath)) as Map;
-    expect(meaning['ink_ghost'], isTrue);
+    expect(
+      vault.filePaths.any((p) => p.endsWith('.json')),
+      isFalse,
+    );
   });
 
   test('canvas inkGhost false still embeds photo after text nodes', () async {
@@ -151,9 +144,6 @@ void main() {
     final nodes = json['nodes'] as List;
     expect(nodes.last['type'], 'file');
     expect(nodes.first['type'], 'text');
-    final meaning =
-        jsonDecode(await vault.readText(result.meaningPath)) as Map;
-    expect(meaning['ink_ghost'], isFalse);
   });
 
   test('daily-tasks appends checkboxes under ## Tasks', () async {
@@ -182,5 +172,12 @@ void main() {
   test('slugify strips punctuation', () {
     expect(CommitPipeline.slugify('Hello, World!'), 'hello-world');
     expect(CommitPipeline.slugify('   '), 'note');
+  });
+
+  test('refuses writing .json into the vault', () async {
+    expect(
+      () => vault.writeText('captures/raw/x.meaning.json', '{}'),
+      throwsA(isA<ArgumentError>()),
+    );
   });
 }

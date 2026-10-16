@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import '../theme/memory_hues.dart';
 import '../vault/local_vault_fs.dart';
 import '../vault/vault_fs.dart';
+import '../vault/vault_paths.dart';
 
 /// Vault path screen — pick Obsidian vault folder; keep Obsidian open.
 class VaultSettingsShell extends StatelessWidget {
@@ -98,16 +99,15 @@ class VaultSettingsShell extends StatelessWidget {
   }
 }
 
-/// Writes a tiny probe note to prove the vault root is writable.
+/// Writes a tiny probe note at vault **root** (no nested `hue-memory/` folder).
 Future<String> writeVaultProbe(VaultFs vault) async {
-  const relative = 'hue-memory/probe.md';
   final stamp = DateTime.now().toUtc().toIso8601String();
   await vault.writeText(
-    relative,
+    kVaultProbeRelative,
     '# hue-memory probe\n\nWritten at $stamp\n',
   );
   if (vault is LocalVaultFs) {
-    return p.join(vault.rootPath, relative);
+    return p.join(vault.rootPath, kVaultProbeRelative);
   }
-  return relative;
+  return kVaultProbeRelative;
 }

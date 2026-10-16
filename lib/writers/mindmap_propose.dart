@@ -172,14 +172,19 @@ class MindmapPropose {
   static const double defaultNodeH = 0.09;
 
   /// System prompt for Mistral vision structure (JSON only, tight).
+  ///
+  /// Vision **reads** box text — OCR strings are optional hints only.
   static const String visionSystemPrompt =
       'You map a hand-drawn mindmap photo to JSON. '
       'Reply with ONE JSON object only — no markdown, no prose. '
-      'Schema: {"nodes":[{"id":"n1","label":"short","x":0.0,"y":0.0}],'
+      'Schema: {"nodes":[{"id":"n1","text":"words","x":0.0,"y":0.0}],'
       '"edges":[{"from":"n1","to":"n2"}]}. '
+      'Read handwriting inside boxes carefully; correct spelling from context. '
+      'Every node needs non-empty "text" from what you see (not empty stubs). '
       'x,y are normalized 0–1 image coords (origin top-left, node top-left). '
-      'Max $maxLabels nodes. Labels ≤$maxLabelChars chars. '
-      'Prefer OCR label strings when listed. Uncertain edges → omit.';
+      'Max $maxLabels nodes. Text ≤$maxLabelChars chars. '
+      'OCR hints may be wrong — trust the image when they disagree. '
+      'Uncertain edges → omit.';
 
   /// User text beside the image for the vision structure call.
   static String visionUserPrompt(List<String> ocrLabels) {
@@ -189,9 +194,10 @@ class MindmapPropose {
         .take(maxLabels)
         .toList();
     final hint = labels.isEmpty
-        ? 'No OCR labels — read short node text from the drawing.'
-        : 'OCR labels (prefer these strings): ${labels.join(' | ')}';
-    return 'Hand-drawn mindmap. Return nodes/edges JSON with x,y for each node.\n$hint';
+        ? 'No OCR hints — read all node text from the drawing.'
+        : 'OCR hints (candidates only, may be wrong): ${labels.join(' | ')}';
+    return 'Hand-drawn mindmap. Return nodes/edges JSON; '
+        'put vision-read words in each node "text", plus x,y.\n$hint';
   }
 
   static double? readNorm(Object? v) {
@@ -400,10 +406,14 @@ class MindmapPropose {
     );
   }
 
-  /// Merge OCR label strings onto vision nodes by text match; keep vision x,y.
+  /// Merge OCR hints onto vision nodes — **vision text wins**.
   ///
-  /// Unmatched OCR labels append with radial fallback. Vision edges kept when
-  /// endpoints survive; otherwise conservative hub→spoke.
+  /// - Non-empty vision `text`/`label` is kept (OCR never overrides).
+  /// - Empty vision stubs may be filled from a fuzzy-matched OCR hint.
+  /// - OCR leftovers are **not** appended when vision already returned nodes
+  ///   (avoids inventing extra wrong words). Fallback to OCR-only only when
+  ///   vision produced zero nodes.
+  /// - Vision x,y and edges kept when endpoints survive.
   static MindmapStructure mergeOcrLabelsOntoVision({
     required List<String> ocrLabels,
     required MindmapStructure vision,
@@ -425,13 +435,14 @@ class MindmapPropose {
     final unusedOcr = List<String>.from(ocrLabels);
     final mergedNodes = <MindmapNode>[];
     for (final vn in vision.nodes) {
-      String label = vn.label;
-      final vKey = _normKey(vn.label);
+      var label = clipLabel(vn.label);
+      final vKey = _normKey(label);
       var matchedAt = -1;
       for (var i = 0; i < unusedOcr.length; i++) {
         final oKey = _normKey(unusedOcr[i]);
         if (oKey.isEmpty) continue;
-        if (oKey == vKey ||
+        if (vKey.isEmpty ||
+            oKey == vKey ||
             oKey.contains(vKey) ||
             vKey.contains(oKey)) {
           matchedAt = i;
@@ -439,33 +450,23 @@ class MindmapPropose {
         }
       }
       if (matchedAt >= 0) {
-        label = clipLabel(unusedOcr.removeAt(matchedAt));
+        final ocrHint = clipLabel(unusedOcr.removeAt(matchedAt));
+        // Vision primary — only fill empty stubs from OCR.
+        if (label.isEmpty && ocrHint.isNotEmpty) {
+          label = ocrHint;
+        }
       }
+      if (label.isEmpty) continue;
       mergedNodes.add(
         MindmapNode(id: vn.id, label: label, x: vn.x, y: vn.y),
       );
     }
 
-    // Leftover OCR labels → append around the ring.
-    if (unusedOcr.isNotEmpty) {
-      final extra = layoutRadial(
-        unusedOcr,
-        ids: [
-          for (var i = 0; i < unusedOcr.length; i++)
-            'ocr${mergedNodes.length + i + 1}',
-        ],
+    if (mergedNodes.isEmpty) {
+      return structureFromOcrMarkdown(ocrLabels.join('\n')).copyWith(
+        truncated: vision.truncated,
+        source: 'merged',
       );
-      for (final r in extra) {
-        if (mergedNodes.length >= maxLabels) break;
-        mergedNodes.add(
-          MindmapNode(
-            id: r.id,
-            label: r.text,
-            x: r.bbox?[0],
-            y: r.bbox?[1],
-          ),
-        );
-      }
     }
 
     final ids = mergedNodes.map((n) => n.id).toSet();

@@ -51,10 +51,10 @@ Here is noise {"nodes":[{"id":"a","label":"Hub","x":0.4,"y":0.3},
     expect(MindmapPropose.visionMaxTokens, 384);
   });
 
-  test('mergeOcrLabelsOntoVision prefers OCR text, keeps vision xy', () {
+  test('merge keeps vision text when OCR disagrees; keeps vision xy', () {
     final vision = MindmapStructure.parseJson('''
-{"nodes":[{"id":"n1","label":"hub","x":0.3,"y":0.3},
-{"id":"n2","label":"spoke","x":0.7,"y":0.2}],
+{"nodes":[{"id":"n1","text":"Focus loop","x":0.3,"y":0.3},
+{"id":"n2","text":"Deep work","x":0.7,"y":0.2}],
 "edges":[{"from":"n1","to":"n2"}]}
 ''');
     final merged = MindmapPropose.mergeOcrLabelsOntoVision(
@@ -62,8 +62,26 @@ Here is noise {"nodes":[{"id":"a","label":"Hub","x":0.4,"y":0.3},
       vision: vision,
     );
     expect(merged.source, 'merged');
-    expect(merged.nodes.first.label, 'Central hub');
+    expect(merged.nodes.first.label, 'Focus loop');
     expect(merged.nodes.first.x, closeTo(0.3, 0.001));
-    expect(merged.nodes[1].label, 'Outer spoke');
+    expect(merged.nodes[1].label, 'Deep work');
+    // OCR leftovers must not invent extra nodes when vision already decided.
+    expect(merged.nodes, hasLength(2));
+  });
+
+  test('merge fills empty vision stub from fuzzy OCR hint only', () {
+    const vision = MindmapStructure(
+      nodes: [
+        MindmapNode(id: 'n1', label: '', x: 0.4, y: 0.4),
+        MindmapNode(id: 'n2', label: 'Spoke', x: 0.7, y: 0.2),
+      ],
+      source: 'vision',
+    );
+    final merged = MindmapPropose.mergeOcrLabelsOntoVision(
+      ocrLabels: const ['Hub idea', 'Spoke'],
+      vision: vision,
+    );
+    expect(merged.nodes.first.label, 'Hub idea');
+    expect(merged.nodes[1].label, 'Spoke');
   });
 }

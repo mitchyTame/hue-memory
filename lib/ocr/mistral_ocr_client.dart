@@ -155,6 +155,7 @@ class MistralOcrClient implements OcrClient {
               'Mistral returned no readable text — try a clearer photo or queue for later',
         );
       }
+      // Vision structure pass is △ / visual only — never on inbox/fleeting/etc.
       if (result.pageGenre == 'visual') {
         result = await _enrichVisualWithVision(result, prepared);
       }

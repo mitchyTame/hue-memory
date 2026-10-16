@@ -4,6 +4,7 @@ import 'local_vault_fs.dart';
 import 'saf_documents.dart';
 import 'saf_vault_fs.dart';
 import 'vault_fs.dart';
+import 'vault_paths.dart';
 
 /// Result of binding a chosen vault root (path or durable tree URI).
 class VaultBindResult {
@@ -209,12 +210,13 @@ Future<VaultResolveResult> resolvePersistedVaultRoot({
   );
 }
 
-/// Smoke-write to confirm the bound vault is writable (pack mirror / probe).
+/// Smoke-write to confirm the bound vault is writable.
+///
+/// Writes a **root file** — never a nested `hue-memory/` folder.
 Future<void> verifyVaultWritable(VaultFs vault) async {
-  const relative = 'hue-memory/.write-check';
   final stamp = DateTime.now().toUtc().toIso8601String();
   try {
-    await vault.writeText(relative, stamp);
+    await vault.writeText(kVaultWriteCheckRelative, stamp);
   } on FileSystemException catch (e) {
     throw VaultBindException(vaultPickFailedMessage(e), cause: e);
   } catch (e) {

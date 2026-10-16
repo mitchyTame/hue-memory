@@ -1,3 +1,4 @@
+import '../vault/vault_paths.dart';
 import 'default_packs.dart';
 import 'symbol_models.dart';
 
@@ -80,12 +81,15 @@ class SymbolRouter {
     );
   }
 
-  /// Relative note path stem under the symbol folder (caller adds slug + ext).
+  /// Relative note folder under the vault root (caller adds slug + ext).
+  ///
+  /// Normalized — no leading slash doubling, no accidental `hue-memory/` /
+  /// `pack/` prefixes from bad folder settings.
   String noteRelativeDir(RouteResult route) {
     if (route.isDailyTasks) {
       throw ArgumentError('Daily tasks do not use a symbol folder');
     }
-    final folder = route.folder;
+    final folder = normalizeVaultFolder(route.folder);
     if (folder == null || folder.isEmpty) {
       throw StateError('Route ${route.symbol.id} has no folder');
     }

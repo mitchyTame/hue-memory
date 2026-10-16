@@ -1,9 +1,5 @@
-import 'dart:convert';
-
-import '../capture/page_id.dart';
 import '../capture/pending_capture.dart';
 import '../ocr/ocr_client.dart';
-import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
 import '../writers/canvas_writer.dart';
 import '../writers/link_writer.dart';
@@ -11,6 +7,7 @@ import '../writers/markdown_writer.dart';
 import 'daily_note_path.dart';
 import 'daily_tasks_appender.dart';
 import 'vault_fs.dart';
+import 'vault_paths.dart';
 
 /// Inputs confirmed on the photo before vault write.
 class CommitInput {
@@ -45,7 +42,6 @@ class CommitResult {
   const CommitResult({
     required this.pageId,
     required this.rawImagePath,
-    required this.meaningPath,
     required this.symbolId,
     this.notePath,
     this.canvasPath,
@@ -54,7 +50,6 @@ class CommitResult {
 
   final String pageId;
   final String rawImagePath;
-  final String meaningPath;
   final String symbolId;
   final String? notePath;
   final String? canvasPath;
@@ -65,6 +60,8 @@ class CommitResult {
 }
 
 /// Writes raw capture + routed vault artifacts through [VaultFs].
+///
+/// Vault artifacts are **`.md` / `.canvas` / images only** — never `*.json`.
 class CommitPipeline {
   CommitPipeline({
     required VaultFs vault,
@@ -97,13 +94,8 @@ class CommitPipeline {
     final capture = input.capture;
     final route = _router.routeById(input.symbolId);
     final rawImagePath = capture.rawImagePath;
-    final meaningPath = capture.meaningPath;
 
     await _vault.writeBytes(rawImagePath, capture.imageBytes);
-    await _vault.writeText(
-      meaningPath,
-      _meaningJson(capture.meaning, route.symbol, capture.pageId),
-    );
 
     if (route.isDailyTasks) {
       final dailyPath = _dailyPaths.resolve(
@@ -124,7 +116,6 @@ class CommitPipeline {
       return CommitResult(
         pageId: capture.pageId,
         rawImagePath: rawImagePath,
-        meaningPath: meaningPath,
         symbolId: route.symbol.id,
         dailyNotePath: dailyPath,
       );
@@ -132,8 +123,10 @@ class CommitPipeline {
 
     if (route.isCanvas) {
       final slug = slugify(input.title);
-      final canvasPath =
-          '${_router.noteRelativeDir(route)}/${capture.pageId}-$slug.canvas';
+      final canvasPath = joinVaultRelative(
+        _router.noteRelativeDir(route),
+        '${capture.pageId}-$slug.canvas',
+      );
       final regionList = input.regions ?? capture.meaning.regions;
       final textNodes = CanvasWriter.nodesFromRegions(regionList);
       final edges = CanvasWriter.heuristicEdges(textNodes);
@@ -144,30 +137,9 @@ class CommitPipeline {
         inkGhost: input.inkGhost,
       );
       await _vault.writeText(canvasPath, _canvas.writeJson(doc));
-      final meaningForWrite = MeaningResult(
-        detectedGlyph: capture.meaning.detectedGlyph,
-        regions: regionList,
-        pageGenre: capture.meaning.pageGenre,
-        threadTick: capture.meaning.threadTick,
-        rawJson: {
-          ...capture.meaning.rawJson,
-          'hybrid_mindmap': true,
-        },
-      );
-      // Re-write meaning with ink_ghost flag once we know the route.
-      await _vault.writeText(
-        meaningPath,
-        _meaningJson(
-          meaningForWrite,
-          route.symbol,
-          capture.pageId,
-          inkGhost: input.inkGhost,
-        ),
-      );
       return CommitResult(
         pageId: capture.pageId,
         rawImagePath: rawImagePath,
-        meaningPath: meaningPath,
         symbolId: route.symbol.id,
         canvasPath: canvasPath,
       );
@@ -175,8 +147,10 @@ class CommitPipeline {
 
     // markdown / inbox
     final slug = slugify(input.title);
-    final notePath =
-        '${_router.noteRelativeDir(route)}/${capture.pageId}-$slug.md';
+    final notePath = joinVaultRelative(
+      _router.noteRelativeDir(route),
+      '${capture.pageId}-$slug.md',
+    );
     final fmLinks = _links.frontmatterLinks(input.links);
     final linked = _links.linkedSection(input.links);
     final body = linked.isEmpty
@@ -192,9 +166,9 @@ class CommitPipeline {
           pageId: capture.pageId,
           capturedAt: capture.capturedAt,
           sourceImage: rawImagePath,
-          meaning: meaningPath,
           ocrConfidence: _avgConfidence(capture.meaning.regions),
           links: fmLinks,
+          threadTick: capture.meaning.threadTick,
         ),
         noteBody: body,
         ocrDraft: capture.ocrDraft,
@@ -205,7 +179,6 @@ class CommitPipeline {
     return CommitResult(
       pageId: capture.pageId,
       rawImagePath: rawImagePath,
-      meaningPath: meaningPath,
       symbolId: route.symbol.id,
       notePath: notePath,
     );
@@ -224,33 +197,5 @@ class CommitPipeline {
     if (regions.isEmpty) return null;
     final sum = regions.fold<double>(0, (a, r) => a + r.confidence);
     return sum / regions.length;
-  }
-
-  static String _meaningJson(
-    MeaningResult meaning,
-    PackSymbol symbol,
-    String pageId, {
-    bool? inkGhost,
-  }) {
-    final map = <String, Object?>{
-      'page_id': pageId,
-      'symbol': symbol.id,
-      'glyph': meaning.detectedGlyph,
-      'page_genre': meaning.pageGenre,
-      'thread_tick': meaning.threadTick,
-      'regions': [
-        for (final r in meaning.regions)
-          {
-            'id': r.id,
-            'text': r.text,
-            'confidence': r.confidence,
-            if (r.bbox != null) 'bbox': r.bbox,
-          },
-      ],
-      'raw': meaning.rawJson,
-      'stem': PageId.shortStem(pageId),
-      if (inkGhost != null) 'ink_ghost': inkGhost,
-    };
-    return const JsonEncoder.withIndent('  ').convert(map);
   }
 }

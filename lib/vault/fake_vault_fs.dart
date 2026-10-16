@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 
 import 'vault_fs.dart';
+import 'vault_paths.dart';
 
 /// In-memory [VaultFs] for unit tests. Paths use POSIX `/` separators.
 class FakeVaultFs implements VaultFs {
@@ -112,6 +113,7 @@ class FakeVaultFs implements VaultFs {
 
   @override
   Future<void> writeBytes(String relativePath, Uint8List bytes) async {
+    assertVaultWriteAllowed(relativePath);
     final n = _norm(relativePath);
     _ensureParent(n);
     _files[n] = Uint8List.fromList(bytes);

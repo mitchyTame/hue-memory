@@ -1,6 +1,7 @@
 import '../symbols/symbol_models.dart';
 import '../vault/commit_pipeline.dart';
 import '../vault/vault_fs.dart';
+import '../vault/vault_paths.dart';
 import '../writers/markdown_writer.dart';
 import 'own_words_gate.dart';
 
@@ -61,15 +62,12 @@ class PromoteService {
     SymbolPack pack, {
     MarkdownWriter markdownWriter = const MarkdownWriter(),
   }) {
-    final fleeting = pack.byId('fleeting')?.folder?.trim();
-    final permanent = pack.byId('permanent')?.folder?.trim();
+    final fleeting = normalizeVaultFolder(pack.byId('fleeting')?.folder);
+    final permanent = normalizeVaultFolder(pack.byId('permanent')?.folder);
     return PromoteService(
       markdownWriter: markdownWriter,
-      fleetingFolder:
-          (fleeting == null || fleeting.isEmpty) ? defaultFleetingFolder : fleeting,
-      permanentFolder: (permanent == null || permanent.isEmpty)
-          ? defaultPermanentFolder
-          : permanent,
+      fleetingFolder: fleeting ?? defaultFleetingFolder,
+      permanentFolder: permanent ?? defaultPermanentFolder,
     );
   }
 
@@ -109,7 +107,10 @@ class PromoteService {
 
     final when = now ?? DateTime.now().toUtc();
     final slug = CommitPipeline.slugify(title);
-    final permanentPath = '$permanentFolder/${source.pageId}-$slug.md';
+    final permanentPath = joinVaultRelative(
+      permanentFolder,
+      '${source.pageId}-$slug.md',
+    );
     final body = keepOcrShallow && ownWords.trim().isEmpty
         ? source.body.trim()
         : ownWords.trim();
@@ -123,7 +124,6 @@ class PromoteService {
           pageId: source.pageId,
           capturedAt: source.capturedAt ?? when,
           sourceImage: source.sourceImage ?? '',
-          meaning: '',
           status: keepOcrShallow ? 'promoted_shallow' : 'promoted',
           links: ['[[${_wikilinkTarget(source.path)}]]'],
         ),

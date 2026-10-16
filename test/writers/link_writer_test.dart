@@ -37,7 +37,6 @@ void main() {
           pageId: '20261016-link',
           capturedAt: DateTime.utc(2026, 10, 16),
           sourceImage: 'captures/raw/20261016-link.jpg',
-          meaning: 'captures/raw/20261016-link.meaning.json',
           links: fmLinks,
         ),
         noteBody: 'Linked from confirm picker',

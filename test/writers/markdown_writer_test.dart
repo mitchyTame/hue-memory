@@ -14,7 +14,6 @@ void main() {
           pageId: '20261016-p7k2',
           capturedAt: DateTime.utc(2026, 10, 16, 12, 5),
           sourceImage: 'captures/raw/20261016-p7k2.jpg',
-          meaning: 'captures/raw/20261016-p7k2.meaning.json',
           ocrConfidence: 0.78,
           links: const ['[[fleeting/prior-note]]'],
         ),
@@ -30,6 +29,7 @@ void main() {
     expect(md, contains('captured_at: 2026-10-16T12:05:00.000Z'));
     expect(md, contains('ocr_confidence: 0.78'));
     expect(md, contains('links: ["[[fleeting/prior-note]]"]'));
+    expect(md, isNot(contains('meaning:')));
     expect(md, contains('![[captures/raw/20261016-p7k2.jpg]]'));
     expect(md, contains('## Note'));
     expect(md, contains('Attention is a muscle.'));
@@ -48,7 +48,6 @@ void main() {
           pageId: '20261016-aaaa',
           capturedAt: DateTime.utc(2026, 10, 16),
           sourceImage: 'captures/raw/20261016-aaaa.jpg',
-          meaning: 'captures/raw/20261016-aaaa.meaning.json',
         ),
         noteBody: 'Quick thought',
       ),

@@ -59,10 +59,10 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('Confirm meaning'), findsOneWidget);
+    expect(find.text('Confirm'), findsOneWidget);
     expect(ocr.callCount, 1);
 
-    await tester.tap(find.text('Commit'));
+    await tester.tap(find.text('Save'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -76,7 +76,8 @@ void main() {
       paths.any((k) => k.contains('/captures/raw/') && k.endsWith('.png')),
       isTrue,
     );
-    expect(paths.any((k) => k.endsWith('.meaning.json')), isTrue);
+    expect(paths.any((k) => k.endsWith('.json')), isFalse);
+    expect(paths.any((k) => k.endsWith('.md')), isTrue);
 
     final noteKey = paths.firstWhere((k) => k.contains('/fleeting/'));
     final md = await vault.readText(noteKey.substring(1)); // strip leading /

@@ -36,8 +36,6 @@ class PendingCapture {
   String get rawImagePath =>
       'captures/raw/$pageId.$imageExtension';
 
-  String get meaningPath => 'captures/raw/$pageId.meaning.json';
-
   String get ocrDraft => _joinedRegions(meaning);
 
   List<String> get taskLines => meaning.regions

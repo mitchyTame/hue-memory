@@ -88,7 +88,8 @@ void main() {
       ConfirmShell(capture: capture),
     );
     expect(tester.takeException(), isNull);
-    expect(find.text('Confirm meaning'), findsOneWidget);
+    expect(find.text('Confirm'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
   });
 
   testWidgets('VaultSettingsShell has no SAF jargon', (tester) async {

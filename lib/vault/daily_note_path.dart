@@ -1,5 +1,6 @@
 import 'package:intl/intl.dart';
-import 'package:path/path.dart' as p;
+
+import 'vault_paths.dart';
 
 /// Settings mirrored from Obsidian Daily notes (folder + Moment-style format).
 class DailyNoteSettings {
@@ -27,11 +28,7 @@ class DailyNotePathResolver {
         ? expanded
         : '$expanded.md';
 
-    final folder = settings.folder.trim();
-    if (folder.isEmpty) {
-      return p.posix.normalize(fileName);
-    }
-    return p.posix.normalize(p.posix.join(folder, fileName));
+    return joinVaultRelative(settings.folder, fileName);
   }
 
   /// Expand a Moment-compatible subset used by Obsidian Daily notes.

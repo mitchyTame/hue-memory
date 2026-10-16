@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 
 import 'vault_fs.dart';
+import 'vault_paths.dart';
 
 /// File-backed [VaultFs] for desktop / WSL demos (and Android app-private
 /// fallback). Never point this at a SAF `content://` tree URI — use
@@ -118,12 +119,14 @@ class LocalVaultFs implements VaultFs {
 
   @override
   Future<void> writeBytes(String relativePath, Uint8List bytes) async {
+    assertVaultWriteAllowed(relativePath);
     final file = _file(relativePath);
     await _writeAtomically(file, (tmp) => tmp.writeAsBytes(bytes, flush: true));
   }
 
   @override
   Future<void> writeText(String relativePath, String contents) async {
+    assertVaultWriteAllowed(relativePath);
     final file = _file(relativePath);
     await _writeAtomically(
       file,

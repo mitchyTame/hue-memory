@@ -70,12 +70,10 @@ symbols:
     expect(gtd.byId('inbox')?.folder, 'gtd/inbox');
   });
 
-  test('mirrors active pack YAML into vault', () async {
+  test('mirrorToVault is a no-op — packs stay in prefs only', () async {
     final vault = FakeVaultFs();
     final store = ActivePackStore();
     await store.mirrorToVault(vault, DefaultPacks.zettelkastenInk);
-    final text = await vault.readText(ActivePackStore.vaultMirrorPath);
-    expect(text, contains('id: zettelkasten-ink'));
-    expect(text, contains('daily-note-append'));
+    expect(vault.filePaths, isEmpty);
   });
 }

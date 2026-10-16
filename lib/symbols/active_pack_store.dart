@@ -19,7 +19,12 @@ class ActivePackStore {
   static const keyActivePackId = 'active_symbol_pack_id';
   static const keyCustomPackYaml = 'custom_symbol_pack_yaml';
   static const keyActivePackYaml = 'active_symbol_pack_yaml';
+
+  /// Legacy vault paths — **no longer written**. Pack config lives in prefs
+  /// only so the Obsidian vault is not polluted with `packs/` folders.
+  @Deprecated('Pack config is prefs-only; do not write to vault')
   static const vaultMirrorPath = 'symbol-journal/packs/active.yaml';
+  @Deprecated('Pack config is prefs-only; do not write to vault')
   static const vaultCustomPath = 'symbol-journal/packs/custom.yaml';
 
   SharedPreferences? _prefs;
@@ -64,9 +69,7 @@ class ActivePackStore {
     );
     final prefs = await _ensurePrefs();
     await prefs.setString(keyCustomPackYaml, yaml.encode(custom));
-    if (vault != null) {
-      await vault.writeText(vaultCustomPath, yaml.encode(custom));
-    }
+    // Pack YAML stays in app prefs — never write packs/ into the vault.
     if (activate) {
       await setActivePack(custom, vault: vault);
     } else {
@@ -102,14 +105,9 @@ class ActivePackStore {
     await prefs.setString(keyActivePackId, pack.id);
     if (pack.id == PackEditor.customPackId) {
       await prefs.setString(keyCustomPackYaml, yaml.encode(pack));
-      if (vault != null) {
-        await vault.writeText(vaultCustomPath, yaml.encode(pack));
-      }
     }
     _cached = pack;
-    if (vault != null) {
-      await mirrorToVault(vault, pack);
-    }
+    // [vault] kept for call-site compatibility; pack config is prefs-only.
   }
 
   Future<List<SymbolPack>> availablePacks() async {
@@ -126,14 +124,11 @@ class ActivePackStore {
     // Switching packs clears in-progress folder edits for the previous pack.
     await prefs.remove(keyActivePackYaml);
     _cached = pack;
-    if (vault != null) {
-      await mirrorToVault(vault, pack);
-    }
+    // Pack config is prefs-only — do not create symbol-journal/packs/ in vault.
   }
 
-  Future<void> mirrorToVault(VaultFs vault, SymbolPack pack) async {
-    await vault.writeText(vaultMirrorPath, yaml.encode(pack));
-  }
+  /// No-op retained for call sites. Pack YAML is never written into the vault.
+  Future<void> mirrorToVault(VaultFs vault, SymbolPack pack) async {}
 }
 
 /// In-memory store for tests.

@@ -15,7 +15,7 @@ Finder _regionOverlayPaints() => find.byWidgetPredicate(
     );
 
 void main() {
-  testWidgets('visual chip shows ink-ghost toggle; commit passes flag',
+  testWidgets('visual confirm shows node editors and Save; ink-ghost toggle',
       (tester) async {
     bool? committedGhost;
     List<OcrRegion>? committedRegions;
@@ -56,20 +56,33 @@ void main() {
         ),
       ),
     );
-    await tester.pump(); // allow image decode
+    await tester.pump();
 
-    expect(find.text('Ink ghost'), findsOneWidget);
-    // Clean photo — OCR bbox hairlines stay debug-only.
+    expect(find.text('Fix mindmap words'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
     expect(_regionOverlayPaints(), findsNothing);
     expect(kDebugRegionOverlay, isFalse);
 
-    final inkGhostSwitch = find.widgetWithText(SwitchListTile, 'Ink ghost');
-    await tester.ensureVisible(inkGhostSwitch);
+    final sheet = find.byType(ListView).last;
+    await tester.dragUntilVisible(
+      find.text('Dim photo under nodes'),
+      sheet,
+      const Offset(0, -100),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(inkGhostSwitch);
+    await tester.tap(find.text('Dim photo under nodes'));
     await tester.pump();
-    await tester.ensureVisible(find.text('Commit'));
-    await tester.tap(find.text('Commit'));
+
+    await tester.dragUntilVisible(
+      find.text('Add node'),
+      sheet,
+      const Offset(0, -100),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Add node'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Save'));
+    await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
     expect(committedGhost, isFalse);
@@ -77,7 +90,7 @@ void main() {
     expect(committedRegions, isNotEmpty);
   });
 
-  testWidgets('non-visual confirm shows clean photo without bbox overlays',
+  testWidgets('non-visual confirm uses simple note body, no mindmap chrome',
       (tester) async {
     final bytes = Uint8List.fromList(
       File('test/fixtures/pixel.png').readAsBytesSync(),
@@ -115,7 +128,10 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Ink ghost'), findsNothing);
+    expect(find.text('Confirm'), findsOneWidget);
+    expect(find.text('Fix mindmap words'), findsNothing);
+    expect(find.text('Add node'), findsNothing);
+    expect(find.text('Note'), findsWidgets);
     expect(_regionOverlayPaints(), findsNothing);
     expect(find.byType(Image), findsOneWidget);
   });

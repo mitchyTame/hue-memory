@@ -24,7 +24,6 @@ glyph: ∼
 page_id: 20261016-p7k2
 captured_at: 2026-10-16T12:00:00.000Z
 source_image: captures/raw/20261016-p7k2.png
-meaning: captures/raw/20261016-p7k2.meaning.json
 status: confirmed
 links: []
 ---
@@ -69,7 +68,6 @@ glyph: ∼
 page_id: 20261016-p7k2
 captured_at: 2026-10-16T12:00:00.000Z
 source_image: captures/raw/20261016-p7k2.png
-meaning: x
 status: confirmed
 links: []
 ---
