@@ -41,6 +41,7 @@ dependencies:
   shared_preferences: ^2.5.5
   file_picker: ^11.0.3
   http: ^1.6.0
+  saf: ^2.1.2
 
 dev_dependencies:
   flutter_test:

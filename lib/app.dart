@@ -23,12 +23,14 @@ import 'ui/settings_hub_shell.dart';
 import 'ui/vault_settings_shell.dart';
 import 'vault/commit_pipeline.dart';
 import 'vault/local_vault_fs.dart';
+import 'vault/saf_documents.dart';
+import 'vault/saf_vault_fs.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
 enum _SettingsPane { hub, vault, ocr }
 
-/// Root app. Slice 4: configurable Mistral OCR (mock default until consent).
+/// Root app. Slice 5: Android SAF vault + desktop LocalVaultFs.
 class HueMemoryApp extends StatefulWidget {
   const HueMemoryApp({
     super.key,
@@ -38,12 +40,14 @@ class HueMemoryApp extends StatefulWidget {
     PageId? pageIds,
     VaultSettingsStore? settings,
     OcrSettingsStore? ocrSettings,
+    SafDocuments? safDocuments,
   })  : _vault = vault,
         _camera = camera,
         _ocr = ocr,
         _pageIds = pageIds,
         _settings = settings,
-        _ocrSettings = ocrSettings;
+        _ocrSettings = ocrSettings,
+        _safDocuments = safDocuments;
 
   final VaultFs? _vault;
   final CameraCapture? _camera;
@@ -51,6 +55,7 @@ class HueMemoryApp extends StatefulWidget {
   final PageId? _pageIds;
   final VaultSettingsStore? _settings;
   final OcrSettingsStore? _ocrSettings;
+  final SafDocuments? _safDocuments;
 
   @override
   State<HueMemoryApp> createState() => _HueMemoryAppState();
@@ -69,6 +74,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   late final OcrClient _ocr = widget._ocr ??
       ConfigurableOcrClient(settings: _ocrSettings);
   late final PageId _pageIds = widget._pageIds ?? PageId();
+  late final SafDocuments _safDocuments =
+      widget._safDocuments ?? PluginSafDocuments();
 
   VaultFs? _vault;
   String _vaultLabel = 'Loading vault…';
@@ -81,15 +88,19 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     _bootstrap();
   }
 
+  String _labelFor(VaultFs vault) {
+    if (vault is LocalVaultFs) return vault.rootPath;
+    if (vault is SafVaultFs) return safVaultLabel(vault.treeUri);
+    return 'Injected vault';
+  }
+
   Future<void> _bootstrap() async {
     await _refreshOcrLabel();
 
     if (widget._vault != null) {
       setState(() {
         _vault = widget._vault;
-        _vaultLabel = widget._vault is LocalVaultFs
-            ? (widget._vault! as LocalVaultFs).rootPath
-            : 'Injected vault';
+        _vaultLabel = _labelFor(widget._vault!);
         _ready = true;
       });
       return;
@@ -97,18 +108,42 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
     try {
       final saved = await _vaultSettings.readVaultRoot();
-      Directory root;
-      if (saved != null && saved.isNotEmpty && Directory(saved).existsSync()) {
-        root = Directory(saved);
+      VaultFs vault;
+      String label;
+      String persist;
+
+      if (isSafTreeUri(saved)) {
+        final grants = await _safDocuments.persistedPermissions();
+        final ok = grants.any((g) => g.uri == saved && g.write);
+        if (ok) {
+          vault = SafVaultFs(treeUri: saved!, documents: _safDocuments);
+          label = safVaultLabel(saved);
+          persist = saved;
+        } else {
+          final root = await defaultVaultDirectory();
+          vault = LocalVaultFs(root);
+          label = root.path;
+          persist = root.path;
+        }
+      } else if (saved != null &&
+          saved.isNotEmpty &&
+          Directory(saved).existsSync()) {
+        final root = Directory(saved);
+        vault = LocalVaultFs(root);
+        label = root.path;
+        persist = root.path;
       } else {
-        root = await defaultVaultDirectory();
-        await _vaultSettings.writeVaultRoot(root.path);
+        final root = await defaultVaultDirectory();
+        vault = LocalVaultFs(root);
+        label = root.path;
+        persist = root.path;
       }
-      final vault = LocalVaultFs(root);
+
+      await _vaultSettings.writeVaultRoot(persist);
       if (!mounted) return;
       setState(() {
         _vault = vault;
-        _vaultLabel = vault.rootPath;
+        _vaultLabel = label;
         _ready = true;
       });
     } catch (e) {
@@ -128,9 +163,19 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
-  Future<void> _setVaultRoot(Directory root) async {
-    final vault = LocalVaultFs(root);
-    await _vaultSettings.writeVaultRoot(root.path);
+  /// [rootRef] is a filesystem path or a SAF `content://` tree URI.
+  Future<void> _setVaultRoot(String rootRef) async {
+    if (isSafTreeUri(rootRef)) {
+      final vault = SafVaultFs(treeUri: rootRef, documents: _safDocuments);
+      await _vaultSettings.writeVaultRoot(rootRef);
+      setState(() {
+        _vault = vault;
+        _vaultLabel = safVaultLabel(rootRef);
+      });
+      return;
+    }
+    final vault = LocalVaultFs(Directory(rootRef));
+    await _vaultSettings.writeVaultRoot(rootRef);
     setState(() {
       _vault = vault;
       _vaultLabel = vault.rootPath;
@@ -157,10 +202,11 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               ocr: _ocr,
               ocrSettings: _ocrSettings,
               pageIds: _pageIds,
+              safDocuments: _safDocuments,
               onVaultRootChanged: _setVaultRoot,
               onUseDefaultVault: () async {
                 final dir = await defaultVaultDirectory();
-                await _setVaultRoot(dir);
+                await _setVaultRoot(dir.path);
               },
               onOcrSettingsChanged: _refreshOcrLabel,
             ),
@@ -188,6 +234,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.ocr,
     required this.ocrSettings,
     required this.pageIds,
+    required this.safDocuments,
     required this.onVaultRootChanged,
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
@@ -201,7 +248,8 @@ class _HomeNavigator extends StatefulWidget {
   final OcrClient ocr;
   final OcrSettingsStore ocrSettings;
   final PageId pageIds;
-  final Future<void> Function(Directory root) onVaultRootChanged;
+  final SafDocuments safDocuments;
+  final Future<void> Function(String rootRef) onVaultRootChanged;
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
 
@@ -315,9 +363,11 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         );
       }
 
-      final absolute = widget.vault is LocalVaultFs
-          ? p.join((widget.vault as LocalVaultFs).rootPath, primary)
-          : primary;
+      final absolute = switch (widget.vault) {
+        final LocalVaultFs local => p.join(local.rootPath, primary),
+        final SafVaultFs saf => '${saf.treeUri} → $primary',
+        _ => primary,
+      };
 
       if (!mounted) return;
       setState(() {
@@ -346,15 +396,24 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   Future<void> _chooseVaultFolder() async {
     setState(() => _settingsBusy = true);
     try {
-      final path = await FilePicker.getDirectoryPath(
-        dialogTitle: 'Choose Obsidian vault folder',
-      );
-      if (path == null) {
+      final String? rootRef;
+      if (Platform.isAndroid) {
+        final picked = await widget.safDocuments.pickDirectory(
+          writePermission: true,
+          persistablePermission: true,
+        );
+        rootRef = picked?.uri;
+      } else {
+        rootRef = await FilePicker.getDirectoryPath(
+          dialogTitle: 'Choose Obsidian vault folder',
+        );
+      }
+      if (rootRef == null) {
         if (!mounted) return;
         setState(() => _settingsBusy = false);
         return;
       }
-      await widget.onVaultRootChanged(Directory(path));
+      await widget.onVaultRootChanged(rootRef);
       if (!mounted) return;
       setState(() {
         _settingsBusy = false;
@@ -417,6 +476,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             vaultRootLabel: widget.vaultLabel,
             busy: _settingsBusy,
             lastProbePath: _lastProbePath,
+            androidSafHint: Platform.isAndroid,
             onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
             onChooseFolder: _chooseVaultFolder,
             onWriteTestNote: _writeProbe,

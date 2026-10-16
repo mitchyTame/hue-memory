@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 
 import '../theme/memory_hues.dart';
 import '../vault/local_vault_fs.dart';
+import '../vault/saf_vault_fs.dart';
 import '../vault/vault_fs.dart';
 
 /// Vault path screen — trust the folder link (Memory hues §3.5).
@@ -16,6 +17,7 @@ class VaultSettingsShell extends StatelessWidget {
     this.onBack,
     this.busy = false,
     this.lastProbePath,
+    this.androidSafHint = false,
   });
 
   final String vaultRootLabel;
@@ -25,6 +27,9 @@ class VaultSettingsShell extends StatelessWidget {
   final VoidCallback? onBack;
   final bool busy;
   final String? lastProbePath;
+
+  /// When true, copy explains SAF tree pick (Android Obsidian vault).
+  final bool androidSafHint;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +72,11 @@ class VaultSettingsShell extends StatelessWidget {
             const SizedBox(height: 20),
             FilledButton(
               onPressed: busy ? null : onChooseFolder,
-              child: const Text('Choose vault folder'),
+              child: Text(
+                androidSafHint
+                    ? 'Choose Obsidian vault (SAF)'
+                    : 'Choose vault folder',
+              ),
             ),
             const SizedBox(height: 8),
             TextButton(
@@ -88,8 +97,11 @@ class VaultSettingsShell extends StatelessWidget {
             ],
             const Spacer(),
             Text(
-              'TODO(saf): On Android this becomes a Storage Access Framework '
-              'tree URI — not a dart:io path.',
+              androidSafHint
+                  ? 'On Android, vault writes use a Storage Access Framework '
+                      'tree grant (content:// URI) — not a dart:io path.'
+                  : 'Desktop uses a normal folder path. On Android phones, '
+                      'pick your Obsidian vault via SAF.',
               style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
             ),
           ],
@@ -109,6 +121,9 @@ Future<String> writeVaultProbe(VaultFs vault) async {
   );
   if (vault is LocalVaultFs) {
     return p.join(vault.rootPath, relative);
+  }
+  if (vault is SafVaultFs) {
+    return '${vault.treeUri} → $relative';
   }
   return relative;
 }

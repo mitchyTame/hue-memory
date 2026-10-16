@@ -1,9 +1,10 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persists the chosen vault root path (desktop LocalVaultFs / future SAF URI).
+/// Persists the chosen vault root: filesystem path ([LocalVaultFs]) or SAF
+/// `content://` tree URI ([SafVaultFs]).
 abstract interface class VaultSettingsStore {
   Future<String?> readVaultRoot();
-  Future<void> writeVaultRoot(String? absolutePath);
+  Future<void> writeVaultRoot(String? absolutePathOrTreeUri);
 }
 
 class PrefsVaultSettingsStore implements VaultSettingsStore {
@@ -24,12 +25,12 @@ class PrefsVaultSettingsStore implements VaultSettingsStore {
   }
 
   @override
-  Future<void> writeVaultRoot(String? absolutePath) async {
+  Future<void> writeVaultRoot(String? absolutePathOrTreeUri) async {
     final prefs = await _ensure();
-    if (absolutePath == null || absolutePath.isEmpty) {
+    if (absolutePathOrTreeUri == null || absolutePathOrTreeUri.isEmpty) {
       await prefs.remove(keyVaultRoot);
     } else {
-      await prefs.setString(keyVaultRoot, absolutePath);
+      await prefs.setString(keyVaultRoot, absolutePathOrTreeUri);
     }
   }
 }
@@ -42,7 +43,7 @@ class MemoryVaultSettingsStore implements VaultSettingsStore {
   Future<String?> readVaultRoot() async => path;
 
   @override
-  Future<void> writeVaultRoot(String? absolutePath) async {
-    path = absolutePath;
+  Future<void> writeVaultRoot(String? absolutePathOrTreeUri) async {
+    path = absolutePathOrTreeUri;
   }
 }
