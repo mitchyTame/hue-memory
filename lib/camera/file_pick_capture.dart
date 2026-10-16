@@ -1,6 +1,3 @@
-import 'dart:io';
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 
 import 'camera_capture.dart';
@@ -11,39 +8,20 @@ class FilePickCapture implements CameraCapture {
 
   @override
   Future<CaptureResult> capturePage() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-      allowMultiple: false,
-      withData: true,
-    );
-    if (result == null || result.files.isEmpty) {
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null) {
       throw CaptureCancelled();
     }
-    final file = result.files.single;
-    final bytes = await readPickedImageBytes(file);
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) {
+      throw StateError('Selected image is empty');
+    }
     return CaptureResult(
       imageBytes: bytes,
       capturedAt: DateTime.now().toUtc(),
       imageExtension: imageExtensionOf(file.name, file.path),
     );
   }
-}
-
-/// Reads image bytes from a [PlatformFile], preferring in-memory data then path.
-Future<Uint8List> readPickedImageBytes(PlatformFile file) async {
-  final memory = file.bytes;
-  if (memory != null && memory.isNotEmpty) {
-    return Uint8List.fromList(memory);
-  }
-  final path = file.path;
-  if (path == null || path.isEmpty) {
-    throw StateError('Could not read selected image (no bytes or path)');
-  }
-  final disk = await File(path).readAsBytes();
-  if (disk.isEmpty) {
-    throw StateError('Selected image is empty: $path');
-  }
-  return disk;
 }
 
 /// Normalizes a file name/path to a vault-friendly image extension.

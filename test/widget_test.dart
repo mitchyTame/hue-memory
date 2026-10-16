@@ -67,7 +67,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.text('hue-memory'), findsOneWidget);
-    expect(find.textContaining('Last commit:'), findsOneWidget);
+    expect(find.text('Last commit'), findsOneWidget);
+    expect(find.textContaining('fleeting'), findsWidgets);
 
     final paths = vault.filePaths;
     expect(paths.any((k) => k.contains('/fleeting/') && k.endsWith('.md')), isTrue);

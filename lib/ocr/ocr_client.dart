@@ -42,5 +42,10 @@ class MeaningResult {
 /// Live: [MistralOcrClient] via [ConfigurableOcrClient] when key + consent.
 /// Offline: failures enqueue via CaptureQueue (retry / inbox-only).
 abstract interface class OcrClient {
-  Future<MeaningResult> extractMeaning(Uint8List imageBytes);
+  Future<MeaningResult> extractMeaning(
+    Uint8List imageBytes, {
+    String? imageMimeType,
+    String? extensionHint,
+    bool allowEmpty = false,
+  });
 }

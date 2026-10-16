@@ -118,18 +118,43 @@ class _PromoteShellState extends State<PromoteShell> {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(32),
-                child: Text(
-                  'No fleeting notes waiting.\n'
-                  'Capture ∼ waves first, then return weekly.',
-                  textAlign: TextAlign.center,
-                  style: textTheme.bodyLarge?.copyWith(
-                    color: MemoryHues.inkMuted,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '∼  →  ◇',
+                      style: textTheme.headlineSmall?.copyWith(
+                        color: MemoryHues.recall,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Weekly habit: turn rough fleeting notes (∼) into '
+                      'lasting permanents (◇).\n\n'
+                      'Nothing waiting yet — capture a ∼ page first, then '
+                      'come back here once a week.',
+                      textAlign: TextAlign.center,
+                      style: textTheme.bodyLarge?.copyWith(
+                        color: MemoryHues.inkMuted,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             )
           : Column(
               children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Text(
+                    'Pick a fleeting note, rewrite it in your own words, '
+                    'then promote. That own-words step is the point — '
+                    'shallow copy-paste is optional only if you mark it.',
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: MemoryHues.inkMuted,
+                    ),
+                  ),
+                ),
                 SizedBox(
                   height: 56,
                   child: ListView.separated(
@@ -160,14 +185,14 @@ class _PromoteShellState extends State<PromoteShell> {
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                       children: [
                         Text(
-                          '∼  →  ◇',
+                          '∼ fleeting  →  ◇ permanent',
                           style: textTheme.titleLarge?.copyWith(
                             color: MemoryHues.recall,
                           ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Rewrite in your own words. The paper photo stays linked.',
+                          'Write it again in your words. The paper photo stays linked.',
                           style: textTheme.bodyMedium?.copyWith(
                             color: MemoryHues.inkMuted,
                           ),

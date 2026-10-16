@@ -18,6 +18,7 @@ class ActivePackStore {
 
   static const keyActivePackId = 'active_symbol_pack_id';
   static const keyCustomPackYaml = 'custom_symbol_pack_yaml';
+  static const keyActivePackYaml = 'active_symbol_pack_yaml';
   static const vaultMirrorPath = 'symbol-journal/packs/active.yaml';
   static const vaultCustomPath = 'symbol-journal/packs/custom.yaml';
 
@@ -75,6 +76,16 @@ class ActivePackStore {
 
   Future<SymbolPack> activePack() async {
     if (_cached != null) return _cached!;
+    final prefs = await _ensurePrefs();
+    final edited = prefs.getString(keyActivePackYaml);
+    if (edited != null && edited.trim().isNotEmpty) {
+      try {
+        _cached = yaml.parse(edited);
+        return _cached!;
+      } catch (_) {
+        await prefs.remove(keyActivePackYaml);
+      }
+    }
     final id = await readActivePackId();
     if (id == PackEditor.customPackId) {
       _cached = await customPackOrBlank();
@@ -82,6 +93,23 @@ class ActivePackStore {
     }
     _cached = await _catalog.loadById(id);
     return _cached!;
+  }
+
+  /// Persist folder / symbol edits for the active pack (any pack id).
+  Future<void> savePackEdits(SymbolPack pack, {VaultFs? vault}) async {
+    final prefs = await _ensurePrefs();
+    await prefs.setString(keyActivePackYaml, yaml.encode(pack));
+    await prefs.setString(keyActivePackId, pack.id);
+    if (pack.id == PackEditor.customPackId) {
+      await prefs.setString(keyCustomPackYaml, yaml.encode(pack));
+      if (vault != null) {
+        await vault.writeText(vaultCustomPath, yaml.encode(pack));
+      }
+    }
+    _cached = pack;
+    if (vault != null) {
+      await mirrorToVault(vault, pack);
+    }
   }
 
   Future<List<SymbolPack>> availablePacks() async {
@@ -95,6 +123,8 @@ class ActivePackStore {
   Future<void> setActivePack(SymbolPack pack, {VaultFs? vault}) async {
     final prefs = await _ensurePrefs();
     await prefs.setString(keyActivePackId, pack.id);
+    // Switching packs clears in-progress folder edits for the previous pack.
+    await prefs.remove(keyActivePackYaml);
     _cached = pack;
     if (vault != null) {
       await mirrorToVault(vault, pack);

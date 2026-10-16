@@ -131,241 +131,288 @@ class _ConfirmShellState extends State<ConfirmShell> {
     return Scaffold(
       backgroundColor: MemoryHues.ink,
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: InteractiveViewer(
-                minScale: 0.8,
-                maxScale: 4,
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    return Stack(
-                      fit: StackFit.expand,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Short (landscape) phones need a taller notes sheet; wide test
+            // windows that are still tall keep the photo-first split.
+            final short = constraints.maxHeight < 480;
+            final sheetFlex = short ? 3 : 2;
+            final photoFlex = short ? 2 : 3;
+
+            return Column(
+              children: [
+                Expanded(
+                  flex: photoFlex,
+                  child: InteractiveViewer(
+                    minScale: 0.8,
+                    maxScale: 4,
+                    child: LayoutBuilder(
+                      builder: (context, photoConstraints) {
+                        return Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Opacity(
+                              opacity: _isCanvas && _inkGhost ? 0.36 : 1,
+                              child: Image.memory(
+                                widget.capture.imageBytes,
+                                fit: BoxFit.contain,
+                                gaplessPlayback: true,
+                              ),
+                            ),
+                            if (_isCanvas)
+                              _InkGhostNodeLayer(
+                                regions: widget.capture.meaning.regions,
+                                parentSize: Size(
+                                  photoConstraints.maxWidth,
+                                  photoConstraints.maxHeight,
+                                ),
+                              )
+                            else
+                              CustomPaint(
+                                painter: RegionOverlayPainter(
+                                  regions: widget.capture.meaning.regions,
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                Flexible(
+                  flex: sheetFlex,
+                  child: Material(
+                    color: MemoryHues.paperElevated,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
+                    elevation: 1,
+                    child: Column(
                       children: [
-                        Opacity(
-                          opacity: _isCanvas && _inkGhost ? 0.36 : 1,
-                          child: Image.memory(
-                            widget.capture.imageBytes,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                          ),
+                        const Divider(
+                          height: 1,
+                          thickness: 1,
+                          color: MemoryHues.rule,
                         ),
-                        if (_isCanvas)
-                          _InkGhostNodeLayer(
-                            regions: widget.capture.meaning.regions,
-                            parentSize: Size(
-                              constraints.maxWidth,
-                              constraints.maxHeight,
-                            ),
-                          )
-                        else
-                          CustomPaint(
-                            painter: RegionOverlayPainter(
-                              regions: widget.capture.meaning.regions,
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-              ),
-            ),
-            Material(
-              color: MemoryHues.paperElevated,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(16)),
-              elevation: 1,
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Divider(
-                      height: 1,
-                      thickness: 1,
-                      color: MemoryHues.rule,
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Confirm meaning',
-                              style: textTheme.titleLarge,
-                            ),
-                          ),
-                          Text(
-                            widget.capture.pageId,
-                            style: textTheme.labelMedium,
-                          ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(
-                      height: 48,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: symbols.length,
-                        separatorBuilder: (_, __) => const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final s = symbols[index];
-                          final selected = s.id == _selectedId;
-                          return ChoiceChip(
-                            label: Text('${s.primaryGlyph} ${s.id}'),
-                            selected: selected,
-                            onSelected: widget.committing
-                                ? null
-                                : (_) => setState(() => _selectedId = s.id),
-                            selectedColor: MemoryHues.accentSoft,
-                            side: BorderSide(
-                              color: selected
-                                  ? MemoryHues.accent
-                                  : MemoryHues.rule,
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                    if (!_isDaily && _previousCandidate != null)
-                      SwitchListTile(
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 16),
-                        title: Text(
-                          'Thread › from last',
-                          style: textTheme.titleMedium,
-                        ),
-                        subtitle: Text(
-                          _previousCandidate!.displayTitle ??
-                              _previousCandidate!.targetPath,
-                          style: textTheme.bodySmall?.copyWith(
-                            color: MemoryHues.inkMuted,
-                          ),
-                        ),
-                        value: _threadFromLast,
-                        activeThumbColor: MemoryHues.accent,
-                        activeTrackColor: MemoryHues.accentSoft,
-                        onChanged: widget.committing || _isDaily
-                            ? null
-                            : _setThreadFromLast,
-                      ),
-                    if (_isCanvas)
-                      SwitchListTile(
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 16),
-                        title: Text(
-                          'Ink ghost',
-                          style: textTheme.titleMedium,
-                        ),
-                        subtitle: Text(
-                          'Page photo under editable nodes',
-                          style: textTheme.bodySmall?.copyWith(
-                            color: MemoryHues.inkMuted,
-                          ),
-                        ),
-                        value: _inkGhost,
-                        activeThumbColor: MemoryHues.accent,
-                        activeTrackColor: MemoryHues.accentSoft,
-                        onChanged: widget.committing
-                            ? null
-                            : (v) => setState(() => _inkGhost = v),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                      child: TextField(
-                        controller: _titleController,
-                        enabled: !widget.committing && !_isDaily,
-                        decoration: const InputDecoration(
-                          labelText: 'Title',
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                      child: TextField(
-                        controller: _bodyController,
-                        enabled: !widget.committing,
-                        minLines: _isDaily ? 2 : 3,
-                        maxLines: 5,
-                        decoration: InputDecoration(
-                          labelText: _isDaily ? 'Tasks (one per line)' : 'Note',
-                          border: const OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
-                    ),
-                    if (route.folder != null || route.isDailyTasks)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            route.isDailyTasks
-                                ? '→ Daily Notes (## Tasks)'
-                                : route.isCanvas
-                                    ? '→ ${route.folder}/ (.canvas'
-                                        '${_inkGhost ? ', ink-ghost' : ''})'
-                                    : '→ ${route.folder}/',
-                            style: textTheme.labelMedium,
-                          ),
-                        ),
-                      ),
-                    if (_links.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            'Links: ${_links.map((l) => l.displayTitle ?? l.targetPath).join(', ')}',
-                            style: textTheme.bodySmall,
-                          ),
-                        ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                      child: Row(
-                        children: [
-                          TextButton(
-                            onPressed:
-                                widget.committing ? null : widget.onCancel,
-                            child: const Text('Cancel'),
-                          ),
-                          TextButton(
-                            onPressed: widget.committing || _isDaily
-                                ? null
-                                : _openLinks,
-                            child: Text(
-                              'Link${_links.isEmpty ? '' : ' (${_links.length})'}',
-                            ),
-                          ),
-                          const Spacer(),
-                          FilledButton(
-                            onPressed: widget.committing ? null : _commit,
-                            child: widget.committing
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                        Expanded(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Confirm meaning',
+                                        style: textTheme.titleLarge,
+                                      ),
                                     ),
-                                  )
-                                : const Text('Commit'),
+                                    Text(
+                                      widget.capture.pageId,
+                                      style: textTheme.labelMedium,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(
+                                height: 48,
+                                child: ListView.separated(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  itemCount: symbols.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(width: 8),
+                                  itemBuilder: (context, index) {
+                                    final s = symbols[index];
+                                    final selected = s.id == _selectedId;
+                                    return ChoiceChip(
+                                      label:
+                                          Text('${s.primaryGlyph} ${s.id}'),
+                                      selected: selected,
+                                      onSelected: widget.committing
+                                          ? null
+                                          : (_) => setState(
+                                                () => _selectedId = s.id,
+                                              ),
+                                      selectedColor: MemoryHues.accentSoft,
+                                      side: BorderSide(
+                                        color: selected
+                                            ? MemoryHues.accent
+                                            : MemoryHues.rule,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              if (!_isDaily && _previousCandidate != null)
+                                SwitchListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  title: Text(
+                                    'Thread › from last',
+                                    style: textTheme.titleMedium,
+                                  ),
+                                  subtitle: Text(
+                                    _previousCandidate!.displayTitle ??
+                                        _previousCandidate!.targetPath,
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: MemoryHues.inkMuted,
+                                    ),
+                                  ),
+                                  value: _threadFromLast,
+                                  activeThumbColor: MemoryHues.accent,
+                                  activeTrackColor: MemoryHues.accentSoft,
+                                  onChanged: widget.committing || _isDaily
+                                      ? null
+                                      : _setThreadFromLast,
+                                ),
+                              if (_isCanvas)
+                                SwitchListTile(
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                  ),
+                                  title: Text(
+                                    'Ink ghost',
+                                    style: textTheme.titleMedium,
+                                  ),
+                                  subtitle: Text(
+                                    'Page photo under editable nodes',
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: MemoryHues.inkMuted,
+                                    ),
+                                  ),
+                                  value: _inkGhost,
+                                  activeThumbColor: MemoryHues.accent,
+                                  activeTrackColor: MemoryHues.accentSoft,
+                                  onChanged: widget.committing
+                                      ? null
+                                      : (v) => setState(() => _inkGhost = v),
+                                ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                                child: TextField(
+                                  controller: _titleController,
+                                  enabled:
+                                      !widget.committing && !_isDaily,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Title',
+                                    border: OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                ),
+                              ),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                                child: TextField(
+                                  controller: _bodyController,
+                                  enabled: !widget.committing,
+                                  minLines: _isDaily ? 2 : 3,
+                                  maxLines: 5,
+                                  decoration: InputDecoration(
+                                    labelText: _isDaily
+                                        ? 'Tasks (one per line)'
+                                        : 'Note',
+                                    border: const OutlineInputBorder(),
+                                    isDense: true,
+                                  ),
+                                ),
+                              ),
+                              if (route.folder != null || route.isDailyTasks)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    8,
+                                    16,
+                                    0,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      route.isDailyTasks
+                                          ? '→ ${route.folder ?? 'Daily Notes'} (## Tasks)'
+                                          : route.isCanvas
+                                              ? '→ ${route.folder}/ (.canvas'
+                                                  '${_inkGhost ? ', ink-ghost' : ''})'
+                                              : '→ ${route.folder}/',
+                                      style: textTheme.labelMedium,
+                                    ),
+                                  ),
+                                ),
+                              if (_links.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    8,
+                                    16,
+                                    0,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      'Links: ${_links.map((l) => l.displayTitle ?? l.targetPath).join(', ')}',
+                                      style: textTheme.bodySmall,
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                            ],
                           ),
-                        ],
-                      ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          child: Row(
+                            children: [
+                              TextButton(
+                                onPressed: widget.committing
+                                    ? null
+                                    : widget.onCancel,
+                                child: const Text('Cancel'),
+                              ),
+                              TextButton(
+                                onPressed: widget.committing || _isDaily
+                                    ? null
+                                    : _openLinks,
+                                child: Text(
+                                  'Link${_links.isEmpty ? '' : ' (${_links.length})'}',
+                                ),
+                              ),
+                              const Spacer(),
+                              FilledButton(
+                                onPressed:
+                                    widget.committing ? null : _commit,
+                                child: widget.committing
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text('Commit'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
   }
 }
+
 
 /// Editable-looking region cards laid over the (optionally ghosted) page photo.
 class _InkGhostNodeLayer extends StatelessWidget {

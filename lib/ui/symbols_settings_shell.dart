@@ -11,6 +11,7 @@ class SymbolsSettingsShell extends StatelessWidget {
     required this.activePackId,
     required this.onSelect,
     this.onOpenLibrary,
+    this.onOpenFolders,
     this.onBack,
     this.busy = false,
   });
@@ -19,6 +20,7 @@ class SymbolsSettingsShell extends StatelessWidget {
   final String activePackId;
   final ValueChanged<SymbolPack> onSelect;
   final VoidCallback? onOpenLibrary;
+  final VoidCallback? onOpenFolders;
   final VoidCallback? onBack;
   final bool busy;
 
@@ -47,6 +49,11 @@ class SymbolsSettingsShell extends StatelessWidget {
           FilledButton.tonal(
             onPressed: busy ? null : onOpenLibrary,
             child: const Text('Edit ink library / custom pack'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: busy ? null : onOpenFolders,
+            child: const Text('Vault folders per symbol'),
           ),
           const SizedBox(height: 16),
           for (final pack in packs) ...[

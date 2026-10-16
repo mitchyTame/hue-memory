@@ -85,101 +85,112 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     return Scaffold(
       backgroundColor: MemoryHues.ink,
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              child: Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Cancel',
-                    onPressed: _snapping ? null : _cancel,
-                    icon: const Icon(
-                      Icons.close,
-                      color: MemoryHues.paperElevated,
-                    ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      'Frame the page',
-                      textAlign: TextAlign.center,
-                      style: textTheme.labelLarge?.copyWith(
-                        color: MemoryHues.paperElevated,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // Landscape phones often leave ~360–400px after SafeArea;
+            // fixed 72 + 16+28 padding was overflowing by ~39px.
+            final short = constraints.maxHeight < 420;
+            final shutterSize = short ? 56.0 : 72.0;
+            final bottomPad = short ? 8.0 : 16.0;
+            final topPad = short ? 2.0 : 4.0;
+
+            return Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: topPad),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        tooltip: 'Cancel',
+                        onPressed: _snapping ? null : _cancel,
+                        icon: const Icon(
+                          Icons.close,
+                          color: MemoryHues.paperElevated,
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
-              ),
-            ),
-            Expanded(
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (error != null)
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
+                      Expanded(
                         child: Text(
-                          'Camera unavailable:\n$error',
+                          'Frame the page',
                           textAlign: TextAlign.center,
-                          style: textTheme.bodyMedium?.copyWith(
+                          style: textTheme.labelLarge?.copyWith(
                             color: MemoryHues.paperElevated,
                           ),
                         ),
                       ),
-                    )
-                  else if (session == null || !session.isInitialized)
-                    const Center(
-                      child: CircularProgressIndicator(
-                        color: MemoryHues.accent,
-                      ),
-                    )
-                  else
-                    Positioned.fill(child: session.buildPreview()),
-                  const CustomPaint(painter: _MetaZoneGuidePainter()),
-                ],
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
-              child: Semantics(
-                button: true,
-                label: 'Shutter',
-                child: GestureDetector(
-                  onTap: (session == null ||
-                          !session.isInitialized ||
-                          _snapping ||
-                          error != null)
-                      ? null
-                      : _shutter,
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: _snapping
-                          ? MemoryHues.accent.withValues(alpha: 0.5)
-                          : MemoryHues.accent,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: MemoryHues.paperElevated,
-                        width: 3,
-                      ),
-                    ),
-                    child: _snapping
-                        ? const Padding(
-                            padding: EdgeInsets.all(20),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: MemoryHues.paperElevated,
-                            ),
-                          )
-                        : null,
+                      const SizedBox(width: 48),
+                    ],
                   ),
                 ),
-              ),
-            ),
-          ],
+                Expanded(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (error != null)
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text(
+                              'Camera unavailable:\n$error',
+                              textAlign: TextAlign.center,
+                              style: textTheme.bodyMedium?.copyWith(
+                                color: MemoryHues.paperElevated,
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (session == null || !session.isInitialized)
+                        const Center(
+                          child: CircularProgressIndicator(
+                            color: MemoryHues.accent,
+                          ),
+                        )
+                      else
+                        Positioned.fill(child: session.buildPreview()),
+                      const CustomPaint(painter: _MetaZoneGuidePainter()),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: EdgeInsets.fromLTRB(24, short ? 8 : 12, 24, bottomPad),
+                  child: Semantics(
+                    button: true,
+                    label: 'Shutter',
+                    child: GestureDetector(
+                      onTap: (session == null ||
+                              !session.isInitialized ||
+                              _snapping ||
+                              error != null)
+                          ? null
+                          : _shutter,
+                      child: Container(
+                        width: shutterSize,
+                        height: shutterSize,
+                        decoration: BoxDecoration(
+                          color: _snapping
+                              ? MemoryHues.accent.withValues(alpha: 0.5)
+                              : MemoryHues.accent,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: MemoryHues.paperElevated,
+                            width: 3,
+                          ),
+                        ),
+                        child: _snapping
+                            ? Padding(
+                                padding: EdgeInsets.all(shutterSize * 0.28),
+                                child: const CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: MemoryHues.paperElevated,
+                                ),
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

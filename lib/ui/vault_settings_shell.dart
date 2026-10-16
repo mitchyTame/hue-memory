@@ -3,10 +3,9 @@ import 'package:path/path.dart' as p;
 
 import '../theme/memory_hues.dart';
 import '../vault/local_vault_fs.dart';
-import '../vault/saf_vault_fs.dart';
 import '../vault/vault_fs.dart';
 
-/// Vault path screen — trust the folder link (Memory hues §3.5).
+/// Vault path screen — local folder only (no SAF jargon).
 class VaultSettingsShell extends StatelessWidget {
   const VaultSettingsShell({
     super.key,
@@ -17,7 +16,6 @@ class VaultSettingsShell extends StatelessWidget {
     this.onBack,
     this.busy = false,
     this.lastProbePath,
-    this.androidSafHint = false,
   });
 
   final String vaultRootLabel;
@@ -27,9 +25,6 @@ class VaultSettingsShell extends StatelessWidget {
   final VoidCallback? onBack;
   final bool busy;
   final String? lastProbePath;
-
-  /// When true, copy explains SAF tree pick (Android Obsidian vault).
-  final bool androidSafHint;
 
   @override
   Widget build(BuildContext context) {
@@ -44,68 +39,59 @@ class VaultSettingsShell extends StatelessWidget {
           onPressed: onBack,
         ),
       ),
-      body: Padding(
+      body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
+        children: [
+          Text(
+            'Choose the Obsidian vault folder on this device. hue-memory writes '
+            'plain notes and canvases there.',
+            style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
+          ),
+          const SizedBox(height: 20),
+          Text('Vault folder', style: textTheme.labelLarge),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: MemoryHues.paperElevated,
+              border: Border.all(color: MemoryHues.rule),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              vaultRootLabel,
+              style: textTheme.labelMedium?.copyWith(color: MemoryHues.ink),
+            ),
+          ),
+          const SizedBox(height: 20),
+          FilledButton(
+            onPressed: busy ? null : onChooseFolder,
+            child: const Text('Choose vault folder'),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: busy ? null : onUseDefault,
+            child: const Text('Use app default folder'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: busy ? null : onWriteTestNote,
+            child: const Text('Write test note'),
+          ),
+          if (lastProbePath != null) ...[
+            const SizedBox(height: 16),
             Text(
-              'hue-memory writes plain Obsidian files into this folder.',
-              style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
-            ),
-            const SizedBox(height: 20),
-            Text('Vault root', style: textTheme.labelLarge),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: MemoryHues.paperElevated,
-                border: Border.all(color: MemoryHues.rule),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                vaultRootLabel,
-                style: textTheme.labelMedium?.copyWith(color: MemoryHues.ink),
-              ),
-            ),
-            const SizedBox(height: 20),
-            FilledButton(
-              onPressed: busy ? null : onChooseFolder,
-              child: Text(
-                androidSafHint
-                    ? 'Choose Obsidian vault (SAF)'
-                    : 'Choose vault folder',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: busy ? null : onUseDefault,
-              child: const Text('Use app default folder'),
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: busy ? null : onWriteTestNote,
-              child: const Text('Write test note'),
-            ),
-            if (lastProbePath != null) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Wrote $lastProbePath',
-                style: textTheme.bodySmall?.copyWith(color: MemoryHues.accent),
-              ),
-            ],
-            const Spacer(),
-            Text(
-              androidSafHint
-                  ? 'On Android, vault writes use a Storage Access Framework '
-                      'tree grant (content:// URI) — not a dart:io path.'
-                  : 'Desktop uses a normal folder path. On Android phones, '
-                      'pick your Obsidian vault via SAF.',
-              style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
+              'Wrote $lastProbePath',
+              style: textTheme.bodySmall?.copyWith(color: MemoryHues.accent),
             ),
           ],
-        ),
+          const SizedBox(height: 24),
+          Text(
+            'Tip: pick the same folder Obsidian opens as your vault. '
+            'The app default folder works for a quick try without picking.',
+            style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
+          ),
+        ],
       ),
     );
   }
@@ -121,9 +107,6 @@ Future<String> writeVaultProbe(VaultFs vault) async {
   );
   if (vault is LocalVaultFs) {
     return p.join(vault.rootPath, relative);
-  }
-  if (vault is SafVaultFs) {
-    return '${vault.treeUri} → $relative';
   }
   return relative;
 }

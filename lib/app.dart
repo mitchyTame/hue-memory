@@ -9,9 +9,11 @@ import 'camera/camera_capture.dart';
 import 'camera/file_pick_capture.dart';
 import 'camera/live_camera_capture.dart';
 import 'camera/sample_capture.dart';
+import 'capture/last_commit_summary.dart';
 import 'capture/page_id.dart';
 import 'capture/pending_capture.dart';
 import 'ocr/configurable_ocr_client.dart';
+import 'ocr/mistral_ocr_client.dart';
 import 'ocr/ocr_client.dart';
 import 'ocr/ocr_settings.dart';
 import 'settings/vault_settings_store.dart';
@@ -23,6 +25,7 @@ import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
+import 'ui/folder_map_shell.dart';
 import 'links/thread_tick.dart';
 import 'printables/hue_code.dart';
 import 'printables/paper_kit_pdf.dart';
@@ -39,15 +42,15 @@ import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
 import 'vault/commit_pipeline.dart';
+import 'vault/daily_note_path.dart';
 import 'vault/local_vault_fs.dart';
-import 'vault/saf_documents.dart';
 import 'vault/saf_vault_fs.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
-enum _SettingsPane { hub, vault, ocr, symbols, paperKit, library }
+enum _SettingsPane { hub, vault, ocr, symbols, folders, paperKit, library }
 
-/// Root app. Slice 7: YAML symbol packs + live camera + SAF / Local vault.
+/// Root app — symbol packs, live camera, local vault folder.
 class HueMemoryApp extends StatefulWidget {
   const HueMemoryApp({
     super.key,
@@ -57,7 +60,6 @@ class HueMemoryApp extends StatefulWidget {
     PageId? pageIds,
     VaultSettingsStore? settings,
     OcrSettingsStore? ocrSettings,
-    SafDocuments? safDocuments,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
@@ -67,7 +69,6 @@ class HueMemoryApp extends StatefulWidget {
         _pageIds = pageIds,
         _settings = settings,
         _ocrSettings = ocrSettings,
-        _safDocuments = safDocuments,
         _packStore = packStore,
         _initialPack = initialPack,
         _captureQueue = captureQueue;
@@ -78,7 +79,6 @@ class HueMemoryApp extends StatefulWidget {
   final PageId? _pageIds;
   final VaultSettingsStore? _settings;
   final OcrSettingsStore? _ocrSettings;
-  final SafDocuments? _safDocuments;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
@@ -104,8 +104,6 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   late final OcrClient _ocr = widget._ocr ??
       ConfigurableOcrClient(settings: _ocrSettings);
   late final PageId _pageIds = widget._pageIds ?? PageId();
-  late final SafDocuments _safDocuments =
-      widget._safDocuments ?? PluginSafDocuments();
   late final ActivePackStore _packStore =
       widget._packStore ?? ActivePackStore();
   late final CaptureQueue _captureQueue =
@@ -163,18 +161,11 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       String persist;
 
       if (isSafTreeUri(saved)) {
-        final grants = await _safDocuments.persistedPermissions();
-        final ok = grants.any((g) => g.uri == saved && g.write);
-        if (ok) {
-          vault = SafVaultFs(treeUri: saved!, documents: _safDocuments);
-          label = safVaultLabel(saved);
-          persist = saved;
-        } else {
-          final root = await defaultVaultDirectory();
-          vault = LocalVaultFs(root);
-          label = root.path;
-          persist = root.path;
-        }
+        // Legacy SAF roots migrate to app-documents vault (local path only).
+        final root = await defaultVaultDirectory();
+        vault = LocalVaultFs(root);
+        label = root.path;
+        persist = root.path;
       } else if (saved != null &&
           saved.isNotEmpty &&
           Directory(saved).existsSync()) {
@@ -214,16 +205,11 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
-  /// [rootRef] is a filesystem path or a SAF `content://` tree URI.
+  /// [rootRef] must be a filesystem path (legacy SAF URIs fall back to default).
   Future<void> _setVaultRoot(String rootRef) async {
     if (isSafTreeUri(rootRef)) {
-      final vault = SafVaultFs(treeUri: rootRef, documents: _safDocuments);
-      await _vaultSettings.writeVaultRoot(rootRef);
-      await _packStore.mirrorToVault(vault, _activePack);
-      setState(() {
-        _vault = vault;
-        _vaultLabel = safVaultLabel(rootRef);
-      });
+      final dir = await defaultVaultDirectory();
+      await _setVaultRoot(dir.path);
       return;
     }
     final vault = LocalVaultFs(Directory(rootRef));
@@ -252,6 +238,12 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
+  Future<void> _savePackEdits(SymbolPack pack) async {
+    final vault = _vault;
+    await _packStore.savePackEdits(pack, vault: vault);
+    setState(() => _activePack = pack);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -274,7 +266,6 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               ocr: _ocr,
               ocrSettings: _ocrSettings,
               pageIds: _pageIds,
-              safDocuments: _safDocuments,
               activePack: _activePack,
               availablePacks: _availablePacks,
               captureQueue: _captureQueue,
@@ -286,9 +277,36 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               onOcrSettingsChanged: _refreshOcrLabel,
               onSelectPack: _selectPack,
               onSaveCustomPack: _saveCustomPack,
+              onSavePackEdits: _savePackEdits,
             ),
     );
   }
+}
+
+DailyNoteSettings dailyNoteSettingsForPack(SymbolPack pack) {
+  final daily = pack.byId('daily-tasks');
+  return DailyNoteSettings(folder: daily?.folder ?? 'Daily Notes');
+}
+
+LastCommitSummary lastCommitSummaryFromResult({
+  required CommitResult result,
+  required SymbolPack pack,
+  required String symbolId,
+}) {
+  final primary = result.primaryPath;
+  final fileName = p.basename(primary);
+  final dir = p.dirname(primary);
+  final sym = pack.byId(symbolId) ?? pack.byId(result.symbolId);
+  final folder = dir == '.' || dir.isEmpty
+      ? (sym?.folder ?? 'Daily Notes')
+      : dir;
+  return LastCommitSummary(
+    fileName: fileName,
+    folder: folder,
+    at: DateTime.now(),
+    symbolId: symbolId,
+    glyph: sym?.primaryGlyph ?? '?',
+  );
 }
 
 /// App-documents `hue-memory-vault` — durable default for Linux demos.
@@ -312,7 +330,6 @@ class _HomeNavigator extends StatefulWidget {
     required this.ocr,
     required this.ocrSettings,
     required this.pageIds,
-    required this.safDocuments,
     required this.activePack,
     required this.availablePacks,
     required this.captureQueue,
@@ -321,6 +338,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onOcrSettingsChanged,
     required this.onSelectPack,
     required this.onSaveCustomPack,
+    required this.onSavePackEdits,
   });
 
   final VaultFs vault;
@@ -332,7 +350,6 @@ class _HomeNavigator extends StatefulWidget {
   final OcrClient ocr;
   final OcrSettingsStore ocrSettings;
   final PageId pageIds;
-  final SafDocuments safDocuments;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
   final CaptureQueue captureQueue;
@@ -341,16 +358,22 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function() onOcrSettingsChanged;
   final Future<void> Function(SymbolPack pack) onSelectPack;
   final Future<void> Function(SymbolPack pack) onSaveCustomPack;
+  final Future<void> Function(SymbolPack pack) onSavePackEdits;
 
   @override
   State<_HomeNavigator> createState() => _HomeNavigatorState();
 }
 
 class _HomeNavigatorState extends State<_HomeNavigator> {
-  late CommitPipeline _pipeline = CommitPipeline(
-    vault: widget.vault,
-    router: SymbolRouter(pack: widget.activePack),
-  );
+  late CommitPipeline _pipeline = _buildPipeline(widget.vault, widget.activePack);
+
+  CommitPipeline _buildPipeline(VaultFs vault, SymbolPack pack) {
+    return CommitPipeline(
+      vault: vault,
+      router: SymbolRouter(pack: pack),
+      dailyNoteSettings: dailyNoteSettingsForPack(pack),
+    );
+  }
 
   PendingCapture? _pending;
   bool _busy = false;
@@ -364,7 +387,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   int _queueCount = 0;
   List<QueueJob> _queueJobs = const [];
   List<PromoteCandidate> _promoteCandidates = const [];
-  String? _lastCommitPath;
+  LastCommitSummary? _lastCommit;
+  String? _captureStatus;
+  bool _mockOcrHintShown = false;
   String? _lastProbePath;
   String? _lastPrintablePath;
   OcrSettings _ocrDraft = const OcrSettings();
@@ -387,11 +412,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   void didUpdateWidget(covariant _HomeNavigator oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.vault != widget.vault ||
-        oldWidget.activePack.id != widget.activePack.id) {
-      _pipeline = CommitPipeline(
-        vault: widget.vault,
-        router: SymbolRouter(pack: widget.activePack),
-      );
+        oldWidget.activePack != widget.activePack) {
+      _pipeline = _buildPipeline(widget.vault, widget.activePack);
     }
   }
 
@@ -409,13 +431,42 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     });
   }
 
+  String _ocrFailureMessage(Object error) {
+    if (error is MistralOcrException) return error.readable;
+    return '$error';
+  }
+
   Future<void> _beginCapture(CameraCapture source) async {
     if (_busy) return;
-    setState(() => _busy = true);
+    final ocrCfg = await widget.ocrSettings.read();
+    if (!mounted) return;
+    setState(() {
+      _busy = true;
+      _captureStatus = ocrCfg.shouldUseLive
+          ? 'Reading with Mistral…'
+          : 'Reading page…';
+    });
+    if (widget.ocr is ConfigurableOcrClient && !ocrCfg.shouldUseLive) {
+      final reason =
+          await (widget.ocr as ConfigurableOcrClient).liveBlockedReason();
+      if (reason != null && !_mockOcrHintShown && mounted) {
+        _mockOcrHintShown = true;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(reason),
+            backgroundColor: MemoryHues.recall,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
     try {
       final shot = await source.capturePage();
       try {
-        final meaning = await widget.ocr.extractMeaning(shot.imageBytes);
+        final meaning = await widget.ocr.extractMeaning(
+          shot.imageBytes,
+          extensionHint: shot.imageExtension,
+        );
         final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
         final routed = SymbolRouter(pack: widget.activePack)
             .route(meaning.detectedGlyph);
@@ -437,21 +488,32 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         setState(() {
           _pending = pending;
           _busy = false;
+          _captureStatus = null;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('OCR ready'),
+            backgroundColor: MemoryHues.accent,
+            duration: Duration(seconds: 2),
+          ),
+        );
       } catch (ocrError) {
-        // Offline / OCR failure — keep the photo in the app-private queue.
+        final reason = _ocrFailureMessage(ocrError);
         final job = await widget.captureQueue.enqueue(
           imageBytes: shot.imageBytes,
           capturedAt: shot.capturedAt,
           imageExtension: shot.imageExtension,
         );
-        await widget.captureQueue.markFailed(job.id, '$ocrError');
+        await widget.captureQueue.markFailed(job.id, reason);
         await _refreshQueueCount();
         if (!mounted) return;
-        setState(() => _busy = false);
+        setState(() {
+          _busy = false;
+          _captureStatus = null;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('OCR failed — queued ${job.id}'),
+            content: Text('$reason — photo queued'),
             backgroundColor: MemoryHues.recall,
             action: SnackBarAction(
               label: 'Queue',
@@ -463,10 +525,16 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       }
     } on CaptureCancelled {
       if (!mounted) return;
-      setState(() => _busy = false);
+      setState(() {
+        _busy = false;
+        _captureStatus = null;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _busy = false);
+      setState(() {
+        _busy = false;
+        _captureStatus = null;
+      });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Capture failed: $e'),
@@ -505,7 +573,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     setState(() => _queueBusy = true);
     try {
       final bytes = await widget.captureQueue.readImage(job.id);
-      final meaning = await widget.ocr.extractMeaning(bytes);
+      final meaning = await widget.ocr.extractMeaning(
+        bytes,
+        extensionHint: job.imageExtension,
+      );
       final pageId = widget.pageIds.generate(at: job.capturedAt.toLocal());
       final routed =
           SymbolRouter(pack: widget.activePack).route(meaning.detectedGlyph);
@@ -563,15 +634,22 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       await widget.captureQueue.markDone(job.id);
       final jobs = await widget.captureQueue.list();
       if (!mounted) return;
+      final summary = lastCommitSummaryFromResult(
+        result: result,
+        pack: widget.activePack,
+        symbolId: result.symbolId,
+      );
       setState(() {
         _queueJobs = jobs;
         _queueCount = jobs.length;
         _queueBusy = false;
-        _lastCommitPath = result.primaryPath;
+        _lastCommit = summary;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Inbox-only → ${result.primaryPath}'),
+          content: Text(
+            'Saved ${summary.fileName} in ${summary.folderLabel}',
+          ),
           backgroundColor: MemoryHues.accent,
         ),
       );
@@ -639,7 +717,6 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         ),
       );
 
-      final primary = result.primaryPath;
       if (result.notePath != null) {
         _recentPages.insert(
           0,
@@ -650,21 +727,23 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         );
       }
 
-      final absolute = switch (widget.vault) {
-        final LocalVaultFs local => p.join(local.rootPath, primary),
-        final SafVaultFs saf => '${saf.treeUri} → $primary',
-        _ => primary,
-      };
+      final summary = lastCommitSummaryFromResult(
+        result: result,
+        pack: widget.activePack,
+        symbolId: symbolId,
+      );
 
       if (!mounted) return;
       setState(() {
         _pending = null;
         _committing = false;
-        _lastCommitPath = absolute;
+        _lastCommit = summary;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Wrote $primary'),
+          content: Text(
+            'Saved ${summary.fileName} in ${summary.folderLabel}',
+          ),
           backgroundColor: MemoryHues.accent,
         ),
       );
@@ -683,18 +762,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   Future<void> _chooseVaultFolder() async {
     setState(() => _settingsBusy = true);
     try {
-      final String? rootRef;
-      if (Platform.isAndroid) {
-        final picked = await widget.safDocuments.pickDirectory(
-          writePermission: true,
-          persistablePermission: true,
-        );
-        rootRef = picked?.uri;
-      } else {
-        rootRef = await FilePicker.getDirectoryPath(
-          dialogTitle: 'Choose Obsidian vault folder',
-        );
-      }
+      final rootRef = await FilePicker.getDirectoryPath(
+        dialogTitle: 'Choose Obsidian vault folder',
+      );
       if (rootRef == null) {
         if (!mounted) return;
         setState(() => _settingsBusy = false);
@@ -786,14 +856,24 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       );
       final list = await _promote.listFleeting(widget.vault);
       if (!mounted) return;
+      final path = result.permanentPath;
+      final sym = widget.activePack.byId('permanent');
       setState(() {
         _promoteCandidates = list;
         _promoteBusy = false;
-        _lastCommitPath = result.permanentPath;
+        _lastCommit = LastCommitSummary(
+          fileName: p.basename(path),
+          folder: p.dirname(path),
+          at: DateTime.now(),
+          symbolId: 'permanent',
+          glyph: sym?.primaryGlyph ?? '◇',
+        );
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Promoted → ${result.permanentPath}'),
+          content: Text(
+            'Saved ${p.basename(path)} in ${p.dirname(path)}',
+          ),
           backgroundColor: MemoryHues.recall,
         ),
       );
@@ -935,7 +1015,6 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             vaultRootLabel: widget.vaultLabel,
             busy: _settingsBusy,
             lastProbePath: _lastProbePath,
-            androidSafHint: Platform.isAndroid,
             onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
             onChooseFolder: _chooseVaultFolder,
             onWriteTestNote: _writeProbe,
@@ -958,6 +1037,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               await widget.onOcrSettingsChanged();
               setState(() => _ocrDraft = settings);
             },
+            onVerifyKey: widget.ocr is ConfigurableOcrClient
+                ? (widget.ocr as ConfigurableOcrClient).verifyLiveKey
+                : (key) => MistralOcrClient(apiKey: key).verifyConnection(),
           );
         case _SettingsPane.symbols:
           return SymbolsSettingsShell(
@@ -967,11 +1049,29 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
             onOpenLibrary: () =>
                 setState(() => _settingsPane = _SettingsPane.library),
+            onOpenFolders: () =>
+                setState(() => _settingsPane = _SettingsPane.folders),
             onSelect: (pack) async {
               setState(() => _settingsBusy = true);
               await widget.onSelectPack(pack);
               if (!mounted) return;
               setState(() => _settingsBusy = false);
+            },
+          );
+        case _SettingsPane.folders:
+          return FolderMapShell(
+            pack: widget.activePack,
+            busy: _settingsBusy,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.symbols),
+            onSave: (pack) async {
+              setState(() => _settingsBusy = true);
+              await widget.onSavePackEdits(pack);
+              if (!mounted) return;
+              setState(() {
+                _settingsBusy = false;
+                _settingsPane = _SettingsPane.symbols;
+              });
+              _pipeline = _buildPipeline(widget.vault, pack);
             },
           );
         case _SettingsPane.library:
@@ -1031,7 +1131,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       vaultLabel:
           '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
-      lastCommitPath: _lastCommitPath,
+      lastCommit: _lastCommit,
+      statusMessage: _captureStatus,
       queueCount: _queueCount,
       onShutter: () => _beginCapture(widget.shutterCamera),
       onPickImage: () => _beginCapture(widget.filePickCamera),

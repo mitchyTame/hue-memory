@@ -69,7 +69,7 @@ void main() {
       },
     );
 
-    await ocr.extractMeaning(Uint8List(0));
+    await ocr.extractMeaning(Uint8List.fromList([1]));
     expect(mock.callCount, 1);
     expect(liveCalls, 0);
 
@@ -81,7 +81,7 @@ void main() {
 
     // Live path is selected; mock HTTP returns 500 → exception, not mock.
     expect(
-      () => ocr.extractMeaning(Uint8List(0)),
+      () => ocr.extractMeaning(Uint8List.fromList([1])),
       throwsA(isA<MistralOcrException>()),
     );
     expect(mock.callCount, 0);

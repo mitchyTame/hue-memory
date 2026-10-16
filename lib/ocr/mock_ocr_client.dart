@@ -88,7 +88,12 @@ class MockOcrClient implements OcrClient {
   }
 
   @override
-  Future<MeaningResult> extractMeaning(Uint8List imageBytes) async {
+  Future<MeaningResult> extractMeaning(
+    Uint8List imageBytes, {
+    String? imageMimeType,
+    String? extensionHint,
+    bool allowEmpty = false,
+  }) async {
     callCount++;
     final typeGlyph = ThreadTick.stripFromGlyph(glyph);
     return MeaningResult(
@@ -100,6 +105,7 @@ class MockOcrClient implements OcrClient {
         'mock': true,
         'bytes': imageBytes.length,
         'thread_tick': threadTick,
+        if (imageMimeType != null) 'mime': imageMimeType,
       },
     );
   }
