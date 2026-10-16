@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/memory_hues.dart';
 
-/// Capture home — sample shutter + file pick; camera later on Android.
+/// Capture home — shutter (live / sample) + gallery pick.
 class CaptureShell extends StatelessWidget {
   const CaptureShell({
     super.key,
@@ -12,6 +12,8 @@ class CaptureShell extends StatelessWidget {
     this.vaultLabel = 'In-memory vault (FakeVaultFs)',
     this.lastCommitPath,
     this.busy = false,
+    this.shutterHint =
+        'Shutter = sample page\nGallery = pick a photo',
   });
 
   final VoidCallback? onShutter;
@@ -20,6 +22,7 @@ class CaptureShell extends StatelessWidget {
   final String vaultLabel;
   final String? lastCommitPath;
   final bool busy;
+  final String shutterHint;
 
   @override
   Widget build(BuildContext context) {
@@ -75,9 +78,7 @@ class CaptureShell extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            busy
-                                ? 'Working…'
-                                : 'Shutter = sample page\nGallery = pick a photo',
+                            busy ? 'Working…' : shutterHint,
                             textAlign: TextAlign.center,
                             style: textTheme.bodyMedium?.copyWith(
                               color: MemoryHues.inkMuted,
