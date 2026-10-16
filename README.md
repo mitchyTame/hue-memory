@@ -45,7 +45,32 @@ flutter doctor -v
 # Linux toolchain should show clang++, cmake, ninja, GTK 3.0
 ```
 
-Android SDK is separate (needed for phone/emulator only, not Linux desktop).
+### Android (phone / emulator)
+
+On this WSL machine the Android SDK is installed at `~/Android/Sdk` (cmdline-tools; licenses accepted). Ensure:
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$ANDROID_HOME/platform-tools:$PATH"
+flutter doctor   # Android toolchain should be ✓
+```
+
+**No device is attached yet.** Options:
+
+1. **Physical phone (easiest for WSL):** enable Developer options → USB debugging, plug in, then from **Windows** use `usbipd` to attach the device into WSL (`usbipd bind/attach`), or copy the debug APK:
+   ```bash
+   cd /home/mitch/projects/hue-memory
+   flutter build apk --debug
+   # APK: build/app/outputs/flutter-apk/app-debug.apk
+   # Copy to phone and install, or: adb install -r build/app/outputs/flutter-apk/app-debug.apk
+   ```
+2. **Emulator:** install system images + emulator via `sdkmanager` / Android Studio (heavy on WSL); often simpler to run Flutter from Windows once Studio is installed there.
+
+```bash
+flutter devices
+flutter run -d <device_id>
+```
 
 ## Run (slice 2 flow)
 
@@ -67,11 +92,11 @@ flutter pub get
 flutter run -d linux
 ```
 
-1. Home is capture — tap the **teal shutter** (loads `assets/sample_page.png`; no camera required on Linux).
+1. Home is capture — **teal shutter** = sample page; **gallery** = pick a photo.
 2. Mock OCR assigns a symbol chip (default ∼ fleeting) + region overlays.
 3. Edit title/body, optionally **Link** recent pages, tap **Commit**.
-4. Writes into an in-memory `FakeVaultFs`: `captures/raw/{page_id}.png` + `.meaning.json` + routed `.md` / `.canvas` / Daily Note append.
-5. Snackbar + “Last commit” path on the capture screen.
+4. Writes into a **on-disk** vault (`LocalVaultFs`, default under app Documents `hue-memory-vault`): `captures/raw/…` + routed `.md` / `.canvas` / Daily Note.
+5. Gear → choose another vault folder or **Write test note**.
 
 Switch the confirm chip to **△ visual** or **· daily-tasks** to exercise those writers.
 
@@ -89,12 +114,20 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | --- | --- |
 | Capture session / page id | `lib/capture/` |
 | Commit pipeline + daily append | `lib/vault/commit_pipeline.dart`, `daily_tasks_appender.dart` |
-| Sample capture | `lib/camera/sample_capture.dart`, `assets/sample_page.png` |
+| Local vault (desktop) | `lib/vault/local_vault_fs.dart` — default `…/Documents/hue-memory-vault` |
+| Vault settings | gear → choose folder / write test note |
+| Sample + file pick | shutter = sample; gallery icon = pick image |
 | Confirm + link picker | `lib/ui/confirm_shell.dart`, `link_picker_sheet.dart` |
 | Symbol pack + routing | `lib/symbols/` |
 | Writers | `lib/writers/` |
 
-**Still TODO:** real Android camera, SAF `VaultFs`, Mistral OCR.
+### Mistral OCR (when?)
+
+**Now (slice 4):** after capture → meaning pass. Default is still **mock**. Enable live under **Settings → OCR** (API key + consent + toggle), or set `MISTRAL_API_KEY` in the environment and flip the toggle/consent in the UI.
+
+Flow: shutter/gallery → `ConfigurableOcrClient` → Mistral `POST /v1/ocr` (image data URL) → confirm → vault write.
+
+**Still TODO:** real Android camera, SAF `VaultFs`, offline OCR queue, secure key storage.
 
 ## Tests
 

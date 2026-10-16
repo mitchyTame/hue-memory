@@ -18,21 +18,24 @@ class SampleAssetCapture implements CameraCapture {
     return CaptureResult(
       imageBytes: data.buffer.asUint8List(),
       capturedAt: DateTime.now().toUtc(),
+      imageExtension: 'png',
     );
   }
 }
 
 /// In-memory bytes capture for tests (no asset bundle).
 class BytesCameraCapture implements CameraCapture {
-  BytesCameraCapture(this.imageBytes);
+  BytesCameraCapture(this.imageBytes, {this.imageExtension = 'png'});
 
   final Uint8List imageBytes;
+  final String imageExtension;
 
   @override
   Future<CaptureResult> capturePage() async {
     return CaptureResult(
       imageBytes: imageBytes,
       capturedAt: DateTime.now().toUtc(),
+      imageExtension: imageExtension,
     );
   }
 }

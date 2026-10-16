@@ -2,17 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../theme/memory_hues.dart';
 
-/// Capture home — sample shutter for Linux; camera later on Android.
+/// Capture home — sample shutter + file pick; camera later on Android.
 class CaptureShell extends StatelessWidget {
   const CaptureShell({
     super.key,
     this.onShutter,
+    this.onPickImage,
+    this.onOpenSettings,
     this.vaultLabel = 'In-memory vault (FakeVaultFs)',
     this.lastCommitPath,
     this.busy = false,
   });
 
   final VoidCallback? onShutter;
+  final VoidCallback? onPickImage;
+  final VoidCallback? onOpenSettings;
   final String vaultLabel;
   final String? lastCommitPath;
   final bool busy;
@@ -40,10 +44,8 @@ class CaptureShell extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    tooltip: 'Settings',
-                    onPressed: () {
-                      // TODO(settings): vault path + symbol pack screens.
-                    },
+                    tooltip: 'Vault settings',
+                    onPressed: busy ? null : onOpenSettings,
                     icon: const Icon(
                       Icons.settings_outlined,
                       color: MemoryHues.paperElevated,
@@ -74,8 +76,8 @@ class CaptureShell extends StatelessWidget {
                           const SizedBox(height: 8),
                           Text(
                             busy
-                                ? 'Reading sample page…'
-                                : 'Tap shutter for sample page\n(camera on Android later)',
+                                ? 'Working…'
+                                : 'Shutter = sample page\nGallery = pick a photo',
                             textAlign: TextAlign.center,
                             style: textTheme.bodyMedium?.copyWith(
                               color: MemoryHues.inkMuted,
@@ -100,35 +102,51 @@ class CaptureShell extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
-              child: Semantics(
-                button: true,
-                label: 'Shutter',
-                child: GestureDetector(
-                  onTap: busy ? null : onShutter,
-                  child: Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: busy
-                          ? MemoryHues.accent.withValues(alpha: 0.5)
-                          : MemoryHues.accent,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: MemoryHues.paperElevated,
-                        width: 3,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    tooltip: 'Pick image',
+                    onPressed: busy ? null : onPickImage,
+                    icon: const Icon(
+                      Icons.photo_library_outlined,
+                      color: MemoryHues.paperElevated,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 28),
+                  Semantics(
+                    button: true,
+                    label: 'Shutter',
+                    child: GestureDetector(
+                      onTap: busy ? null : onShutter,
+                      child: Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: busy
+                              ? MemoryHues.accent.withValues(alpha: 0.5)
+                              : MemoryHues.accent,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: MemoryHues.paperElevated,
+                            width: 3,
+                          ),
+                        ),
+                        child: busy
+                            ? const Padding(
+                                padding: EdgeInsets.all(20),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: MemoryHues.paperElevated,
+                                ),
+                              )
+                            : null,
                       ),
                     ),
-                    child: busy
-                        ? const Padding(
-                            padding: EdgeInsets.all(20),
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: MemoryHues.paperElevated,
-                            ),
-                          )
-                        : null,
                   ),
-                ),
+                  const SizedBox(width: 68),
+                ],
               ),
             ),
           ],

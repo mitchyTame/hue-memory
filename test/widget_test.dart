@@ -6,6 +6,8 @@ import 'package:hue_memory/app.dart';
 import 'package:hue_memory/camera/sample_capture.dart';
 import 'package:hue_memory/capture/page_id.dart';
 import 'package:hue_memory/ocr/mock_ocr_client.dart';
+import 'package:hue_memory/ocr/ocr_settings.dart';
+import 'package:hue_memory/settings/vault_settings_store.dart';
 import 'package:hue_memory/theme/app_theme.dart';
 import 'package:hue_memory/vault/fake_vault_fs.dart';
 
@@ -34,9 +36,12 @@ void main() {
         camera: BytesCameraCapture(_tinyPng()),
         ocr: ocr,
         pageIds: PageId(random: _FixedRandom()),
+        settings: MemoryVaultSettingsStore(),
+        ocrSettings: MemoryOcrSettingsStore(),
       ),
     );
     await tester.pump();
+    await tester.pump(); // bootstrap
 
     expect(find.text('hue-memory'), findsOneWidget);
 
