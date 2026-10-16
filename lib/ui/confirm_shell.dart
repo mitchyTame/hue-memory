@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../capture/pending_capture.dart';
+import '../links/thread_tick.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
@@ -50,6 +51,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   late List<LinkPick> _links;
   late final SymbolRouter _router;
   bool _inkGhost = true;
+  late bool _threadFromLast;
 
   @override
   void initState() {
@@ -62,6 +64,27 @@ class _ConfirmShellState extends State<ConfirmShell> {
     _titleController = TextEditingController(text: widget.capture.title);
     _bodyController = TextEditingController(text: widget.capture.noteBody);
     _links = List<LinkPick>.from(widget.capture.links);
+    _threadFromLast = widget.capture.meaning.threadTick || _links.isNotEmpty;
+  }
+
+  LinkPick? get _previousCandidate =>
+      widget.linkCandidates.isEmpty ? null : widget.linkCandidates.first;
+
+  void _setThreadFromLast(bool on) {
+    final prev = _previousCandidate;
+    setState(() {
+      _threadFromLast = on;
+      if (on) {
+        _links = ThreadTick.mergePrevious(previous: prev, existing: _links);
+      } else if (prev != null) {
+        final norm = prev.targetPath.replaceAll(RegExp(r'\.md$'), '');
+        _links = _links
+            .where(
+              (l) => l.targetPath.replaceAll(RegExp(r'\.md$'), '') != norm,
+            )
+            .toList();
+      }
+    });
   }
 
   @override
@@ -204,6 +227,28 @@ class _ConfirmShellState extends State<ConfirmShell> {
                         },
                       ),
                     ),
+                    if (!_isDaily && _previousCandidate != null)
+                      SwitchListTile(
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 16),
+                        title: Text(
+                          'Thread › from last',
+                          style: textTheme.titleMedium,
+                        ),
+                        subtitle: Text(
+                          _previousCandidate!.displayTitle ??
+                              _previousCandidate!.targetPath,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: MemoryHues.inkMuted,
+                          ),
+                        ),
+                        value: _threadFromLast,
+                        activeThumbColor: MemoryHues.accent,
+                        activeTrackColor: MemoryHues.accentSoft,
+                        onChanged: widget.committing || _isDaily
+                            ? null
+                            : _setThreadFromLast,
+                      ),
                     if (_isCanvas)
                       SwitchListTile(
                         contentPadding:

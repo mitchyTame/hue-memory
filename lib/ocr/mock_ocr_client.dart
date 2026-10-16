@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import '../links/thread_tick.dart';
 import 'ocr_client.dart';
 
 /// Deterministic OCR stub for tests and offline UI shell.
@@ -8,11 +9,14 @@ class MockOcrClient implements OcrClient {
     this.glyph = '∼',
     List<OcrRegion>? regions,
     this.pageGenre = 'text',
-  }) : regions = regions ?? defaultFleetingRegions;
+    bool? threadTick,
+  })  : regions = regions ?? defaultFleetingRegions,
+        threadTick = threadTick ?? ThreadTick.detectedIn(glyph);
 
   final String glyph;
   final List<OcrRegion> regions;
   final String pageGenre;
+  final bool threadTick;
 
   int callCount = 0;
 
@@ -86,13 +90,16 @@ class MockOcrClient implements OcrClient {
   @override
   Future<MeaningResult> extractMeaning(Uint8List imageBytes) async {
     callCount++;
+    final typeGlyph = ThreadTick.stripFromGlyph(glyph);
     return MeaningResult(
-      detectedGlyph: glyph,
+      detectedGlyph: typeGlyph.isEmpty ? glyph : typeGlyph,
       regions: regions,
       pageGenre: pageGenre,
+      threadTick: threadTick,
       rawJson: {
         'mock': true,
         'bytes': imageBytes.length,
+        'thread_tick': threadTick,
       },
     );
   }

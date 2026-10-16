@@ -23,12 +23,17 @@ class MeaningResult {
     required this.detectedGlyph,
     required this.regions,
     this.pageGenre = 'text',
+    this.threadTick = false,
     this.rawJson = const {},
   });
 
   final String detectedGlyph;
   final List<OcrRegion> regions;
   final String pageGenre;
+
+  /// Meta-zone one-stroke `›` — continue previous capture (confirm pre-check).
+  final bool threadTick;
+
   final Map<String, Object?> rawJson;
 }
 

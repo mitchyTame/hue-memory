@@ -223,6 +223,7 @@ class CommitPipeline {
       'symbol': symbol.id,
       'glyph': meaning.detectedGlyph,
       'page_genre': meaning.pageGenre,
+      'thread_tick': meaning.threadTick,
       'regions': [
         for (final r in meaning.regions)
           {
