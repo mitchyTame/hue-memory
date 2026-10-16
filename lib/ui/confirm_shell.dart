@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../capture/pending_capture.dart';
+import '../ocr/ocr_client.dart';
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
@@ -14,9 +15,12 @@ typedef ConfirmCommitCallback = Future<void> Function({
   required String title,
   required String noteBody,
   required List<LinkPick> links,
+  bool inkGhost,
 });
 
 /// Confirm-on-photo — photo hero, chips, edit title/body, Link picker, Commit.
+///
+/// For △ visual: ink-ghost toggle dims the page under editable region cards.
 class ConfirmShell extends StatefulWidget {
   const ConfirmShell({
     super.key,
@@ -45,6 +49,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   late final TextEditingController _bodyController;
   late List<LinkPick> _links;
   late final SymbolRouter _router;
+  bool _inkGhost = true;
 
   @override
   void initState() {
@@ -67,6 +72,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   }
 
   bool get _isDaily => _router.routeById(_selectedId).isDailyTasks;
+  bool get _isCanvas => _router.routeById(_selectedId).isCanvas;
 
   Future<void> _openLinks() async {
     final result = await showLinkPickerSheet(
@@ -89,6 +95,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
           : _titleController.text.trim(),
       noteBody: _bodyController.text,
       links: _links,
+      inkGhost: _isCanvas ? _inkGhost : true,
     );
   }
 
@@ -107,20 +114,36 @@ class _ConfirmShellState extends State<ConfirmShell> {
               child: InteractiveViewer(
                 minScale: 0.8,
                 maxScale: 4,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image.memory(
-                      widget.capture.imageBytes,
-                      fit: BoxFit.contain,
-                      gaplessPlayback: true,
-                    ),
-                    CustomPaint(
-                      painter: RegionOverlayPainter(
-                        regions: widget.capture.meaning.regions,
-                      ),
-                    ),
-                  ],
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Opacity(
+                          opacity: _isCanvas && _inkGhost ? 0.36 : 1,
+                          child: Image.memory(
+                            widget.capture.imageBytes,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                          ),
+                        ),
+                        if (_isCanvas)
+                          _InkGhostNodeLayer(
+                            regions: widget.capture.meaning.regions,
+                            parentSize: Size(
+                              constraints.maxWidth,
+                              constraints.maxHeight,
+                            ),
+                          )
+                        else
+                          CustomPaint(
+                            painter: RegionOverlayPainter(
+                              regions: widget.capture.meaning.regions,
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ),
@@ -181,6 +204,27 @@ class _ConfirmShellState extends State<ConfirmShell> {
                         },
                       ),
                     ),
+                    if (_isCanvas)
+                      SwitchListTile(
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: 16),
+                        title: Text(
+                          'Ink ghost',
+                          style: textTheme.titleMedium,
+                        ),
+                        subtitle: Text(
+                          'Page photo under editable nodes',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: MemoryHues.inkMuted,
+                          ),
+                        ),
+                        value: _inkGhost,
+                        activeThumbColor: MemoryHues.accent,
+                        activeTrackColor: MemoryHues.accentSoft,
+                        onChanged: widget.committing
+                            ? null
+                            : (v) => setState(() => _inkGhost = v),
+                      ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                       child: TextField(
@@ -216,7 +260,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
                             route.isDailyTasks
                                 ? '→ Daily Notes (## Tasks)'
                                 : route.isCanvas
-                                    ? '→ ${route.folder}/ (.canvas)'
+                                    ? '→ ${route.folder}/ (.canvas'
+                                        '${_inkGhost ? ', ink-ghost' : ''})'
                                     : '→ ${route.folder}/',
                             style: textTheme.labelMedium,
                           ),
@@ -271,6 +316,73 @@ class _ConfirmShellState extends State<ConfirmShell> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Editable-looking region cards laid over the (optionally ghosted) page photo.
+class _InkGhostNodeLayer extends StatelessWidget {
+  const _InkGhostNodeLayer({
+    required this.regions,
+    required this.parentSize,
+  });
+
+  final List<OcrRegion> regions;
+  final Size parentSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Stack(
+      children: [
+        for (var i = 0; i < regions.length; i++)
+          _positionedCard(
+            region: regions[i],
+            index: i,
+            textTheme: textTheme,
+          ),
+      ],
+    );
+  }
+
+  Widget _positionedCard({
+    required OcrRegion region,
+    required int index,
+    required TextTheme textTheme,
+  }) {
+    final bbox = region.bbox;
+    final left = (bbox != null && bbox.length >= 4 ? bbox[0] : 0.12) *
+        parentSize.width;
+    final top = (bbox != null && bbox.length >= 4
+            ? bbox[1]
+            : 0.18 + index * 0.14) *
+        parentSize.height;
+    final width = (bbox != null && bbox.length >= 4 ? bbox[2] : 0.5) *
+        parentSize.width;
+    final height = (bbox != null && bbox.length >= 4 ? bbox[3] : 0.1) *
+        parentSize.height;
+
+    return Positioned(
+      left: left.clamp(0, parentSize.width - 48),
+      top: top.clamp(0, parentSize.height - 32),
+      width: width.clamp(96, parentSize.width),
+      height: height.clamp(36, parentSize.height),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: MemoryHues.paperElevated.withValues(alpha: 0.92),
+          border: Border.all(color: MemoryHues.accent, width: 1.2),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Text(
+            region.text,
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: textTheme.labelMedium?.copyWith(color: MemoryHues.ink),
+          ),
         ),
       ),
     );

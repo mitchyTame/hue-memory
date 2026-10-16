@@ -131,7 +131,11 @@ After capture → meaning pass. Default **mock**. Enable live: **Settings → OC
 
 Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; a copy is mirrored to `symbol-journal/packs/active.yaml` in the vault. Dart `DefaultPacks` remains a fallback if assets fail.
 
-**Still TODO:** offline OCR queue, secure key storage, ink-ghost Canvas, printables / promote ritual, full 18-glyph library editor.
+**Still TODO:** offline OCR queue, secure key storage, printables / promote ritual, full 18-glyph library editor.
+
+### Ink-ghost Canvas
+
+△ / visual commits write JSON Canvas with the page photo as a **file node under** text nodes (bbox-scaled). Confirm shows an **Ink ghost** toggle (dimmed photo + region cards). `meaning.json` records `ink_ghost`.
 
 ## Tests
 

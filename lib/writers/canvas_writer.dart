@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:math' as math;
+
+import '../ocr/ocr_client.dart';
 
 /// A JSON Canvas 1.0 node (subset used by hue-memory).
 class CanvasNode {
@@ -11,6 +14,7 @@ class CanvasNode {
     required this.height,
     this.file,
     this.text,
+    this.color,
   });
 
   final String id;
@@ -21,6 +25,9 @@ class CanvasNode {
   final int height;
   final String? file;
   final String? text;
+
+  /// Optional JSON Canvas color (hex without `#`, or Obsidian preset `"1"`…`"6"`).
+  final String? color;
 
   Map<String, Object?> toJson() {
     final map = <String, Object?>{
@@ -33,6 +40,7 @@ class CanvasNode {
     };
     if (file != null) map['file'] = file;
     if (text != null) map['text'] = text;
+    if (color != null) map['color'] = color;
     return map;
   }
 }
@@ -73,32 +81,110 @@ class CanvasDocument {
       };
 }
 
-/// Pure-Dart JSON Canvas 1.0 writer.
+/// Pure-Dart JSON Canvas 1.0 writer with ink-ghost layout helpers.
 class CanvasWriter {
   const CanvasWriter();
 
+  /// Default canvas frame for the page photo file node.
+  static const int defaultImageWidth = 480;
+  static const int defaultImageHeight = 640;
+  static const int defaultImageX = 0;
+  static const int defaultImageY = 0;
+
+  /// Soft paper-tint preset so the ghost reads quieter than text cards.
+  static const String ghostImageColor = '4';
+
   /// Build a canvas with the page photo as a file node (ink-ghost base)
   /// plus optional text nodes / edges from meaning extract.
+  ///
+  /// When [inkGhost] is true (default), the image node is listed first so
+  /// editable text sits above the paper in Obsidian Canvas. JSON Canvas has
+  /// no opacity field — the ghost effect is dual-coding (photo under nodes)
+  /// plus the in-app confirm toggle.
   CanvasDocument buildVisualCanvas({
     required String sourceImage,
     required List<CanvasNode> textNodes,
     List<CanvasEdge> edges = const [],
-    int imageWidth = 480,
-    int imageHeight = 640,
+    int imageWidth = defaultImageWidth,
+    int imageHeight = defaultImageHeight,
+    int imageX = defaultImageX,
+    int imageY = defaultImageY,
+    bool inkGhost = true,
   }) {
     final imageNode = CanvasNode(
       id: 'img',
       type: 'file',
       file: sourceImage,
-      x: -800,
-      y: -200,
+      x: imageX,
+      y: imageY,
       width: imageWidth,
       height: imageHeight,
+      color: inkGhost ? ghostImageColor : null,
     );
-    return CanvasDocument(
-      nodes: [imageNode, ...textNodes],
-      edges: edges,
-    );
+    // Image first = under; ghost off still keeps the photo for dual coding,
+    // but appends it after text so cards read as primary in Obsidian.
+    final nodes = inkGhost
+        ? <CanvasNode>[imageNode, ...textNodes]
+        : <CanvasNode>[...textNodes, imageNode];
+    return CanvasDocument(nodes: nodes, edges: edges);
+  }
+
+  /// Map normalized OCR bboxes `[left, top, width, height]` (0–1) onto the
+  /// image file-node frame so paper topology survives into `.canvas`.
+  static List<CanvasNode> nodesFromRegions(
+    List<OcrRegion> regions, {
+    int imageWidth = defaultImageWidth,
+    int imageHeight = defaultImageHeight,
+    int imageX = defaultImageX,
+    int imageY = defaultImageY,
+    int minWidth = 120,
+    int minHeight = 48,
+  }) {
+    final nodes = <CanvasNode>[];
+    for (var i = 0; i < regions.length; i++) {
+      final r = regions[i];
+      final bbox = r.bbox;
+      final left = bbox != null && bbox.length >= 4 ? bbox[0] : 0.1;
+      final top = bbox != null && bbox.length >= 4
+          ? bbox[1]
+          : 0.12 + i * 0.14;
+      final w = bbox != null && bbox.length >= 4 ? bbox[2] : 0.5;
+      final h = bbox != null && bbox.length >= 4 ? bbox[3] : 0.1;
+      final id = r.id.isNotEmpty ? r.id : 'n${i + 1}';
+      nodes.add(
+        CanvasNode(
+          id: id,
+          type: 'text',
+          text: r.text,
+          x: imageX + (left * imageWidth).round(),
+          y: imageY + (top * imageHeight).round(),
+          width: math
+              .max(minWidth, (w * imageWidth).round())
+              .clamp(minWidth, imageWidth),
+          height: math
+              .max(minHeight, (h * imageHeight).round())
+              .clamp(minHeight, imageHeight),
+        ),
+      );
+    }
+    return nodes;
+  }
+
+  /// Naive hub edges: first region → each subsequent (good enough for MVP).
+  static List<CanvasEdge> heuristicEdges(List<CanvasNode> textNodes) {
+    if (textNodes.length < 2) return const [];
+    final hub = textNodes.first;
+    final edges = <CanvasEdge>[];
+    for (var i = 1; i < textNodes.length; i++) {
+      edges.add(
+        CanvasEdge(
+          id: 'e$i',
+          fromNode: hub.id,
+          toNode: textNodes[i].id,
+        ),
+      );
+    }
+    return edges;
   }
 
   String writeJson(CanvasDocument doc, {bool pretty = true}) {

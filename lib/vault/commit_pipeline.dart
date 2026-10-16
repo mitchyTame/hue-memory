@@ -21,6 +21,7 @@ class CommitInput {
     required this.noteBody,
     this.links = const [],
     this.taskLines,
+    this.inkGhost = true,
   });
 
   final PendingCapture capture;
@@ -31,6 +32,9 @@ class CommitInput {
 
   /// Overrides [PendingCapture.taskLines] when non-null (daily-tasks).
   final List<String>? taskLines;
+
+  /// Visual / canvas only — page photo under editable nodes (default on).
+  final bool inkGhost;
 }
 
 class CommitResult {
@@ -126,12 +130,26 @@ class CommitPipeline {
       final slug = slugify(input.title);
       final canvasPath =
           '${_router.noteRelativeDir(route)}/${capture.pageId}-$slug.canvas';
-      final textNodes = _nodesFromRegions(capture.meaning.regions);
+      final textNodes =
+          CanvasWriter.nodesFromRegions(capture.meaning.regions);
+      final edges = CanvasWriter.heuristicEdges(textNodes);
       final doc = _canvas.buildVisualCanvas(
         sourceImage: rawImagePath,
         textNodes: textNodes,
+        edges: edges,
+        inkGhost: input.inkGhost,
       );
       await _vault.writeText(canvasPath, _canvas.writeJson(doc));
+      // Re-write meaning with ink_ghost flag once we know the route.
+      await _vault.writeText(
+        meaningPath,
+        _meaningJson(
+          capture.meaning,
+          route.symbol,
+          capture.pageId,
+          inkGhost: input.inkGhost,
+        ),
+      );
       return CommitResult(
         pageId: capture.pageId,
         rawImagePath: rawImagePath,
@@ -194,27 +212,12 @@ class CommitPipeline {
     return sum / regions.length;
   }
 
-  static List<CanvasNode> _nodesFromRegions(List<OcrRegion> regions) {
-    var i = 0;
-    return [
-      for (final r in regions)
-        CanvasNode(
-          id: 'n${++i}',
-          type: 'text',
-          text: r.text,
-          x: (i - 1) * 40,
-          y: (i - 1) * 100,
-          width: 260,
-          height: 80,
-        ),
-    ];
-  }
-
   static String _meaningJson(
     MeaningResult meaning,
     PackSymbol symbol,
-    String pageId,
-  ) {
+    String pageId, {
+    bool? inkGhost,
+  }) {
     final map = <String, Object?>{
       'page_id': pageId,
       'symbol': symbol.id,
@@ -231,6 +234,7 @@ class CommitPipeline {
       ],
       'raw': meaning.rawJson,
       'stem': PageId.shortStem(pageId),
+      if (inkGhost != null) 'ink_ghost': inkGhost,
     };
     return const JsonEncoder.withIndent('  ').convert(map);
   }

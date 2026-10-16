@@ -118,7 +118,42 @@ void main() {
     final nodes = json['nodes'] as List;
     expect(nodes.first['type'], 'file');
     expect(nodes.first['file'], 'captures/raw/20261016-p7k2.png');
+    expect(nodes.first['color'], '4');
     expect(nodes.length, greaterThan(1));
+    // bbox-scaled: n1 at ~0.35*480, 0.28*640
+    final n1 = nodes[1] as Map;
+    expect(n1['id'], 'n1');
+    expect(n1['x'], (0.35 * 480).round());
+    final edges = json['edges'] as List;
+    expect(edges, isNotEmpty);
+
+    final meaning =
+        jsonDecode(await vault.readText(result.meaningPath)) as Map;
+    expect(meaning['ink_ghost'], isTrue);
+  });
+
+  test('canvas inkGhost false still embeds photo after text nodes', () async {
+    final capture = _capture(
+      glyph: '△',
+      regions: MockOcrClient.defaultVisualRegions,
+    );
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'visual',
+        title: 'Mindmap topic',
+        noteBody: 'Central idea',
+        inkGhost: false,
+      ),
+    );
+    final json =
+        jsonDecode(await vault.readText(result.canvasPath!)) as Map;
+    final nodes = json['nodes'] as List;
+    expect(nodes.last['type'], 'file');
+    expect(nodes.first['type'], 'text');
+    final meaning =
+        jsonDecode(await vault.readText(result.meaningPath)) as Map;
+    expect(meaning['ink_ghost'], isFalse);
   });
 
   test('daily-tasks appends checkboxes under ## Tasks', () async {
