@@ -84,10 +84,14 @@ VaultBindResult bindVaultRoot({
   }
 
   if (isSafTreeUri(trimmed)) {
+    // Persist the bare tree URI — matches Android's takePersistable grant.
+    // pickDirectory often returns tree/<id>/document/<id>; grants list the bare
+    // tree/<id>, so storing the document form made restore fail every launch.
+    final bare = safBareTreeUri(trimmed);
     return VaultBindResult(
-      vault: SafVaultFs(treeUri: trimmed, documents: documents),
-      persist: trimmed,
-      label: safVaultLabel(trimmed),
+      vault: SafVaultFs(treeUri: bare, documents: documents),
+      persist: bare,
+      label: safVaultLabel(bare),
     );
   }
 
@@ -133,12 +137,18 @@ Future<VaultBindResult> resolvePersistedVaultRoot({
   if (isSafTreeUri(saved)) {
     try {
       final grants = await documents.persistedPermissions();
-      final ok = grants.any((g) => g.uri == saved && g.write);
-      if (ok) {
-        return bindVaultRoot(rootRef: saved!, documents: documents);
+      // Match bare tree ↔ document-normalized forms (see [safSameTreeUri]).
+      for (final g in grants) {
+        if (g.write && safSameTreeUri(g.uri, saved!)) {
+          return bindVaultRoot(rootRef: g.uri, documents: documents);
+        }
       }
+      // Grant list may lag or use a different encoding — try the saved URI.
+      final bound = bindVaultRoot(rootRef: saved!, documents: documents);
+      await verifyVaultWritable(bound.vault);
+      return bound;
     } catch (_) {
-      // Grant revoked — fall through to default.
+      // Grant revoked or unwritable — fall through to default.
     }
   } else if (saved != null &&
       isLocalFilesystemPath(saved) &&

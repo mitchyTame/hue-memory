@@ -103,6 +103,37 @@ void main() {
     expect(bound.persist, docs.rootUri);
   });
 
+  test(
+    'resolvePersistedVaultRoot matches document URI to bare tree grant',
+    () async {
+      // Real Android: pick returns tree/<id>/document/<id>; grant is tree/<id>.
+      const bare =
+          'content://com.android.externalstorage.documents/tree/primary%3AVault';
+      const document =
+          'content://com.android.externalstorage.documents/tree/primary%3AVault/document/primary%3AVault';
+      final mem = MemorySafDocuments(rootUri: bare)..grantRoot();
+      final bound = await resolvePersistedVaultRoot(
+        saved: document,
+        documents: mem,
+        fallbackDirectory: () async => temp,
+      );
+      expect(bound.vault, isA<SafVaultFs>());
+      expect(bound.persist, bare);
+      expect(safSameTreeUri(bound.persist, document), isTrue);
+    },
+  );
+
+  test('bindVaultRoot persists bare tree URI from document form', () {
+    const document =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault/document/primary%3AVault';
+    const bare =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault';
+    final mem = MemorySafDocuments(rootUri: bare)..grantRoot();
+    final bound = bindVaultRoot(rootRef: document, documents: mem);
+    expect(bound.persist, bare);
+    expect((bound.vault as SafVaultFs).treeUri, bare);
+  });
+
   test('resolvePersistedVaultRoot skips unwritable shared-storage prefs',
       () async {
     final bound = await resolvePersistedVaultRoot(

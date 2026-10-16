@@ -10,6 +10,44 @@ import 'vault_fs.dart';
 bool isSafTreeUri(String? value) =>
     value != null && value.startsWith('content:');
 
+/// Bare `content://…/tree/<id>` form Android actually persists.
+///
+/// `saf` pickDirectory returns the normalized
+/// `tree/<id>/document/<id>` document URI, but
+/// [ContentResolver.takePersistableUriPermission] stores the bare tree URI.
+/// Prefs must keep the bare form so restore can match [persistedPermissions].
+///
+/// String-slices (does not re-encode) so `%3A` stays `%3A`.
+String safBareTreeUri(String uri) {
+  if (!uri.startsWith('content:')) return uri;
+  const treeSeg = '/tree/';
+  const docSeg = '/document/';
+  final treeAt = uri.indexOf(treeSeg);
+  if (treeAt < 0) return uri;
+  final idStart = treeAt + treeSeg.length;
+  final docAt = uri.indexOf(docSeg, idStart);
+  if (docAt < 0) return uri; // already bare tree (or other shape)
+  final treeId = uri.substring(idStart, docAt);
+  final docIdStart = docAt + docSeg.length;
+  var docIdEnd = uri.length;
+  for (final stop in ['/', '?', '#']) {
+    final i = uri.indexOf(stop, docIdStart);
+    if (i >= 0 && i < docIdEnd) docIdEnd = i;
+  }
+  final docId = uri.substring(docIdStart, docIdEnd);
+  if (treeId != docId) return uri;
+  return uri.substring(0, docAt);
+}
+
+/// True when [a] and [b] name the same SAF tree (bare or document-normalized).
+bool safSameTreeUri(String a, String b) {
+  if (a == b) return true;
+  final bareA = safBareTreeUri(a);
+  final bareB = safBareTreeUri(b);
+  if (bareA == bareB) return true;
+  return Uri.decodeFull(bareA) == Uri.decodeFull(bareB);
+}
+
 /// Short label for Settings / capture chrome (no framework jargon).
 String safVaultLabel(String treeUri) {
   // Prefer the last path segment of the document id when present.

@@ -22,6 +22,20 @@ void main() {
     expect(isSafTreeUri(null), isFalse);
   });
 
+  test('safBareTreeUri strips document-normalized pick URI', () {
+    const bare =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault';
+    const document =
+        'content://com.android.externalstorage.documents/tree/primary%3AVault/document/primary%3AVault';
+    expect(safBareTreeUri(document), bare);
+    expect(safBareTreeUri(bare), bare);
+    expect(safSameTreeUri(document, bare), isTrue);
+    expect(
+      safSameTreeUri(document, 'content://other/tree/primary%3AVault'),
+      isFalse,
+    );
+  });
+
   test('mimeForVaultPath covers note + image + canvas', () {
     expect(mimeForVaultPath('a/b.md'), 'text/markdown');
     expect(mimeForVaultPath('x.canvas'), 'application/json');

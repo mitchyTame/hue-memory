@@ -168,7 +168,16 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
         documents: _safDocuments,
         fallbackDirectory: defaultVaultDirectory,
       );
-      await _vaultSettings.writeVaultRoot(bound.persist);
+      // Only rewrite prefs when the bound root changed (e.g. normalize a
+      // document URI → bare tree URI). Never clobber a content:// pick with
+      // the app-default path after a flaky grant check.
+      final keepSavedSaf = isSafTreeUri(saved) &&
+          !isSafTreeUri(bound.persist) &&
+          saved != null &&
+          saved.isNotEmpty;
+      if (!keepSavedSaf && bound.persist != saved) {
+        await _vaultSettings.writeVaultRoot(bound.persist);
+      }
       try {
         await _packStore.mirrorToVault(bound.vault, _activePack);
       } catch (_) {}
