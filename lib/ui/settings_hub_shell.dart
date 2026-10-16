@@ -8,15 +8,19 @@ class SettingsHubShell extends StatelessWidget {
     super.key,
     required this.vaultLabel,
     required this.ocrModeLabel,
+    required this.packLabel,
     this.onOpenVault,
     this.onOpenOcr,
+    this.onOpenSymbols,
     this.onBack,
   });
 
   final String vaultLabel;
   final String ocrModeLabel;
+  final String packLabel;
   final VoidCallback? onOpenVault;
   final VoidCallback? onOpenOcr;
+  final VoidCallback? onOpenSymbols;
   final VoidCallback? onBack;
 
   @override
@@ -46,6 +50,13 @@ class SettingsHubShell extends StatelessWidget {
             subtitle: Text(ocrModeLabel, style: textTheme.labelMedium),
             trailing: const Icon(Icons.chevron_right),
             onTap: onOpenOcr,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            title: Text('Symbols', style: textTheme.titleLarge),
+            subtitle: Text(packLabel, style: textTheme.labelMedium),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenSymbols,
           ),
         ],
       ),

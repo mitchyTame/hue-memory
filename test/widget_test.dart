@@ -8,8 +8,11 @@ import 'package:hue_memory/capture/page_id.dart';
 import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_settings.dart';
 import 'package:hue_memory/settings/vault_settings_store.dart';
+import 'package:hue_memory/symbols/active_pack_store.dart';
+import 'package:hue_memory/symbols/default_packs.dart';
 import 'package:hue_memory/theme/app_theme.dart';
 import 'package:hue_memory/vault/fake_vault_fs.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Uint8List _tinyPng() {
   return Uint8List.fromList([
@@ -23,12 +26,16 @@ Uint8List _tinyPng() {
 }
 
 void main() {
-  setUp(() => AppTheme.skipGoogleFonts = true);
+  setUp(() {
+    AppTheme.skipGoogleFonts = true;
+    SharedPreferences.setMockInitialValues({});
+  });
   tearDown(() => AppTheme.skipGoogleFonts = false);
 
   testWidgets('shutter → confirm → commit writes vault files', (tester) async {
     final vault = FakeVaultFs();
     final ocr = MockOcrClient();
+    final prefs = await SharedPreferences.getInstance();
 
     await tester.pumpWidget(
       HueMemoryApp(
@@ -38,10 +45,13 @@ void main() {
         pageIds: PageId(random: _FixedRandom()),
         settings: MemoryVaultSettingsStore(),
         ocrSettings: MemoryOcrSettingsStore(),
+        packStore: ActivePackStore(prefs: prefs),
+        initialPack: DefaultPacks.zettelkastenInk,
       ),
     );
+    // Bootstrap loads pack assets; avoid pumpAndSettle (spinner never settles).
     await tester.pump();
-    await tester.pump(); // bootstrap
+    await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('hue-memory'), findsOneWidget);
 

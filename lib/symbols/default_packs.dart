@@ -10,11 +10,12 @@ abstract final class InkDrawIds {
   static const dot = 'dot';
 }
 
-/// Default Zettelkasten ink pack: ○ ∼ ≡ ◇ △ ·
+/// Dart fallback if YAML assets fail to load. Prefer `assets/packs/*.yaml`.
 abstract final class DefaultPacks {
   static const SymbolPack zettelkastenInk = SymbolPack(
     id: 'zettelkasten-ink',
     libraryRef: 'ink-v1',
+    label: 'Zettelkasten ink',
     symbols: [
       PackSymbol(
         id: 'inbox',

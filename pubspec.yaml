@@ -43,6 +43,7 @@ dependencies:
   http: ^1.6.0
   saf: ^2.1.2
   camera: ^0.12.0+1
+  yaml: ^3.1.4
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +70,8 @@ flutter:
 
   assets:
     - assets/sample_page.png
+    - assets/packs/zettelkasten-ink.yaml
+    - assets/packs/gtd-ink.yaml
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
