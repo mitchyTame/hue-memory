@@ -23,7 +23,10 @@ import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
+import 'printables/hue_code.dart';
+import 'printables/paper_kit_pdf.dart';
 import 'ui/ocr_settings_shell.dart';
+import 'ui/paper_kit_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
@@ -34,7 +37,7 @@ import 'vault/saf_vault_fs.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
-enum _SettingsPane { hub, vault, ocr, symbols }
+enum _SettingsPane { hub, vault, ocr, symbols, paperKit }
 
 /// Root app. Slice 7: YAML symbol packs + live camera + SAF / Local vault.
 class HueMemoryApp extends StatefulWidget {
@@ -326,7 +329,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   bool _settingsBusy = false;
   String? _lastCommitPath;
   String? _lastProbePath;
+  String? _lastPrintablePath;
   OcrSettings _ocrDraft = const OcrSettings();
+  final PaperKitPdf _paperKit = const PaperKitPdf();
   final List<LinkPick> _recentPages = [
     const LinkPick(
       targetPath: 'permanent/seed-attention',
@@ -520,6 +525,78 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
+  Future<void> _writeLegendPdf() async {
+    setState(() => _settingsBusy = true);
+    try {
+      final bytes = await _paperKit.buildLegend(pack: widget.activePack);
+      final stamp = DateTime.now()
+          .toUtc()
+          .toIso8601String()
+          .replaceAll(':', '')
+          .replaceAll('-', '')
+          .substring(0, 15);
+      final path =
+          'symbol-journal/printables/$stamp-legend-${widget.activePack.id}.pdf';
+      await widget.vault.writeBytes(path, bytes);
+      if (!mounted) return;
+      setState(() {
+        _settingsBusy = false;
+        _lastPrintablePath = path;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Wrote $path'),
+          backgroundColor: MemoryHues.accent,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _settingsBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Legend PDF failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _writeHueDotPdf() async {
+    setState(() => _settingsBusy = true);
+    try {
+      final codes = HueCode().batch(12);
+      final bytes = await _paperKit.buildHueDotSheet(codes: codes);
+      final stamp = DateTime.now()
+          .toUtc()
+          .toIso8601String()
+          .replaceAll(':', '')
+          .replaceAll('-', '')
+          .substring(0, 15);
+      final path = 'symbol-journal/printables/$stamp-hue-dots.pdf';
+      await widget.vault.writeBytes(path, bytes);
+      if (!mounted) return;
+      setState(() {
+        _settingsBusy = false;
+        _lastPrintablePath = path;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Wrote $path'),
+          backgroundColor: MemoryHues.accent,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _settingsBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Hue-dot PDF failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pane = _settingsPane;
@@ -542,6 +619,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             },
             onOpenSymbols: () =>
                 setState(() => _settingsPane = _SettingsPane.symbols),
+            onOpenPaperKit: () =>
+                setState(() => _settingsPane = _SettingsPane.paperKit),
           );
         case _SettingsPane.vault:
           return VaultSettingsShell(
@@ -584,6 +663,15 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               if (!mounted) return;
               setState(() => _settingsBusy = false);
             },
+          );
+        case _SettingsPane.paperKit:
+          return PaperKitShell(
+            packLabel: widget.activePack.displayName,
+            busy: _settingsBusy,
+            lastWritePath: _lastPrintablePath,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onWriteLegend: _writeLegendPdf,
+            onWriteHueDots: _writeHueDotPdf,
           );
       }
     }
