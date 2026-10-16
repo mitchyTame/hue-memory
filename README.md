@@ -121,7 +121,13 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | Symbol pack + routing | `lib/symbols/` |
 | Writers | `lib/writers/` |
 
-**Still TODO:** real Android camera, SAF `VaultFs` (replace LocalVaultFs on device), Mistral OCR.
+### Mistral OCR (when?)
+
+**Now (slice 4):** after capture → meaning pass. Default is still **mock**. Enable live under **Settings → OCR** (API key + consent + toggle), or set `MISTRAL_API_KEY` in the environment and flip the toggle/consent in the UI.
+
+Flow: shutter/gallery → `ConfigurableOcrClient` → Mistral `POST /v1/ocr` (image data URL) → confirm → vault write.
+
+**Still TODO:** real Android camera, SAF `VaultFs`, offline OCR queue, secure key storage.
 
 ## Tests
 

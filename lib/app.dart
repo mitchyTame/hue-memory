@@ -10,20 +10,25 @@ import 'camera/file_pick_capture.dart';
 import 'camera/sample_capture.dart';
 import 'capture/page_id.dart';
 import 'capture/pending_capture.dart';
-import 'ocr/mock_ocr_client.dart';
+import 'ocr/configurable_ocr_client.dart';
 import 'ocr/ocr_client.dart';
+import 'ocr/ocr_settings.dart';
 import 'settings/vault_settings_store.dart';
 import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
+import 'ui/ocr_settings_shell.dart';
+import 'ui/settings_hub_shell.dart';
 import 'ui/vault_settings_shell.dart';
 import 'vault/commit_pipeline.dart';
 import 'vault/local_vault_fs.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
-/// Root app. Slice 3: [LocalVaultFs] on disk + sample/file-pick capture.
+enum _SettingsPane { hub, vault, ocr }
+
+/// Root app. Slice 4: configurable Mistral OCR (mock default until consent).
 class HueMemoryApp extends StatefulWidget {
   const HueMemoryApp({
     super.key,
@@ -32,33 +37,42 @@ class HueMemoryApp extends StatefulWidget {
     OcrClient? ocr,
     PageId? pageIds,
     VaultSettingsStore? settings,
+    OcrSettingsStore? ocrSettings,
   })  : _vault = vault,
         _camera = camera,
         _ocr = ocr,
         _pageIds = pageIds,
-        _settings = settings;
+        _settings = settings,
+        _ocrSettings = ocrSettings;
 
   final VaultFs? _vault;
   final CameraCapture? _camera;
   final OcrClient? _ocr;
   final PageId? _pageIds;
   final VaultSettingsStore? _settings;
+  final OcrSettingsStore? _ocrSettings;
 
   @override
   State<HueMemoryApp> createState() => _HueMemoryAppState();
 }
 
 class _HueMemoryAppState extends State<HueMemoryApp> {
-  late final VaultSettingsStore _settings =
+  late final VaultSettingsStore _vaultSettings =
       widget._settings ?? PrefsVaultSettingsStore();
+  late final OcrSettingsStore _ocrSettings = widget._ocrSettings ??
+      PrefsOcrSettingsStore(
+        envApiKey: Platform.environment['MISTRAL_API_KEY'] ?? '',
+      );
   late final CameraCapture _sampleCamera =
       widget._camera ?? SampleAssetCapture();
   late final FilePickCapture _filePickCamera = FilePickCapture();
-  late final OcrClient _ocr = widget._ocr ?? MockOcrClient();
+  late final OcrClient _ocr = widget._ocr ??
+      ConfigurableOcrClient(settings: _ocrSettings);
   late final PageId _pageIds = widget._pageIds ?? PageId();
 
   VaultFs? _vault;
   String _vaultLabel = 'Loading vault…';
+  String _ocrModeLabel = 'OCR: mock';
   bool _ready = false;
 
   @override
@@ -68,6 +82,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   }
 
   Future<void> _bootstrap() async {
+    await _refreshOcrLabel();
+
     if (widget._vault != null) {
       setState(() {
         _vault = widget._vault;
@@ -80,13 +96,13 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     }
 
     try {
-      final saved = await _settings.readVaultRoot();
+      final saved = await _vaultSettings.readVaultRoot();
       Directory root;
       if (saved != null && saved.isNotEmpty && Directory(saved).existsSync()) {
         root = Directory(saved);
       } else {
         root = await defaultVaultDirectory();
-        await _settings.writeVaultRoot(root.path);
+        await _vaultSettings.writeVaultRoot(root.path);
       }
       final vault = LocalVaultFs(root);
       if (!mounted) return;
@@ -104,9 +120,17 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     }
   }
 
+  Future<void> _refreshOcrLabel() async {
+    final cfg = await _ocrSettings.read();
+    if (!mounted) return;
+    setState(() {
+      _ocrModeLabel = cfg.shouldUseLive ? 'OCR: Mistral (live)' : 'OCR: mock';
+    });
+  }
+
   Future<void> _setVaultRoot(Directory root) async {
     final vault = LocalVaultFs(root);
-    await _settings.writeVaultRoot(root.path);
+    await _vaultSettings.writeVaultRoot(root.path);
     setState(() {
       _vault = vault;
       _vaultLabel = vault.rootPath;
@@ -127,15 +151,18 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
           : _HomeNavigator(
               vault: _vault!,
               vaultLabel: _vaultLabel,
+              ocrModeLabel: _ocrModeLabel,
               sampleCamera: _sampleCamera,
               filePickCamera: _filePickCamera,
               ocr: _ocr,
+              ocrSettings: _ocrSettings,
               pageIds: _pageIds,
               onVaultRootChanged: _setVaultRoot,
               onUseDefaultVault: () async {
                 final dir = await defaultVaultDirectory();
                 await _setVaultRoot(dir);
               },
+              onOcrSettingsChanged: _refreshOcrLabel,
             ),
     );
   }
@@ -155,22 +182,28 @@ class _HomeNavigator extends StatefulWidget {
   const _HomeNavigator({
     required this.vault,
     required this.vaultLabel,
+    required this.ocrModeLabel,
     required this.sampleCamera,
     required this.filePickCamera,
     required this.ocr,
+    required this.ocrSettings,
     required this.pageIds,
     required this.onVaultRootChanged,
     required this.onUseDefaultVault,
+    required this.onOcrSettingsChanged,
   });
 
   final VaultFs vault;
   final String vaultLabel;
+  final String ocrModeLabel;
   final CameraCapture sampleCamera;
   final CameraCapture filePickCamera;
   final OcrClient ocr;
+  final OcrSettingsStore ocrSettings;
   final PageId pageIds;
   final Future<void> Function(Directory root) onVaultRootChanged;
   final Future<void> Function() onUseDefaultVault;
+  final Future<void> Function() onOcrSettingsChanged;
 
   @override
   State<_HomeNavigator> createState() => _HomeNavigatorState();
@@ -182,10 +215,11 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   PendingCapture? _pending;
   bool _busy = false;
   bool _committing = false;
-  bool _showSettings = false;
+  _SettingsPane? _settingsPane;
   bool _settingsBusy = false;
   String? _lastCommitPath;
   String? _lastProbePath;
+  OcrSettings _ocrDraft = const OcrSettings();
   final List<LinkPick> _recentPages = [
     const LinkPick(
       targetPath: 'permanent/seed-attention',
@@ -199,6 +233,14 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     if (oldWidget.vault != widget.vault) {
       _pipeline = CommitPipeline(vault: widget.vault);
     }
+  }
+
+  Future<void> _openSettings() async {
+    final ocr = await widget.ocrSettings.read();
+    setState(() {
+      _ocrDraft = ocr;
+      _settingsPane = _SettingsPane.hub;
+    });
   }
 
   Future<void> _beginCapture(CameraCapture source) async {
@@ -228,7 +270,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Capture failed: $e'),
+          content: Text('Capture / OCR failed: $e'),
           backgroundColor: MemoryHues.danger,
         ),
       );
@@ -353,24 +395,52 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   @override
   Widget build(BuildContext context) {
-    if (_showSettings) {
-      return VaultSettingsShell(
-        vaultRootLabel: widget.vaultLabel,
-        busy: _settingsBusy,
-        lastProbePath: _lastProbePath,
-        onBack: () => setState(() => _showSettings = false),
-        onChooseFolder: _chooseVaultFolder,
-        onWriteTestNote: _writeProbe,
-        onUseDefault: () async {
-          setState(() => _settingsBusy = true);
-          await widget.onUseDefaultVault();
-          if (!mounted) return;
-          setState(() {
-            _settingsBusy = false;
-            _lastProbePath = null;
-          });
-        },
-      );
+    final pane = _settingsPane;
+    if (pane != null) {
+      switch (pane) {
+        case _SettingsPane.hub:
+          return SettingsHubShell(
+            vaultLabel: widget.vaultLabel,
+            ocrModeLabel: widget.ocrModeLabel,
+            onBack: () => setState(() => _settingsPane = null),
+            onOpenVault: () => setState(() => _settingsPane = _SettingsPane.vault),
+            onOpenOcr: () async {
+              final ocr = await widget.ocrSettings.read();
+              setState(() {
+                _ocrDraft = ocr;
+                _settingsPane = _SettingsPane.ocr;
+              });
+            },
+          );
+        case _SettingsPane.vault:
+          return VaultSettingsShell(
+            vaultRootLabel: widget.vaultLabel,
+            busy: _settingsBusy,
+            lastProbePath: _lastProbePath,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onChooseFolder: _chooseVaultFolder,
+            onWriteTestNote: _writeProbe,
+            onUseDefault: () async {
+              setState(() => _settingsBusy = true);
+              await widget.onUseDefaultVault();
+              if (!mounted) return;
+              setState(() {
+                _settingsBusy = false;
+                _lastProbePath = null;
+              });
+            },
+          );
+        case _SettingsPane.ocr:
+          return OcrSettingsShell(
+            initial: _ocrDraft,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onSave: (settings) async {
+              await widget.ocrSettings.write(settings);
+              await widget.onOcrSettingsChanged();
+              setState(() => _ocrDraft = settings);
+            },
+          );
+      }
     }
 
     final pending = _pending;
@@ -385,11 +455,11 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
     return CaptureShell(
       busy: _busy,
-      vaultLabel: widget.vaultLabel,
+      vaultLabel: '${widget.vaultLabel} · ${widget.ocrModeLabel}',
       lastCommitPath: _lastCommitPath,
       onShutter: () => _beginCapture(widget.sampleCamera),
       onPickImage: () => _beginCapture(widget.filePickCamera),
-      onOpenSettings: () => setState(() => _showSettings = true),
+      onOpenSettings: _openSettings,
     );
   }
 }
