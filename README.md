@@ -14,19 +14,47 @@ Paper → confirm → Obsidian vault files. Flutter, Android-first.
 
 ## Prerequisites
 
-- Flutter SDK (stable). On this WSL machine: `~/sdk/flutter`
-  ```bash
-  export PATH="$HOME/sdk/flutter/bin:$PATH"
-  ```
-- Android toolchain for device/emulator runs (`flutter doctor`).
+### Flutter SDK (WSL)
+
+```bash
+export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$PATH"
+# already appended to ~/.bashrc on this machine
+```
+
+### Linux desktop build deps (Ubuntu/Debian)
+
+Required for `flutter run -d linux` / `flutter build linux` (fixes CMake “unable to find Ninja” / missing `CMAKE_CXX_COMPILER` / GTK):
+
+```bash
+sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  clang \
+  cmake \
+  ninja-build \
+  pkg-config \
+  libgtk-3-dev \
+  liblzma-dev \
+  mesa-utils
+```
+
+Then verify:
+
+```bash
+flutter doctor -v
+# Linux toolchain should show clang++, cmake, ninja, GTK 3.0
+```
+
+Android SDK is separate (needed for phone/emulator only, not Linux desktop).
 
 ## Run (slice 2 flow)
 
 ```bash
+export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$PATH"
 cd /home/mitch/projects/hue-memory
 flutter pub get
 flutter test
-flutter run
+flutter run -d linux
+# or, without a display: flutter build linux --debug
 ```
 
 1. Home is capture — tap the **teal shutter** (loads `assets/sample_page.png`; no camera required on Linux).
