@@ -44,13 +44,15 @@ import 'ui/vault_settings_shell.dart';
 import 'vault/commit_pipeline.dart';
 import 'vault/daily_note_path.dart';
 import 'vault/local_vault_fs.dart';
+import 'vault/saf_documents.dart';
 import 'vault/saf_vault_fs.dart';
+import 'vault/vault_bind.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
 enum _SettingsPane { hub, vault, ocr, symbols, folders, paperKit, library }
 
-/// Root app — symbol packs, live camera, local vault folder.
+/// Root app — symbol packs, live camera, durable Obsidian vault folder.
 class HueMemoryApp extends StatefulWidget {
   const HueMemoryApp({
     super.key,
@@ -63,6 +65,7 @@ class HueMemoryApp extends StatefulWidget {
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
+    SafDocuments? safDocuments,
   })  : _vault = vault,
         _camera = camera,
         _ocr = ocr,
@@ -71,7 +74,8 @@ class HueMemoryApp extends StatefulWidget {
         _ocrSettings = ocrSettings,
         _packStore = packStore,
         _initialPack = initialPack,
-        _captureQueue = captureQueue;
+        _captureQueue = captureQueue,
+        _safDocuments = safDocuments;
 
   final VaultFs? _vault;
   final CameraCapture? _camera;
@@ -82,6 +86,7 @@ class HueMemoryApp extends StatefulWidget {
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
+  final SafDocuments? _safDocuments;
 
   @override
   State<HueMemoryApp> createState() => _HueMemoryAppState();
@@ -108,6 +113,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       widget._packStore ?? ActivePackStore();
   late final CaptureQueue _captureQueue =
       widget._captureQueue ?? FileCaptureQueue();
+  late final SafDocuments _safDocuments =
+      widget._safDocuments ?? PluginSafDocuments();
 
   VaultFs? _vault;
   String _vaultLabel = 'Loading vault…';
@@ -156,44 +163,42 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
     try {
       final saved = await _vaultSettings.readVaultRoot();
-      VaultFs vault;
-      String label;
-      String persist;
-
-      if (isSafTreeUri(saved)) {
-        // Legacy SAF roots migrate to app-documents vault (local path only).
+      final bound = await resolvePersistedVaultRoot(
+        saved: saved,
+        documents: _safDocuments,
+        fallbackDirectory: defaultVaultDirectory,
+      );
+      await _vaultSettings.writeVaultRoot(bound.persist);
+      try {
+        await _packStore.mirrorToVault(bound.vault, _activePack);
+      } catch (_) {}
+      if (!mounted) return;
+      setState(() {
+        _vault = bound.vault;
+        _vaultLabel = bound.label;
+        _ready = true;
+      });
+    } catch (_) {
+      try {
         final root = await defaultVaultDirectory();
-        vault = LocalVaultFs(root);
-        label = root.path;
-        persist = root.path;
-      } else if (saved != null &&
-          saved.isNotEmpty &&
-          Directory(saved).existsSync()) {
-        final root = Directory(saved);
-        vault = LocalVaultFs(root);
-        label = root.path;
-        persist = root.path;
-      } else {
-        final root = await defaultVaultDirectory();
-        vault = LocalVaultFs(root);
-        label = root.path;
-        persist = root.path;
+        final bound = bindVaultRoot(
+          rootRef: root.path,
+          documents: _safDocuments,
+        );
+        await _vaultSettings.writeVaultRoot(bound.persist);
+        if (!mounted) return;
+        setState(() {
+          _vault = bound.vault;
+          _vaultLabel = bound.label;
+          _ready = true;
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _vaultLabel = 'Vault error — use Settings → Vault to choose a folder';
+          _ready = true;
+        });
       }
-
-      await _vaultSettings.writeVaultRoot(persist);
-      await _packStore.mirrorToVault(vault, _activePack);
-      if (!mounted) return;
-      setState(() {
-        _vault = vault;
-        _vaultLabel = label;
-        _ready = true;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _vaultLabel = 'Vault error: $e';
-        _ready = true;
-      });
     }
   }
 
@@ -205,19 +210,25 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
-  /// [rootRef] must be a filesystem path (legacy SAF URIs fall back to default).
+  /// [rootRef] is a filesystem path or a durable `content://` tree URI.
   Future<void> _setVaultRoot(String rootRef) async {
-    if (isSafTreeUri(rootRef)) {
-      final dir = await defaultVaultDirectory();
-      await _setVaultRoot(dir.path);
-      return;
+    final bound = bindVaultRoot(
+      rootRef: rootRef,
+      documents: _safDocuments,
+    );
+    await verifyVaultWritable(bound.vault);
+    await _vaultSettings.writeVaultRoot(bound.persist);
+    try {
+      await _packStore.mirrorToVault(bound.vault, _activePack);
+    } on FileSystemException catch (e) {
+      throw VaultBindException(vaultPickFailedMessage(e), cause: e);
+    } catch (e) {
+      // Mirror is best-effort after a successful write check.
+      if (e is VaultBindException) rethrow;
     }
-    final vault = LocalVaultFs(Directory(rootRef));
-    await _vaultSettings.writeVaultRoot(rootRef);
-    await _packStore.mirrorToVault(vault, _activePack);
     setState(() {
-      _vault = vault;
-      _vaultLabel = vault.rootPath;
+      _vault = bound.vault;
+      _vaultLabel = bound.label;
     });
   }
 
@@ -269,6 +280,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               activePack: _activePack,
               availablePacks: _availablePacks,
               captureQueue: _captureQueue,
+              safDocuments: _safDocuments,
               onVaultRootChanged: _setVaultRoot,
               onUseDefaultVault: () async {
                 final dir = await defaultVaultDirectory();
@@ -333,6 +345,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.activePack,
     required this.availablePacks,
     required this.captureQueue,
+    required this.safDocuments,
     required this.onVaultRootChanged,
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
@@ -353,6 +366,7 @@ class _HomeNavigator extends StatefulWidget {
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
   final CaptureQueue captureQueue;
+  final SafDocuments safDocuments;
   final Future<void> Function(String rootRef) onVaultRootChanged;
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
@@ -764,12 +778,28 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   Future<void> _chooseVaultFolder() async {
     setState(() => _settingsBusy = true);
     try {
-      final rootRef = await FilePicker.getDirectoryPath(
-        dialogTitle: 'Choose Obsidian vault folder',
-      );
+      final String? rootRef;
+      if (Platform.isAndroid) {
+        // Durable tree grant — writable while Obsidian keeps the vault open.
+        // Do not use FilePicker.getDirectoryPath (raw /storage/… → errno 13).
+        final picked = await widget.safDocuments.pickDirectory(
+          writePermission: true,
+          persistablePermission: true,
+        );
+        rootRef = picked?.uri;
+      } else {
+        rootRef = await FilePicker.getDirectoryPath(
+          dialogTitle: 'Choose Obsidian vault folder',
+        );
+      }
       if (rootRef == null) {
         if (!mounted) return;
         setState(() => _settingsBusy = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Folder pick cancelled.'),
+          ),
+        );
         return;
       }
       await widget.onVaultRootChanged(rootRef);
@@ -778,12 +808,18 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         _settingsBusy = false;
         _lastProbePath = null;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vault folder ready. Obsidian can stay open.'),
+          backgroundColor: MemoryHues.accent,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _settingsBusy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Folder pick failed: $e'),
+          content: Text(vaultPickFailedMessage(e)),
           backgroundColor: MemoryHues.danger,
         ),
       );
@@ -1021,13 +1057,25 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             onChooseFolder: _chooseVaultFolder,
             onWriteTestNote: _writeProbe,
             onUseDefault: () async {
+              final messenger = ScaffoldMessenger.of(context);
               setState(() => _settingsBusy = true);
-              await widget.onUseDefaultVault();
-              if (!mounted) return;
-              setState(() {
-                _settingsBusy = false;
-                _lastProbePath = null;
-              });
+              try {
+                await widget.onUseDefaultVault();
+                if (!mounted) return;
+                setState(() {
+                  _settingsBusy = false;
+                  _lastProbePath = null;
+                });
+              } catch (e) {
+                if (!mounted) return;
+                setState(() => _settingsBusy = false);
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text(vaultPickFailedMessage(e)),
+                    backgroundColor: MemoryHues.danger,
+                  ),
+                );
+              }
             },
           );
         case _SettingsPane.ocr:

@@ -102,6 +102,8 @@ void main() {
       ),
     );
     expect(find.textContaining('SAF'), findsNothing);
+    expect(find.textContaining('content://'), findsNothing);
     expect(find.text('Choose vault folder'), findsOneWidget);
+    expect(find.textContaining('leave Obsidian open'), findsOneWidget);
   });
 }

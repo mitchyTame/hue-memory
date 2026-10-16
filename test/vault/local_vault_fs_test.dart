@@ -38,6 +38,28 @@ void main() {
     );
   });
 
+  test('rejects content:// tree URIs', () {
+    expect(
+      () => LocalVaultFs(
+        Directory(
+          'content://com.android.externalstorage.documents/tree/primary%3AVault',
+        ),
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+  });
+
+  test('overwrite via temp+rename leaves final path only', () async {
+    await vault.writeText('inbox/note.md', 'one');
+    await vault.writeText('inbox/note.md', 'two');
+    expect(await vault.readText('inbox/note.md'), 'two');
+    final leftovers = temp
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.contains('.hue-tmp-'));
+    expect(leftovers, isEmpty);
+  });
+
   test('commit pipeline persists markdown + raw image on disk', () async {
     final pipeline = CommitPipeline(vault: vault);
     final capture = PendingCapture(

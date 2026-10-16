@@ -5,7 +5,7 @@ import '../theme/memory_hues.dart';
 import '../vault/local_vault_fs.dart';
 import '../vault/vault_fs.dart';
 
-/// Vault path screen — local folder only (no SAF jargon).
+/// Vault path screen — pick Obsidian vault folder; keep Obsidian open.
 class VaultSettingsShell extends StatelessWidget {
   const VaultSettingsShell({
     super.key,
@@ -44,7 +44,7 @@ class VaultSettingsShell extends StatelessWidget {
         children: [
           Text(
             'Choose the Obsidian vault folder on this device. hue-memory writes '
-            'plain notes and canvases there.',
+            'plain notes and canvases there. You can leave Obsidian open.',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 20),
@@ -88,6 +88,7 @@ class VaultSettingsShell extends StatelessWidget {
           const SizedBox(height: 24),
           Text(
             'Tip: pick the same folder Obsidian opens as your vault. '
+            'Obsidian can stay open — you do not need to close it. '
             'The app default folder works for a quick try without picking.',
             style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
           ),

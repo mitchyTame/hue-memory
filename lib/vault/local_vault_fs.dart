@@ -10,6 +10,12 @@ import 'vault_fs.dart';
 /// [SafVaultFs] for Obsidian vault folders on device.
 class LocalVaultFs implements VaultFs {
   LocalVaultFs(this.rootDirectory) {
+    final path = rootDirectory.path;
+    if (path.startsWith('content:') || path.contains('://')) {
+      throw ArgumentError(
+        'LocalVaultFs cannot open "$path"; use SafVaultFs for tree URIs',
+      );
+    }
     if (!rootDirectory.existsSync()) {
       rootDirectory.createSync(recursive: true);
     }
@@ -38,6 +44,32 @@ class LocalVaultFs implements VaultFs {
       throw ArgumentError('Path escapes vault root: $relativePath');
     }
     return joined;
+  }
+
+  /// Write via temp file + rename so Obsidian (and other watchers) can keep
+  /// the vault open without exclusive-lock failures on the final path.
+  Future<void> _writeAtomically(File file, Future<void> Function(File tmp) write) async {
+    await file.parent.create(recursive: true);
+    final tmp = File(
+      '${file.path}.hue-tmp-${DateTime.now().microsecondsSinceEpoch}',
+    );
+    try {
+      await write(tmp);
+      if (await file.exists()) {
+        try {
+          await file.delete();
+        } catch (_) {
+          // Best-effort; rename may still replace on this platform.
+        }
+      }
+      await tmp.rename(file.path);
+    } catch (e) {
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
+      // Fallback: direct write (non-atomic) if rename is unsupported.
+      await write(file);
+    }
   }
 
   @override
@@ -87,14 +119,15 @@ class LocalVaultFs implements VaultFs {
   @override
   Future<void> writeBytes(String relativePath, Uint8List bytes) async {
     final file = _file(relativePath);
-    await file.parent.create(recursive: true);
-    await file.writeAsBytes(bytes, flush: true);
+    await _writeAtomically(file, (tmp) => tmp.writeAsBytes(bytes, flush: true));
   }
 
   @override
   Future<void> writeText(String relativePath, String contents) async {
     final file = _file(relativePath);
-    await file.parent.create(recursive: true);
-    await file.writeAsString(contents, flush: true);
+    await _writeAtomically(
+      file,
+      (tmp) => tmp.writeAsString(contents, flush: true),
+    );
   }
 }

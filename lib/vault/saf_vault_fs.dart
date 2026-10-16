@@ -10,17 +10,23 @@ import 'vault_fs.dart';
 bool isSafTreeUri(String? value) =>
     value != null && value.startsWith('content:');
 
-/// Short label for Settings / capture chrome.
+/// Short label for Settings / capture chrome (no framework jargon).
 String safVaultLabel(String treeUri) {
   // Prefer the last path segment of the document id when present.
   final decoded = Uri.decodeFull(treeUri);
   final slash = decoded.lastIndexOf('/');
   if (slash >= 0 && slash < decoded.length - 1) {
     final tail = decoded.substring(slash + 1);
-    if (tail.isNotEmpty && !tail.contains(':')) return 'SAF: $tail';
+    // Document ids often look like `primary:Documents/VaultName`.
+    final colon = tail.lastIndexOf(':');
+    final name = colon >= 0 && colon < tail.length - 1
+        ? tail.substring(colon + 1)
+        : tail;
+    final leaf = name.contains('/') ? name.split('/').last : name;
+    if (leaf.isNotEmpty) return leaf;
   }
-  if (decoded.length <= 48) return 'SAF: $decoded';
-  return 'SAF: …${decoded.substring(decoded.length - 40)}';
+  if (decoded.length <= 48) return decoded;
+  return '…${decoded.substring(decoded.length - 40)}';
 }
 
 String mimeForVaultPath(String relativePath) {

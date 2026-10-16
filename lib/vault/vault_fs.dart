@@ -2,9 +2,9 @@ import 'dart:typed_data';
 
 /// Vault-relative filesystem. All vault I/O must go through this interface.
 ///
-/// On Android, production uses [SafVaultFs] with persistable SAF tree URIs —
-/// never `dart:io` [File] against a naive filesystem path into the Obsidian
-/// vault. Desktop / WSL demos use [LocalVaultFs].
+/// On Android, Obsidian vaults use [SafVaultFs] with a persistable tree URI —
+/// never `dart:io` [File] against `/storage/emulated/…` (scoped storage
+/// returns errno 13). Desktop / app-private defaults use [LocalVaultFs].
 abstract interface class VaultFs {
   /// Whether a vault-relative path exists.
   Future<bool> exists(String relativePath);
