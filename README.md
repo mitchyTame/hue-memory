@@ -95,8 +95,8 @@ flutter run -d linux
 1. Home is capture — **teal shutter** = sample page; **gallery** = pick a photo.
 2. Mock OCR assigns a symbol chip (default ∼ fleeting) + region overlays.
 3. Edit title/body, optionally **Link** recent pages, tap **Commit**.
-4. Writes into a **on-disk** vault (`LocalVaultFs`, default under app Documents `hue-memory-vault`): `captures/raw/…` + routed `.md` / `.canvas` / Daily Note.
-5. Gear → choose another vault folder or **Write test note**.
+4. Writes into a vault: desktop uses `LocalVaultFs` (default under app Documents `hue-memory-vault`); **Android** picks the real Obsidian folder via **SAF** (`SafVaultFs`, persistable `content://` tree URI). Writes: `captures/raw/…` + routed `.md` / `.canvas` / Daily Note.
+5. Gear → choose vault folder (SAF on Android) or **Write test note**.
 
 Switch the confirm chip to **△ visual** or **· daily-tasks** to exercise those writers.
 
@@ -115,7 +115,8 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | Capture session / page id | `lib/capture/` |
 | Commit pipeline + daily append | `lib/vault/commit_pipeline.dart`, `daily_tasks_appender.dart` |
 | Local vault (desktop) | `lib/vault/local_vault_fs.dart` — default `…/Documents/hue-memory-vault` |
-| Vault settings | gear → choose folder / write test note |
+| SAF vault (Android) | `lib/vault/saf_vault_fs.dart` + `saf` plugin — persistable tree URI |
+| Vault settings | gear → choose folder (SAF on Android) / write test note |
 | Sample + file pick | shutter = sample; gallery icon = pick image |
 | Confirm + link picker | `lib/ui/confirm_shell.dart`, `link_picker_sheet.dart` |
 | Symbol pack + routing | `lib/symbols/` |
@@ -127,7 +128,7 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 
 Flow: shutter/gallery → `ConfigurableOcrClient` → Mistral `POST /v1/ocr` (image data URL) → confirm → vault write.
 
-**Still TODO:** real Android camera, SAF `VaultFs`, offline OCR queue, secure key storage.
+**Still TODO:** real Android camera, offline OCR queue, secure key storage, YAML symbol packs.
 
 ## Tests
 

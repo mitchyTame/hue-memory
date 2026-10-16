@@ -5,10 +5,9 @@ import 'package:path/path.dart' as p;
 
 import 'vault_fs.dart';
 
-/// File-backed [VaultFs] for desktop / WSL demos.
-///
-/// Uses a real directory root with POSIX-relative paths. On Android the
-/// production path must be [SafVaultFs] (TODO) — never point this at a SAF URI.
+/// File-backed [VaultFs] for desktop / WSL demos (and Android app-private
+/// fallback). Never point this at a SAF `content://` tree URI — use
+/// [SafVaultFs] for Obsidian vault folders on device.
 class LocalVaultFs implements VaultFs {
   LocalVaultFs(this.rootDirectory) {
     if (!rootDirectory.existsSync()) {
