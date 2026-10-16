@@ -1,15 +1,14 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+import 'package:mistralai_dart/mistralai_dart.dart';
 
 import 'mistral_ocr_parser.dart';
-import 'mistral_ocr_request.dart';
+import 'mistral_sdk.dart';
 import 'ocr_client.dart';
 import 'ocr_image_prepare.dart';
 
-/// Valid 1×1 RGB PNG (CRC-checked). Kept for fixtures / offline smoke only —
-/// [verifyConnection] does **not** upload this; it uses `GET /v1/models`.
+/// Valid 1×1 RGB PNG (CRC-checked) — fixtures / prepare smoke only.
 final Uint8List kMistralProbePng = Uint8List.fromList(const [
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
   0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
@@ -19,16 +18,16 @@ final Uint8List kMistralProbePng = Uint8List.fromList(const [
   0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ]);
 
-/// Prepares capture bytes before building the OCR data URL.
+/// Prepares capture bytes before OCR (decode / scale / PNG).
 typedef MistralOcrImagePreparer = Future<PreparedOcrImage> Function(
   Uint8List bytes, {
   String? imageMimeType,
   String? extensionHint,
 });
 
-/// Cloud OCR via Mistral (`POST /v1/ocr` with image data URL).
+/// Cloud OCR via [mistralai_dart] — key check + OCR; we only map to [MeaningResult].
 ///
-/// Requires API key + user consent (enforced by [ConfigurableOcrClient]).
+/// Consent / live toggle stay in [ConfigurableOcrClient].
 class MistralOcrClient implements OcrClient {
   MistralOcrClient({
     required this.apiKey,
@@ -37,20 +36,25 @@ class MistralOcrClient implements OcrClient {
     this.model = 'mistral-ocr-latest',
     this.parser = const MistralOcrParser(),
     MistralOcrImagePreparer? prepareImage,
-  })  : _http = httpClient ?? http.Client(),
-        prepareImage = prepareImage ?? prepareImageForMistralOcr;
+    MistralSdk? sdk,
+  })  : prepareImage = prepareImage ?? prepareImageForMistralOcr,
+        _sdk = sdk ??
+            LiveMistralSdk(
+              apiKey: apiKey,
+              baseUrl: baseUrl,
+              httpClient: httpClient,
+            ),
+        _ownsSdk = sdk == null;
 
   final String apiKey;
   final String baseUrl;
   final String model;
   final MistralOcrParser parser;
   final MistralOcrImagePreparer prepareImage;
-  final http.Client _http;
+  final MistralSdk _sdk;
+  final bool _ownsSdk;
 
-  /// Key-only check via `GET /v1/models` — no image upload.
-  ///
-  /// Avoids OCR 400s like "Your base64 could not be loaded as a valid image"
-  /// when Test connection only needs to prove the API key works.
+  /// Key-only check via SDK `models.list` — no image upload.
   Future<MistralConnectionResult> verifyConnection() async {
     final key = apiKey.trim();
     if (key.isEmpty) {
@@ -60,14 +64,28 @@ class MistralOcrClient implements OcrClient {
       );
     }
 
-    late final http.Response response;
     try {
-      response = await _http.get(
-        Uri.parse('$baseUrl/v1/models'),
-        headers: {
-          'Authorization': 'Bearer $key',
-          'Accept': 'application/json',
-        },
+      await _sdk.verifyApiKey();
+      return const MistralConnectionResult(
+        ok: true,
+        message: 'Connected — API key is valid',
+      );
+    } on AuthenticationException catch (e) {
+      return MistralConnectionResult(
+        ok: false,
+        message: 'Mistral rejected the API key: ${e.message}',
+        statusCode: e.statusCode,
+      );
+    } on ApiException catch (e) {
+      return MistralConnectionResult(
+        ok: false,
+        message: _apiUserMessage(e),
+        statusCode: e.statusCode,
+      );
+    } on MistralException catch (e) {
+      return MistralConnectionResult(
+        ok: false,
+        message: e.message,
       );
     } catch (e) {
       return MistralConnectionResult(
@@ -75,27 +93,6 @@ class MistralOcrClient implements OcrClient {
         message: _networkMessage(e),
       );
     }
-
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      return const MistralConnectionResult(
-        ok: true,
-        message: 'Connected — API key is valid',
-      );
-    }
-
-    if (response.statusCode == 401 || response.statusCode == 403) {
-      return MistralConnectionResult(
-        ok: false,
-        message: 'Mistral rejected the API key (HTTP ${response.statusCode})',
-        statusCode: response.statusCode,
-      );
-    }
-
-    return MistralConnectionResult(
-      ok: false,
-      message: mistralHttpUserMessage(response.statusCode, response.body),
-      statusCode: response.statusCode,
-    );
   }
 
   @override
@@ -135,25 +132,42 @@ class MistralOcrClient implements OcrClient {
             'Could not prepare the photo for OCR — try another shot or gallery image',
       );
     }
-    final uri = Uri.parse('$baseUrl/v1/ocr');
-    final body = jsonEncode(
-      buildMistralOcrRequestBody(
-        model: model,
-        imageBytes: prepared.bytes,
-        mime: prepared.mime,
-      ),
-    );
 
-    late final http.Response response;
     try {
-      response = await _http.post(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $apiKey',
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: body,
+      final response = await _sdk.ocrImage(
+        model: model,
+        bytes: prepared.bytes,
+        mimeType: prepared.mime,
+      );
+      final result = parser.parseResponse(response);
+      if (!allowEmpty && _isBlankMeaning(result)) {
+        throw const MistralOcrException(
+          statusCode: 200,
+          body: 'empty OCR',
+          userMessage:
+              'Mistral returned no readable text — try a clearer photo or queue for later',
+        );
+      }
+      return result;
+    } on MistralOcrException {
+      rethrow;
+    } on AuthenticationException catch (e) {
+      throw MistralOcrException(
+        statusCode: e.statusCode,
+        body: e.message,
+        userMessage: 'Mistral rejected the API key: ${e.message}',
+      );
+    } on ApiException catch (e) {
+      throw MistralOcrException(
+        statusCode: e.statusCode,
+        body: e.message,
+        userMessage: _apiUserMessage(e),
+      );
+    } on MistralException catch (e) {
+      throw MistralOcrException(
+        statusCode: 0,
+        body: e.message,
+        userMessage: e.message,
       );
     } catch (e) {
       throw MistralOcrException(
@@ -162,35 +176,32 @@ class MistralOcrClient implements OcrClient {
         userMessage: _networkMessage(e),
       );
     }
+  }
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw MistralOcrException(
-        statusCode: response.statusCode,
-        body: response.body,
-        userMessage: mistralHttpUserMessage(response.statusCode, response.body),
-      );
-    }
-
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw const FormatException('Mistral OCR response was not a JSON object');
-    }
-    final result = parser.parse(decoded);
-    if (!allowEmpty && _isBlankMeaning(result)) {
-      throw const MistralOcrException(
-        statusCode: 200,
-        body: 'empty OCR',
-        userMessage:
-            'Mistral returned no readable text — try a clearer photo or queue for later',
-      );
-    }
-    return result;
+  void close() {
+    if (_ownsSdk) _sdk.close();
   }
 
   static bool _isBlankMeaning(MeaningResult result) {
     final text = result.regions.map((r) => r.text.trim()).join();
     return text.isEmpty &&
         (result.rawJson['pages'] == null || result.rawJson['pages'] == 0);
+  }
+
+  static String _apiUserMessage(ApiException e) {
+    switch (e.statusCode) {
+      case 401:
+      case 403:
+        return 'Mistral rejected the API key (HTTP ${e.statusCode})';
+      case 404:
+        return 'Mistral OCR endpoint not found (HTTP 404)';
+      case 429:
+        return 'Mistral rate limit — try again shortly (HTTP 429)';
+      case >= 500:
+        return 'Mistral server error (HTTP ${e.statusCode}): ${e.message}';
+      default:
+        return 'Mistral OCR failed (HTTP ${e.statusCode}): ${e.message}';
+    }
   }
 
   static String _networkMessage(Object e) {
@@ -235,8 +246,6 @@ class MistralOcrException implements Exception {
   @override
   String toString() {
     if (userMessage != null) return userMessage!;
-    final api = mistralApiErrorMessage(body);
-    if (api != null) return 'Mistral OCR failed ($statusCode): $api';
     final snippet = body.length > 200 ? '${body.substring(0, 200)}…' : body;
     return 'Mistral OCR failed ($statusCode): $snippet';
   }

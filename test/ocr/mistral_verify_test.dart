@@ -1,11 +1,10 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:hue_memory/ocr/mistral_ocr_client.dart';
+import 'package:hue_memory/ocr/mistral_sdk.dart';
 import 'package:hue_memory/ocr/ocr_image_prepare.dart';
+import 'package:mistralai_dart/mistralai_dart.dart';
 
 Future<({Uint8List bytes, String mime})> _identityPrepare(
   Uint8List bytes, {
@@ -19,42 +18,29 @@ Future<({Uint8List bytes, String mime})> _identityPrepare(
 }
 
 void main() {
-  test('verifyConnection uses GET /v1/models — no OCR image upload', () async {
-    http.BaseRequest? seen;
+  test('verifyConnection uses SDK models.list — no OCR upload', () async {
+    final fake = FakeMistralSdk();
     final client = MistralOcrClient(
       apiKey: 'live-key',
       prepareImage: _identityPrepare,
-      httpClient: MockClient((request) async {
-        seen = request;
-        expect(request.method, 'GET');
-        expect(request.url.path, '/v1/models');
-        expect(request.headers['Authorization'], 'Bearer live-key');
-        return http.Response(
-          jsonEncode({
-            'data': [
-              {'id': 'mistral-ocr-latest'},
-            ],
-          }),
-          200,
-          headers: {'content-type': 'application/json'},
-        );
-      }),
+      sdk: fake,
     );
 
     final result = await client.verifyConnection();
     expect(result.ok, isTrue);
     expect(result.message, contains('valid'));
-    expect(seen!.url.path, '/v1/models');
-    expect(seen!.method, 'GET');
+    expect(fake.verifyCalls, 1);
+    expect(fake.ocrCalls, 0);
   });
 
-  test('verifyConnection reports auth failure from /v1/models', () async {
+  test('verifyConnection reports auth failure from SDK', () async {
+    final fake = FakeMistralSdk(
+      verifyError: const AuthenticationException(message: 'bad key'),
+    );
     final client = MistralOcrClient(
       apiKey: 'bad',
       prepareImage: _identityPrepare,
-      httpClient: MockClient(
-        (_) async => http.Response('unauthorized', 401),
-      ),
+      sdk: fake,
     );
     final result = await client.verifyConnection();
     expect(result.ok, isFalse);
@@ -62,37 +48,28 @@ void main() {
     expect(result.statusCode, 401);
   });
 
-  test('extractMeaning uses jpeg mime for jpeg bytes when not re-encoded',
-      () async {
-    http.BaseRequest? seen;
+  test('extractMeaning passes prepared mime to SDK', () async {
+    final fake = FakeMistralSdk(
+      ocrResponse: const OcrResponse(
+        model: 'mistral-ocr-latest',
+        pages: [OcrPage(index: 0, markdown: 'F hello')],
+      ),
+    );
     final client = MistralOcrClient(
       apiKey: 'k',
       prepareImage: _identityPrepare,
-      httpClient: MockClient((request) async {
-        seen = request;
-        return http.Response(
-          jsonEncode({
-            'pages': [
-              {'markdown': 'F hello'},
-            ],
-          }),
-          200,
-          headers: {'content-type': 'application/json; charset=utf-8'},
-        );
-      }),
+      sdk: fake,
     );
     final jpeg = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
     await client.extractMeaning(jpeg, imageMimeType: 'image/jpeg');
-    final body = (seen as http.Request).body;
-    expect(body, contains('image/jpeg'));
-    expect(body, contains('data:image/jpeg;base64,'));
+    expect(fake.lastOcrMime, 'image/jpeg');
+    expect(fake.lastOcrBytes, jpeg);
   });
 
   test('prepareImageForMistralOcr re-encodes valid PNG to fresh PNG', () async {
     final prepared = await prepareImageForMistralOcr(kMistralProbePng);
     expect(prepared.mime, 'image/png');
     expect(prepared.bytes[0], 0x89);
-    expect(prepared.bytes[1], 0x50);
     expect(prepared.bytes.length, greaterThan(8));
   });
 

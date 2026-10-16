@@ -1,12 +1,27 @@
+import 'package:mistralai_dart/mistralai_dart.dart';
+
 import 'ocr_client.dart';
 
-/// Maps a Mistral `/v1/ocr` JSON body into [MeaningResult].
+/// Maps Mistral OCR output into [MeaningResult].
 ///
 /// Symbol detection is a light heuristic on markdown text (corner glyph OCR
 /// comes later). Unknown → inbox glyph `○`.
 class MistralOcrParser {
   const MistralOcrParser();
 
+  /// Preferred path — typed [OcrResponse] from `mistralai_dart`.
+  MeaningResult parseResponse(OcrResponse response) {
+    final markdownChunks = response.pages
+        .map((p) => p.markdown.trim())
+        .where((md) => md.isNotEmpty)
+        .toList();
+    return _fromMarkdownChunks(
+      markdownChunks,
+      model: response.model,
+    );
+  }
+
+  /// Legacy / fixture path — raw JSON map (same shape as the OCR API body).
   MeaningResult parse(Map<String, dynamic> json) {
     final pages = json['pages'];
     final markdownChunks = <String>[];
@@ -18,7 +33,16 @@ class MistralOcrParser {
         }
       }
     }
+    return _fromMarkdownChunks(
+      markdownChunks,
+      model: json['model']?.toString(),
+    );
+  }
 
+  MeaningResult _fromMarkdownChunks(
+    List<String> markdownChunks, {
+    String? model,
+  }) {
     final full = markdownChunks.join('\n\n');
     final regions = _regionsFromMarkdown(full);
     final glyph = detectGlyph(full);
@@ -34,7 +58,7 @@ class MistralOcrParser {
       pageGenre: genre,
       rawJson: {
         'provider': 'mistral',
-        'model': json['model'],
+        'model': model,
         'pages': markdownChunks.length,
       },
     );
