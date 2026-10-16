@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:mistralai_dart/mistralai_dart.dart';
 
+import '../writers/mindmap_propose.dart';
 import 'mistral_ocr_parser.dart';
 import 'mistral_sdk.dart';
 import 'ocr_client.dart';
@@ -25,15 +26,18 @@ typedef MistralOcrImagePreparer = Future<PreparedOcrImage> Function(
   String? extensionHint,
 });
 
-/// Cloud OCR via [mistralai_dart] — key check + OCR; we only map to [MeaningResult].
+/// Cloud OCR via [mistralai_dart] — key check + OCR; △ also runs vision structure.
 ///
-/// Consent / live toggle stay in [ConfigurableOcrClient].
+/// Hybrid mindmap: OCR labels + separate vision JSON (nodes/edges + x,y),
+/// merged in [MindmapPropose.mergeOcrLabelsOntoVision]. Consent / live toggle
+/// stay in [ConfigurableOcrClient].
 class MistralOcrClient implements OcrClient {
   MistralOcrClient({
     required this.apiKey,
     http.Client? httpClient,
     this.baseUrl = 'https://api.mistral.ai',
     this.model = 'mistral-ocr-latest',
+    this.visionModel = 'pixtral-12b-2409',
     this.parser = const MistralOcrParser(),
     MistralOcrImagePreparer? prepareImage,
     MistralSdk? sdk,
@@ -49,6 +53,9 @@ class MistralOcrClient implements OcrClient {
   final String apiKey;
   final String baseUrl;
   final String model;
+
+  /// Vision model for △ structure (coords) — separate from [model] OCR.
+  final String visionModel;
   final MistralOcrParser parser;
   final MistralOcrImagePreparer prepareImage;
   final MistralSdk _sdk;
@@ -139,7 +146,7 @@ class MistralOcrClient implements OcrClient {
         bytes: prepared.bytes,
         mimeType: prepared.mime,
       );
-      final result = parser.parseResponse(response);
+      var result = parser.parseResponse(response);
       if (!allowEmpty && _isBlankMeaning(result)) {
         throw const MistralOcrException(
           statusCode: 200,
@@ -147,6 +154,9 @@ class MistralOcrClient implements OcrClient {
           userMessage:
               'Mistral returned no readable text — try a clearer photo or queue for later',
         );
+      }
+      if (result.pageGenre == 'visual') {
+        result = await _enrichVisualWithVision(result, prepared);
       }
       return result;
     } on MistralOcrException {
@@ -180,6 +190,74 @@ class MistralOcrClient implements OcrClient {
 
   void close() {
     if (_ownsSdk) _sdk.close();
+  }
+
+  /// Second pass for △: vision JSON (coords) + OCR label merge.
+  ///
+  /// Soft-fails to OCR-only structure if vision errors or returns empty nodes.
+  Future<MeaningResult> _enrichVisualWithVision(
+    MeaningResult ocrResult,
+    PreparedOcrImage prepared,
+  ) async {
+    final ocrLabels = ocrResult.regions
+        .map((r) => r.text.trim())
+        .where((t) => t.isNotEmpty)
+        .toList();
+    try {
+      final raw = await _sdk.chatVisionStructure(
+        model: visionModel,
+        bytes: prepared.bytes,
+        mimeType: prepared.mime,
+        ocrLabels: ocrLabels,
+        maxTokens: MindmapPropose.visionMaxTokens,
+      );
+      final vision = MindmapStructure.parseJson(raw);
+      final merged = MindmapPropose.mergeOcrLabelsOntoVision(
+        ocrLabels: ocrLabels,
+        vision: vision,
+      );
+      if (merged.nodes.isEmpty) {
+        return MeaningResult(
+          detectedGlyph: ocrResult.detectedGlyph,
+          regions: ocrResult.regions,
+          pageGenre: ocrResult.pageGenre,
+          threadTick: ocrResult.threadTick,
+          rawJson: {
+            ...ocrResult.rawJson,
+            'vision_used': false,
+            'vision_model': visionModel,
+            'vision_empty': true,
+          },
+        );
+      }
+      return MeaningResult(
+        detectedGlyph: ocrResult.detectedGlyph,
+        regions: MindmapPropose.regionsFromStructure(merged),
+        pageGenre: ocrResult.pageGenre,
+        threadTick: ocrResult.threadTick,
+        rawJson: {
+          ...ocrResult.rawJson,
+          'hybrid_mindmap': true,
+          'mindmap': merged.toJson(),
+          'vision_used': true,
+          'vision_model': visionModel,
+          'vision_max_tokens': MindmapPropose.visionMaxTokens,
+        },
+      );
+    } catch (e) {
+      return MeaningResult(
+        detectedGlyph: ocrResult.detectedGlyph,
+        regions: ocrResult.regions,
+        pageGenre: ocrResult.pageGenre,
+        threadTick: ocrResult.threadTick,
+        rawJson: {
+          ...ocrResult.rawJson,
+          'vision_used': false,
+          'vision_model': visionModel,
+          'vision_error': '$e',
+        },
+      );
+    }
   }
 
   static bool _isBlankMeaning(MeaningResult result) {

@@ -171,6 +171,29 @@ class MindmapPropose {
   static const double defaultNodeW = 0.28;
   static const double defaultNodeH = 0.09;
 
+  /// System prompt for Mistral vision structure (JSON only, tight).
+  static const String visionSystemPrompt =
+      'You map a hand-drawn mindmap photo to JSON. '
+      'Reply with ONE JSON object only — no markdown, no prose. '
+      'Schema: {"nodes":[{"id":"n1","label":"short","x":0.0,"y":0.0}],'
+      '"edges":[{"from":"n1","to":"n2"}]}. '
+      'x,y are normalized 0–1 image coords (origin top-left, node top-left). '
+      'Max $maxLabels nodes. Labels ≤$maxLabelChars chars. '
+      'Prefer OCR label strings when listed. Uncertain edges → omit.';
+
+  /// User text beside the image for the vision structure call.
+  static String visionUserPrompt(List<String> ocrLabels) {
+    final labels = ocrLabels
+        .map(clipLabel)
+        .where((s) => s.isNotEmpty)
+        .take(maxLabels)
+        .toList();
+    final hint = labels.isEmpty
+        ? 'No OCR labels — read short node text from the drawing.'
+        : 'OCR labels (prefer these strings): ${labels.join(' | ')}';
+    return 'Hand-drawn mindmap. Return nodes/edges JSON with x,y for each node.\n$hint';
+  }
+
   static double? readNorm(Object? v) {
     if (v is num) {
       final d = v.toDouble();

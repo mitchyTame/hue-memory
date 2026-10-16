@@ -8,9 +8,9 @@ import 'ocr_client.dart';
 /// Symbol detection is a light heuristic on markdown text (corner glyph OCR
 /// comes later). Unknown → inbox glyph `○`.
 ///
-/// For △ / visual: OCR is truncated for loops, then turned into a **JSON-shaped**
-/// [MindmapStructure] (short labels + hub→spoke). Never dumps freeform page
-/// prose into confirm — ink-ghost photo stays source of truth.
+/// For △ / visual: OCR labels only here (short JSON-shaped fallback). Live
+/// [MistralOcrClient] then runs a **separate** vision chat for nodes/edges +
+/// x,y and merges via [MindmapPropose.mergeOcrLabelsOntoVision].
 class MistralOcrParser {
   const MistralOcrParser();
 

@@ -43,6 +43,14 @@ Here is noise {"nodes":[{"id":"a","label":"Hub","x":0.4,"y":0.3},
     expect(structure.source, 'vision');
   });
 
+  test('vision prompts stay short and mention OCR labels', () {
+    final user = MindmapPropose.visionUserPrompt(const ['Hub', 'Spoke']);
+    expect(user, contains('Hub'));
+    expect(user, contains('Spoke'));
+    expect(MindmapPropose.visionSystemPrompt, contains('JSON'));
+    expect(MindmapPropose.visionMaxTokens, 384);
+  });
+
   test('mergeOcrLabelsOntoVision prefers OCR text, keeps vision xy', () {
     final vision = MindmapStructure.parseJson('''
 {"nodes":[{"id":"n1","label":"hub","x":0.3,"y":0.3},

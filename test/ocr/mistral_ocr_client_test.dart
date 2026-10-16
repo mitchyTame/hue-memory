@@ -6,6 +6,7 @@ import 'package:hue_memory/ocr/mistral_ocr_client.dart';
 import 'package:hue_memory/ocr/mistral_sdk.dart';
 import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_settings.dart';
+import 'package:hue_memory/writers/mindmap_propose.dart';
 import 'package:mistralai_dart/mistralai_dart.dart';
 
 Future<({Uint8List bytes, String mime})> _identityPrepare(
@@ -113,6 +114,98 @@ void main() {
         ),
       ),
     );
+  });
+
+  test('visual OCR triggers vision structure and merges coords', () async {
+    final fake = FakeMistralSdk(
+      ocrResponse: const OcrResponse(
+        model: 'mistral-ocr-latest',
+        pages: [
+          OcrPage(
+            index: 0,
+            markdown: '△ Hub idea\n\nSpoke A\n\nSpoke B',
+          ),
+        ],
+      ),
+      visionJson: '''
+{"nodes":[
+  {"id":"n1","label":"hub","x":0.42,"y":0.38},
+  {"id":"n2","label":"spoke a","x":0.12,"y":0.18},
+  {"id":"n3","label":"spoke b","x":0.70,"y":0.20}
+],"edges":[{"from":"n1","to":"n2"},{"from":"n1","to":"n3"}]}
+''',
+    );
+    final client = MistralOcrClient(
+      apiKey: 'test-key',
+      prepareImage: _identityPrepare,
+      sdk: fake,
+      visionModel: 'pixtral-12b-2409',
+    );
+
+    final result = await client.extractMeaning(
+      Uint8List.fromList([1, 2, 3]),
+      imageMimeType: 'image/png',
+    );
+
+    expect(fake.ocrCalls, 1);
+    expect(fake.visionCalls, 1);
+    expect(fake.lastVisionModel, 'pixtral-12b-2409');
+    expect(fake.lastVisionMaxTokens, MindmapPropose.visionMaxTokens);
+    expect(fake.lastVisionOcrLabels, isNotEmpty);
+    expect(result.pageGenre, 'visual');
+    expect(result.rawJson['vision_used'], isTrue);
+    expect(result.rawJson['hybrid_mindmap'], isTrue);
+    expect(result.regions, hasLength(3));
+    // Vision x,y kept as region bbox left/top.
+    expect(result.regions.first.bbox![0], closeTo(0.42, 0.001));
+    expect(result.regions.first.bbox![1], closeTo(0.38, 0.001));
+    final mindmap = result.rawJson['mindmap'] as Map;
+    expect(mindmap['source'], 'merged');
+    expect((mindmap['edges'] as List), hasLength(2));
+  });
+
+  test('non-visual OCR skips vision structure call', () async {
+    final fake = FakeMistralSdk(
+      ocrResponse: const OcrResponse(
+        model: 'mistral-ocr-latest',
+        pages: [
+          OcrPage(index: 0, markdown: '∼ Fleeting only'),
+        ],
+      ),
+    );
+    final client = MistralOcrClient(
+      apiKey: 'test-key',
+      prepareImage: _identityPrepare,
+      sdk: fake,
+    );
+
+    await client.extractMeaning(Uint8List.fromList([1]));
+    expect(fake.ocrCalls, 1);
+    expect(fake.visionCalls, 0);
+  });
+
+  test('vision failure soft-falls back to OCR mindmap structure', () async {
+    final fake = FakeMistralSdk(
+      ocrResponse: const OcrResponse(
+        model: 'mistral-ocr-latest',
+        pages: [
+          OcrPage(index: 0, markdown: '△ Central\n\nLeaf'),
+        ],
+      ),
+      visionError: const ApiException(statusCode: 500, message: 'vision down'),
+    );
+    final client = MistralOcrClient(
+      apiKey: 'test-key',
+      prepareImage: _identityPrepare,
+      sdk: fake,
+    );
+
+    final result = await client.extractMeaning(Uint8List.fromList([1]));
+    expect(fake.visionCalls, 1);
+    expect(result.pageGenre, 'visual');
+    expect(result.rawJson['vision_used'], isFalse);
+    expect(result.rawJson['vision_error'], contains('vision down'));
+    expect(result.regions, isNotEmpty);
   });
 
   test('ConfigurableOcrClient uses mock until live+consent+key', () async {

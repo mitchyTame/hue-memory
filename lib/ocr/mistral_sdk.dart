@@ -3,9 +3,10 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:mistralai_dart/mistralai_dart.dart';
 
+import '../writers/mindmap_propose.dart';
 import 'mistral_ocr_request.dart';
 
-/// Narrow seam over [MistralClient] for hue-memory OCR.
+/// Narrow seam over [MistralClient] for hue-memory OCR + vision structure.
 ///
 /// Production uses [LiveMistralSdk]; tests use [FakeMistralSdk].
 abstract interface class MistralSdk {
@@ -17,6 +18,17 @@ abstract interface class MistralSdk {
     required String model,
     required Uint8List bytes,
     required String mimeType,
+  });
+
+  /// Vision chat → raw JSON text for mindmap nodes/edges (tight max tokens).
+  ///
+  /// Separate from OCR: coords come from the image; OCR labels merge later.
+  Future<String> chatVisionStructure({
+    required String model,
+    required Uint8List bytes,
+    required String mimeType,
+    List<String> ocrLabels = const [],
+    int maxTokens = MindmapPropose.visionMaxTokens,
   });
 
   void close();
@@ -62,6 +74,33 @@ class LiveMistralSdk implements MistralSdk {
   }
 
   @override
+  Future<String> chatVisionStructure({
+    required String model,
+    required Uint8List bytes,
+    required String mimeType,
+    List<String> ocrLabels = const [],
+    int maxTokens = MindmapPropose.visionMaxTokens,
+  }) async {
+    final dataUrl = mistralImageDataUrl(bytes, mimeType);
+    final response = await _client.chat.create(
+      request: ChatCompletionRequest(
+        model: model,
+        temperature: 0,
+        maxTokens: maxTokens,
+        responseFormat: ResponseFormat.jsonObject,
+        messages: [
+          ChatMessage.system(MindmapPropose.visionSystemPrompt),
+          ChatMessage.userMultimodal([
+            ContentPart.text(MindmapPropose.visionUserPrompt(ocrLabels)),
+            ContentPart.imageUrl(dataUrl),
+          ]),
+        ],
+      ),
+    );
+    return response.text?.trim() ?? '';
+  }
+
+  @override
   void close() => _client.close();
 }
 
@@ -96,17 +135,25 @@ class FakeMistralSdk implements MistralSdk {
     this.verifyError,
     this.ocrResponse,
     this.ocrError,
+    this.visionJson,
+    this.visionError,
   });
 
   Object? verifyError;
   OcrResponse? ocrResponse;
   Object? ocrError;
+  String? visionJson;
+  Object? visionError;
 
   int verifyCalls = 0;
   int ocrCalls = 0;
+  int visionCalls = 0;
   Uint8List? lastOcrBytes;
   String? lastOcrMime;
   String? lastOcrModel;
+  String? lastVisionModel;
+  List<String>? lastVisionOcrLabels;
+  int? lastVisionMaxTokens;
 
   @override
   Future<void> verifyApiKey() async {
@@ -140,6 +187,27 @@ class FakeMistralSdk implements MistralSdk {
             OcrPage(index: 0, markdown: '∼ Fake OCR'),
           ],
         );
+  }
+
+  @override
+  Future<String> chatVisionStructure({
+    required String model,
+    required Uint8List bytes,
+    required String mimeType,
+    List<String> ocrLabels = const [],
+    int maxTokens = MindmapPropose.visionMaxTokens,
+  }) async {
+    visionCalls++;
+    lastVisionModel = model;
+    lastVisionOcrLabels = List<String>.from(ocrLabels);
+    lastVisionMaxTokens = maxTokens;
+    final err = visionError;
+    if (err != null) {
+      if (err is Exception) throw err;
+      throw Exception('$err');
+    }
+    return visionJson ??
+        '{"nodes":[{"id":"n1","label":"Hub","x":0.4,"y":0.35}],"edges":[]}';
   }
 
   @override
