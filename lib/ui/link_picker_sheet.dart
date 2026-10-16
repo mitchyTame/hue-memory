@@ -68,7 +68,7 @@ class _LinkPickerBodyState extends State<_LinkPickerBody> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Pick recent vault notes — no wiki syntax on paper.',
+                'Suggested + recent vault notes — no wiki syntax on paper.',
                 style: textTheme.bodySmall,
               ),
             ),

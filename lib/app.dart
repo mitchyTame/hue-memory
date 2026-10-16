@@ -27,12 +27,14 @@ import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
 import 'ui/folder_map_shell.dart';
 import 'links/thread_tick.dart';
+import 'links/wikilink_suggester.dart';
 import 'printables/hue_code.dart';
 import 'printables/paper_kit_pdf.dart';
 import 'promote/promote_service.dart';
 import 'queue/capture_queue.dart';
 import 'queue/file_capture_queue.dart';
 import 'queue/inbox_only_commit.dart';
+import 'ui/how_to_guide_shell.dart';
 import 'ui/library_editor_shell.dart';
 import 'ui/ocr_settings_shell.dart';
 import 'ui/paper_kit_shell.dart';
@@ -50,7 +52,16 @@ import 'vault/vault_bind.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
-enum _SettingsPane { hub, vault, ocr, symbols, folders, paperKit, library }
+enum _SettingsPane {
+  hub,
+  guide,
+  vault,
+  ocr,
+  symbols,
+  folders,
+  paperKit,
+  library,
+}
 
 /// Root app — symbol packs, live camera, durable Obsidian vault folder.
 class HueMemoryApp extends StatefulWidget {
@@ -480,6 +491,48 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     });
   }
 
+  /// Recent pages plus any suggested picks not already listed.
+  static List<LinkPick> _mergeLinkCandidates(
+    List<LinkPick> recent,
+    List<LinkPick> suggested,
+  ) {
+    final out = <LinkPick>[];
+    final seen = <String>{};
+    for (final p in [...suggested, ...recent]) {
+      final key = p.targetPath
+          .trim()
+          .replaceAll(RegExp(r'\.md$', caseSensitive: false), '');
+      if (!seen.add(key)) continue;
+      out.add(p);
+    }
+    return out;
+  }
+
+  /// Lexical vault index → merge suggested [[wikilinks]] into [pending.links].
+  Future<List<LinkPick>> _suggestWikilinks(PendingCapture pending) async {
+    try {
+      final folders = <String>{
+        for (final s in widget.activePack.symbols)
+          if (s.folder != null && s.folder!.trim().isNotEmpty) s.folder!.trim(),
+      }.toList();
+      if (folders.isEmpty) return List<LinkPick>.from(pending.links);
+      const suggester = WikilinkSuggester();
+      final index = await suggester.indexVault(widget.vault, folders: folders);
+      final haystack = [
+        pending.title,
+        pending.noteBody,
+        for (final r in pending.meaning.regions) r.text,
+      ].join('\n');
+      return suggester.suggest(
+        haystack: haystack,
+        index: index,
+        existing: pending.links,
+      );
+    } catch (_) {
+      return List<LinkPick>.from(pending.links);
+    }
+  }
+
   String _ocrFailureMessage(Object error) {
     if (error is MistralOcrException) return error.readable;
     return '$error';
@@ -533,6 +586,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           symbolId: routed.symbol.id,
           links: seededLinks,
         );
+        final suggested = await _suggestWikilinks(pending);
+        pending.links = suggested;
         if (!mounted) return;
         setState(() {
           _pending = pending;
@@ -540,10 +595,16 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           _captureStatus = null;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('OCR ready'),
+          SnackBar(
+            content: Text(
+              suggested.length > seededLinks.length
+                  ? 'OCR ready · ${suggested.length - seededLinks.length} '
+                      'wikilink suggestion'
+                      '${suggested.length - seededLinks.length == 1 ? '' : 's'}'
+                  : 'OCR ready',
+            ),
             backgroundColor: MemoryHues.accent,
-            duration: Duration(seconds: 2),
+            duration: const Duration(seconds: 2),
           ),
         );
       } catch (ocrError) {
@@ -1065,6 +1126,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             ocrModeLabel: widget.ocrModeLabel,
             packLabel: widget.activePack.displayName,
             onBack: () => setState(() => _settingsPane = null),
+            onOpenGuide: () =>
+                setState(() => _settingsPane = _SettingsPane.guide),
             onOpenVault: () =>
                 setState(() => _settingsPane = _SettingsPane.vault),
             onOpenOcr: () async {
@@ -1082,6 +1145,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               setState(() => _settingsPane = null);
               _openPromote();
             },
+          );
+        case _SettingsPane.guide:
+          return HowToGuideShell(
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
           );
         case _SettingsPane.vault:
           return VaultSettingsShell(
@@ -1205,7 +1272,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       return ConfirmShell(
         capture: pending,
         pack: widget.activePack,
-        linkCandidates: List.unmodifiable(_recentPages),
+        linkCandidates: List.unmodifiable(
+          _mergeLinkCandidates(_recentPages, pending.links),
+        ),
         committing: _committing,
         onCancel: _committing ? null : () => setState(() => _pending = null),
         onCommit: _commit,

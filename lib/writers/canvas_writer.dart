@@ -110,6 +110,7 @@ class CanvasWriter {
     int imageX = defaultImageX,
     int imageY = defaultImageY,
     bool inkGhost = true,
+    String? hierarchicalTags,
   }) {
     final imageNode = CanvasNode(
       id: 'img',
@@ -121,12 +122,42 @@ class CanvasWriter {
       height: imageHeight,
       color: inkGhost ? ghostImageColor : null,
     );
+    final tagsNode = _tagsNode(
+      hierarchicalTags,
+      imageX: imageX,
+      imageY: imageY,
+      imageWidth: imageWidth,
+      imageHeight: imageHeight,
+    );
+    final text = tagsNode == null ? textNodes : [...textNodes, tagsNode];
     // Image first = under; ghost off still keeps the photo for dual coding,
     // but appends it after text so cards read as primary in Obsidian.
     final nodes = inkGhost
-        ? <CanvasNode>[imageNode, ...textNodes]
-        : <CanvasNode>[...textNodes, imageNode];
+        ? <CanvasNode>[imageNode, ...text]
+        : <CanvasNode>[...text, imageNode];
     return CanvasDocument(nodes: nodes, edges: edges);
+  }
+
+  /// Optional tags card below the image frame (△ has no companion `.md`).
+  static CanvasNode? _tagsNode(
+    String? hierarchicalTags, {
+    required int imageX,
+    required int imageY,
+    required int imageWidth,
+    required int imageHeight,
+  }) {
+    final line = hierarchicalTags?.trim() ?? '';
+    if (line.isEmpty) return null;
+    return CanvasNode(
+      id: 'tags',
+      type: 'text',
+      text: line,
+      x: imageX,
+      y: imageY + imageHeight + 16,
+      width: math.max(220, imageWidth),
+      height: 64,
+      color: '5',
+    );
   }
 
   /// Map normalized OCR bboxes `[left, top, width, height]` (0–1) onto the

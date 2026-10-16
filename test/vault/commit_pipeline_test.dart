@@ -90,13 +90,18 @@ void main() {
     expect(md, contains('![[captures/raw/20261016-p7k2.png]]'));
     expect(md, contains('Practice on paper first.'));
     expect(md, contains('[[permanent/seed-attention|Seed]]'));
+    expect(md, contains('[[Seed]]'));
     expect(md, isNot(contains('meaning:')));
   });
 
   test('commits canvas for visual symbol without sidecar json', () async {
     final capture = _capture(
       glyph: '△',
-      regions: MockOcrClient.defaultVisualRegions,
+      regions: const [
+        OcrRegion(id: 'n1', text: 'Psychology', confidence: 0.9, bbox: [0.1, 0.1, 0.3, 0.1]),
+        OcrRegion(id: 'n2', text: 'Memory', confidence: 0.9, bbox: [0.5, 0.2, 0.3, 0.1]),
+        OcrRegion(id: 'n3', text: 'Encoding', confidence: 0.9, bbox: [0.5, 0.4, 0.3, 0.1]),
+      ],
     );
     final result = await pipeline.commit(
       CommitInput(
@@ -118,6 +123,9 @@ void main() {
     expect(nodes.first['type'], 'file');
     expect(nodes.first['file'], 'captures/raw/20261016-p7k2.png');
     expect(nodes.first['color'], '4');
+    final tagsNode = nodes.cast<Map>().firstWhere((n) => n['id'] == 'tags');
+    expect(tagsNode['text'], contains('#psychology/memory'));
+    expect(tagsNode['text'], contains('#psychology/encoding'));
     expect(nodes.length, greaterThan(1));
     expect(
       vault.filePaths.any((p) => p.endsWith('.json')),

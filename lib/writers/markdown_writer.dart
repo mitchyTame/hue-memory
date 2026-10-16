@@ -12,6 +12,7 @@ class NoteFrontmatter {
     this.ocrConfidence,
     this.status = 'confirmed',
     this.links = const [],
+    this.tags = const [],
     this.threadTick = false,
   });
 
@@ -24,6 +25,9 @@ class NoteFrontmatter {
   final double? ocrConfidence;
   final String status;
   final List<String> links;
+
+  /// Nested Obsidian tags without leading `#` (e.g. `psychology/memory`).
+  final List<String> tags;
   final bool threadTick;
 }
 
@@ -48,6 +52,9 @@ class MarkdownWriter {
     final linksYaml = fm.links.isEmpty
         ? '[]'
         : '[${fm.links.map(_yamlString).join(', ')}]';
+    final tagsYaml = fm.tags.isEmpty
+        ? '[]'
+        : '[${fm.tags.map(_yamlString).join(', ')}]';
 
     final buffer = StringBuffer()
       ..writeln('---')
@@ -67,7 +74,11 @@ class MarkdownWriter {
     }
     buffer
       ..writeln('status: ${fm.status}')
-      ..writeln('links: $linksYaml')
+      ..writeln('links: $linksYaml');
+    if (fm.tags.isNotEmpty) {
+      buffer.writeln('tags: $tagsYaml');
+    }
+    buffer
       ..writeln('---')
       ..writeln();
     if (fm.sourceImage.trim().isNotEmpty) {

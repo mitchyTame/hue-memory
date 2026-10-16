@@ -38,6 +38,27 @@ void main() {
     expect(md.trimRight(), endsWith('attetion is a muscle'));
   });
 
+  test('writes nested tags frontmatter when present', () {
+    final md = writer.write(
+      MarkdownNoteDraft(
+        frontmatter: NoteFrontmatter(
+          type: 'fleeting',
+          symbol: 'fleeting',
+          glyph: '∼',
+          pageId: '20261016-tags',
+          capturedAt: DateTime.utc(2026, 10, 16),
+          sourceImage: 'captures/raw/20261016-tags.jpg',
+          tags: const ['psychology/memory', 'psychology/memory/encoding'],
+        ),
+        noteBody: 'Tagged thought',
+      ),
+    );
+    expect(
+      md,
+      contains('tags: ["psychology/memory", "psychology/memory/encoding"]'),
+    );
+  });
+
   test('empty links serialize as []', () {
     final md = writer.write(
       MarkdownNoteDraft(

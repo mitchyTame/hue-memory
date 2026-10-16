@@ -14,6 +14,7 @@ class SettingsHubShell extends StatelessWidget {
     this.onOpenSymbols,
     this.onOpenPaperKit,
     this.onOpenPromote,
+    this.onOpenGuide,
     this.onBack,
   });
 
@@ -25,6 +26,7 @@ class SettingsHubShell extends StatelessWidget {
   final VoidCallback? onOpenSymbols;
   final VoidCallback? onOpenPaperKit;
   final VoidCallback? onOpenPromote;
+  final VoidCallback? onOpenGuide;
   final VoidCallback? onBack;
 
   @override
@@ -42,6 +44,16 @@ class SettingsHubShell extends StatelessWidget {
       ),
       body: ListView(
         children: [
+          ListTile(
+            title: Text('How to use', style: textTheme.titleLarge),
+            subtitle: Text(
+              'Paper → confirm → vault',
+              style: textTheme.labelMedium,
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenGuide,
+          ),
+          const Divider(height: 1),
           ListTile(
             title: Text('Vault', style: textTheme.titleLarge),
             subtitle: Text(vaultLabel, style: textTheme.labelMedium),

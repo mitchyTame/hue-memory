@@ -1,9 +1,11 @@
 import '../capture/pending_capture.dart';
+import '../links/wikilink_suggester.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/symbol_router.dart';
 import '../writers/canvas_writer.dart';
 import '../writers/link_writer.dart';
 import '../writers/markdown_writer.dart';
+import '../writers/tag_builder.dart';
 import 'daily_note_path.dart';
 import 'daily_tasks_appender.dart';
 import 'vault_fs.dart';
@@ -20,6 +22,7 @@ class CommitInput {
     this.taskLines,
     this.inkGhost = true,
     this.regions,
+    this.weaveSuggestedWikilinks = true,
   });
 
   final PendingCapture capture;
@@ -36,6 +39,9 @@ class CommitInput {
 
   /// Edited mindmap labels from confirm (△). Falls back to capture regions.
   final List<OcrRegion>? regions;
+
+  /// When true, weave suggested `[[wikilinks]]` into the markdown body.
+  final bool weaveSuggestedWikilinks;
 }
 
 class CommitResult {
@@ -69,6 +75,8 @@ class CommitPipeline {
     MarkdownWriter markdownWriter = const MarkdownWriter(),
     CanvasWriter canvasWriter = const CanvasWriter(),
     LinkWriter linkWriter = const LinkWriter(),
+    TagBuilder tagBuilder = const TagBuilder(),
+    WikilinkSuggester wikilinkSuggester = const WikilinkSuggester(),
     DailyNotePathResolver dailyPathResolver = const DailyNotePathResolver(),
     DailyTasksAppender dailyAppender = const DailyTasksAppender(),
     DailyNoteSettings dailyNoteSettings = const DailyNoteSettings(),
@@ -77,6 +85,8 @@ class CommitPipeline {
         _markdown = markdownWriter,
         _canvas = canvasWriter,
         _links = linkWriter,
+        _tags = tagBuilder,
+        _wikilinks = wikilinkSuggester,
         _dailyPaths = dailyPathResolver,
         _dailyAppender = dailyAppender,
         _dailySettings = dailyNoteSettings;
@@ -86,6 +96,8 @@ class CommitPipeline {
   final MarkdownWriter _markdown;
   final CanvasWriter _canvas;
   final LinkWriter _links;
+  final TagBuilder _tags;
+  final WikilinkSuggester _wikilinks;
   final DailyNotePathResolver _dailyPaths;
   final DailyTasksAppender _dailyAppender;
   final DailyNoteSettings _dailySettings;
@@ -130,11 +142,13 @@ class CommitPipeline {
       final regionList = input.regions ?? capture.meaning.regions;
       final textNodes = CanvasWriter.nodesFromRegions(regionList);
       final edges = CanvasWriter.heuristicEdges(textNodes);
+      final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
       final doc = _canvas.buildVisualCanvas(
         sourceImage: rawImagePath,
         textNodes: textNodes,
         edges: edges,
         inkGhost: input.inkGhost,
+        hierarchicalTags: _tags.tagLine(nested),
       );
       await _vault.writeText(canvasPath, _canvas.writeJson(doc));
       return CommitResult(
@@ -153,9 +167,11 @@ class CommitPipeline {
     );
     final fmLinks = _links.frontmatterLinks(input.links);
     final linked = _links.linkedSection(input.links);
-    final body = linked.isEmpty
-        ? input.noteBody
-        : '${input.noteBody.trim()}\n\n$linked';
+    var noteBody = input.noteBody;
+    if (input.weaveSuggestedWikilinks && input.links.isNotEmpty) {
+      noteBody = _wikilinks.insertIntoBody(noteBody, input.links);
+    }
+    final body = linked.isEmpty ? noteBody : '${noteBody.trim()}\n\n$linked';
 
     final md = _markdown.write(
       MarkdownNoteDraft(
