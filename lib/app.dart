@@ -30,6 +30,7 @@ import 'promote/promote_service.dart';
 import 'queue/capture_queue.dart';
 import 'queue/file_capture_queue.dart';
 import 'queue/inbox_only_commit.dart';
+import 'ui/library_editor_shell.dart';
 import 'ui/ocr_settings_shell.dart';
 import 'ui/paper_kit_shell.dart';
 import 'ui/promote_shell.dart';
@@ -44,7 +45,7 @@ import 'vault/saf_vault_fs.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
-enum _SettingsPane { hub, vault, ocr, symbols, paperKit }
+enum _SettingsPane { hub, vault, ocr, symbols, paperKit, library }
 
 /// Root app. Slice 7: YAML symbol packs + live camera + SAF / Local vault.
 class HueMemoryApp extends StatefulWidget {
@@ -240,6 +241,17 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     setState(() => _activePack = pack);
   }
 
+  Future<void> _saveCustomPack(SymbolPack pack) async {
+    final vault = _vault;
+    await _packStore.saveCustomPack(pack, vault: vault, activate: true);
+    final packs = await _packStore.availablePacks();
+    final active = await _packStore.activePack();
+    setState(() {
+      _availablePacks = packs;
+      _activePack = active;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -273,6 +285,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               },
               onOcrSettingsChanged: _refreshOcrLabel,
               onSelectPack: _selectPack,
+              onSaveCustomPack: _saveCustomPack,
             ),
     );
   }
@@ -307,6 +320,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
     required this.onSelectPack,
+    required this.onSaveCustomPack,
   });
 
   final VaultFs vault;
@@ -326,6 +340,7 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
   final Future<void> Function(SymbolPack pack) onSelectPack;
+  final Future<void> Function(SymbolPack pack) onSaveCustomPack;
 
   @override
   State<_HomeNavigator> createState() => _HomeNavigatorState();
@@ -950,11 +965,42 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             activePackId: widget.activePack.id,
             busy: _settingsBusy,
             onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onOpenLibrary: () =>
+                setState(() => _settingsPane = _SettingsPane.library),
             onSelect: (pack) async {
               setState(() => _settingsBusy = true);
               await widget.onSelectPack(pack);
               if (!mounted) return;
               setState(() => _settingsBusy = false);
+            },
+          );
+        case _SettingsPane.library:
+          SymbolPack custom = DefaultPacks.blankCustom;
+          for (final p in widget.availablePacks) {
+            if (p.id == 'blank-custom') {
+              custom = p;
+              break;
+            }
+          }
+          return LibraryEditorShell(
+            pack: custom,
+            busy: _settingsBusy,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.symbols),
+            onSave: (pack) async {
+              setState(() => _settingsBusy = true);
+              await widget.onSaveCustomPack(pack);
+              if (!mounted) return;
+              setState(() {
+                _settingsBusy = false;
+                _settingsPane = _SettingsPane.symbols;
+              });
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Custom pack saved'),
+                  backgroundColor: MemoryHues.accent,
+                ),
+              );
             },
           );
         case _SettingsPane.paperKit:

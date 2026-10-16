@@ -1,20 +1,13 @@
+import 'ink_library.dart';
 import 'symbol_models.dart';
 
-/// Ink library draw ids used by the ZK default pack.
-abstract final class InkDrawIds {
-  static const circleOpen = 'circle-open';
-  static const wave = 'wave';
-  static const tripleBar = 'triple-bar';
-  static const diamond = 'diamond';
-  static const triangle = 'triangle';
-  static const dot = 'dot';
-}
+export 'ink_library.dart' show InkDrawIds;
 
 /// Dart fallback if YAML assets fail to load. Prefer `assets/packs/*.yaml`.
 abstract final class DefaultPacks {
   static const SymbolPack zettelkastenInk = SymbolPack(
     id: 'zettelkasten-ink',
-    libraryRef: 'ink-v1',
+    libraryRef: InkLibrary.ref,
     label: 'Zettelkasten ink',
     symbols: [
       PackSymbol(
@@ -60,6 +53,22 @@ abstract final class DefaultPacks {
         glyphs: ['·', '•'],
         output: SymbolOutput.dailyNoteAppend,
         section: '## Tasks',
+      ),
+    ],
+  );
+
+  /// Blank custom pack — ○ inbox only; add from library in Settings.
+  static const SymbolPack blankCustom = SymbolPack(
+    id: 'blank-custom',
+    libraryRef: InkLibrary.ref,
+    label: 'Blank custom',
+    symbols: [
+      PackSymbol(
+        id: 'inbox',
+        draw: InkDrawIds.circleOpen,
+        glyphs: ['○', 'I'],
+        folder: 'inbox',
+        output: SymbolOutput.inbox,
       ),
     ],
   );
