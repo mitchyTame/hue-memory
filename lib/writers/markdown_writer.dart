@@ -65,9 +65,13 @@ class MarkdownWriter {
       ..writeln('status: ${fm.status}')
       ..writeln('links: $linksYaml')
       ..writeln('---')
-      ..writeln()
-      ..writeln('![[${fm.sourceImage}]]')
-      ..writeln()
+      ..writeln();
+    if (fm.sourceImage.trim().isNotEmpty) {
+      buffer
+        ..writeln('![[${fm.sourceImage}]]')
+        ..writeln();
+    }
+    buffer
       ..writeln('## Note')
       ..writeln()
       ..writeln(draft.noteBody.trim())

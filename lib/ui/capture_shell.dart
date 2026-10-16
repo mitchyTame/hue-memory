@@ -9,6 +9,7 @@ class CaptureShell extends StatelessWidget {
     this.onShutter,
     this.onPickImage,
     this.onOpenSettings,
+    this.onOpenPromote,
     this.vaultLabel = 'In-memory vault (FakeVaultFs)',
     this.lastCommitPath,
     this.busy = false,
@@ -19,6 +20,7 @@ class CaptureShell extends StatelessWidget {
   final VoidCallback? onShutter;
   final VoidCallback? onPickImage;
   final VoidCallback? onOpenSettings;
+  final VoidCallback? onOpenPromote;
   final String vaultLabel;
   final String? lastCommitPath;
   final bool busy;
@@ -44,6 +46,15 @@ class CaptureShell extends StatelessWidget {
                         color: MemoryHues.paperElevated.withValues(alpha: 0.85),
                       ),
                       overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Promote ritual',
+                    onPressed: busy ? null : onOpenPromote,
+                    icon: const Icon(
+                      Icons.auto_awesome_outlined,
+                      color: MemoryHues.recall,
+                      size: 22,
                     ),
                   ),
                   IconButton(

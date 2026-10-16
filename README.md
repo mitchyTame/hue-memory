@@ -131,7 +131,7 @@ After capture → meaning pass. Default **mock**. Enable live: **Settings → OC
 
 Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; a copy is mirrored to `symbol-journal/packs/active.yaml` in the vault. Dart `DefaultPacks` remains a fallback if assets fail.
 
-**Still TODO:** offline OCR queue, secure key storage, promote ritual, full 18-glyph library editor.
+**Still TODO:** offline OCR queue, secure key storage, full 18-glyph library editor.
 
 ### Ink-ghost Canvas
 
@@ -143,6 +143,10 @@ Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switche
 
 - Ink legend for the active pack
 - Hue-dot sticker sheet (twin 2-char codes, Memory hues)
+
+### Promote ritual
+
+Capture-home **recall** icon (or Settings → Promote ritual): list `fleeting/` notes, rewrite in own words (gate), write `permanent/` with wikilink back, stamp fleeting `status: promoted`.
 
 ## Tests
 
