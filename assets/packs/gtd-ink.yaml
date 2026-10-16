@@ -1,0 +1,39 @@
+id: gtd-ink
+library_ref: ink-v1
+label: GTD ink
+symbols:
+  - id: inbox
+    draw: circle-open
+    glyphs: ["○", "I"]
+    folder: gtd/inbox
+    output: markdown
+  - id: next
+    draw: arrow
+    glyphs: ["→"]
+    folder: gtd
+    output: markdown
+  - id: waiting
+    draw: half-circle
+    glyphs: ["◐"]
+    folder: gtd
+    output: markdown
+  - id: someday
+    draw: chevron
+    glyphs: ["›"]
+    folder: gtd
+    output: markdown
+  - id: project
+    draw: plus
+    glyphs: ["+"]
+    folder: gtd/projects
+    output: markdown
+  - id: reference
+    draw: circle-dot
+    glyphs: ["◎"]
+    folder: gtd/reference
+    output: markdown
+  - id: visual
+    draw: triangle
+    glyphs: ["△", "V"]
+    folder: mindmaps
+    output: canvas

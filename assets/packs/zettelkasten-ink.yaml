@@ -1,0 +1,35 @@
+id: zettelkasten-ink
+library_ref: ink-v1
+label: Zettelkasten ink
+symbols:
+  - id: inbox
+    draw: circle-open
+    glyphs: ["○", "I"]
+    folder: inbox
+    output: markdown
+  - id: fleeting
+    draw: wave
+    glyphs: ["∼", "F"]
+    folder: fleeting
+    output: markdown
+  - id: literature
+    draw: triple-bar
+    glyphs: ["≡", "L"]
+    folder: literature
+    output: markdown
+  - id: permanent
+    draw: diamond
+    glyphs: ["◇", "P"]
+    folder: permanent
+    output: markdown
+    review_gate: own_words
+  - id: visual
+    draw: triangle
+    glyphs: ["△", "V"]
+    folder: mindmaps
+    output: canvas
+  - id: daily-tasks
+    draw: dot
+    glyphs: ["·", "•"]
+    output: daily-note-append
+    section: "## Tasks"

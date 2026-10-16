@@ -54,11 +54,17 @@ class SymbolPack {
     required this.id,
     required this.libraryRef,
     required this.symbols,
+    this.label,
   });
 
   final String id;
   final String libraryRef;
   final List<PackSymbol> symbols;
+
+  /// Human label for settings UI.
+  final String? label;
+
+  String get displayName => label ?? id;
 
   PackSymbol? byId(String id) {
     for (final s in symbols) {

@@ -120,16 +120,18 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | Live camera (Android) | `lib/camera/live_camera_shell.dart` — full-bleed viewfinder + meta-zone guide |
 | Sample + file pick | desktop shutter = sample; gallery = hardened file pick |
 | Confirm + link picker | `lib/ui/confirm_shell.dart`, `link_picker_sheet.dart` |
-| Symbol pack + routing | `lib/symbols/` |
+| Symbol pack + routing | `lib/symbols/` — YAML packs + Dart fallback |
 | Writers | `lib/writers/` |
 
-### Mistral OCR (when?)
+### Mistral OCR
 
-**Now (slice 4):** after capture → meaning pass. Default is still **mock**. Enable live under **Settings → OCR** (API key + consent + toggle), or set `MISTRAL_API_KEY` in the environment and flip the toggle/consent in the UI.
+After capture → meaning pass. Default **mock**. Enable live: **Settings → OCR** (API key + consent + toggle), or `MISTRAL_API_KEY` env.
 
-Flow: shutter/gallery → `ConfigurableOcrClient` → Mistral `POST /v1/ocr` (image data URL) → confirm → vault write.
+### Symbol packs (YAML)
 
-**Still TODO:** offline OCR queue, secure key storage, YAML symbol packs, ink-ghost Canvas, printables / promote ritual.
+Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; a copy is mirrored to `symbol-journal/packs/active.yaml` in the vault. Dart `DefaultPacks` remains a fallback if assets fail.
+
+**Still TODO:** offline OCR queue, secure key storage, ink-ghost Canvas, printables / promote ritual, full 18-glyph library editor.
 
 ## Tests
 

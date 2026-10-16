@@ -15,12 +15,17 @@ import 'ocr/configurable_ocr_client.dart';
 import 'ocr/ocr_client.dart';
 import 'ocr/ocr_settings.dart';
 import 'settings/vault_settings_store.dart';
+import 'symbols/active_pack_store.dart';
+import 'symbols/default_packs.dart';
+import 'symbols/symbol_models.dart';
+import 'symbols/symbol_router.dart';
 import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
 import 'ui/ocr_settings_shell.dart';
 import 'ui/settings_hub_shell.dart';
+import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
 import 'vault/commit_pipeline.dart';
 import 'vault/local_vault_fs.dart';
@@ -29,9 +34,9 @@ import 'vault/saf_vault_fs.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
-enum _SettingsPane { hub, vault, ocr }
+enum _SettingsPane { hub, vault, ocr, symbols }
 
-/// Root app. Slice 6: live camera (Android) + SAF / Local vault.
+/// Root app. Slice 7: YAML symbol packs + live camera + SAF / Local vault.
 class HueMemoryApp extends StatefulWidget {
   const HueMemoryApp({
     super.key,
@@ -42,13 +47,17 @@ class HueMemoryApp extends StatefulWidget {
     VaultSettingsStore? settings,
     OcrSettingsStore? ocrSettings,
     SafDocuments? safDocuments,
+    ActivePackStore? packStore,
+    SymbolPack? initialPack,
   })  : _vault = vault,
         _camera = camera,
         _ocr = ocr,
         _pageIds = pageIds,
         _settings = settings,
         _ocrSettings = ocrSettings,
-        _safDocuments = safDocuments;
+        _safDocuments = safDocuments,
+        _packStore = packStore,
+        _initialPack = initialPack;
 
   final VaultFs? _vault;
   final CameraCapture? _camera;
@@ -57,6 +66,8 @@ class HueMemoryApp extends StatefulWidget {
   final VaultSettingsStore? _settings;
   final OcrSettingsStore? _ocrSettings;
   final SafDocuments? _safDocuments;
+  final ActivePackStore? _packStore;
+  final SymbolPack? _initialPack;
 
   @override
   State<HueMemoryApp> createState() => _HueMemoryAppState();
@@ -81,10 +92,14 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   late final PageId _pageIds = widget._pageIds ?? PageId();
   late final SafDocuments _safDocuments =
       widget._safDocuments ?? PluginSafDocuments();
+  late final ActivePackStore _packStore =
+      widget._packStore ?? ActivePackStore();
 
   VaultFs? _vault;
   String _vaultLabel = 'Loading vault…';
   String _ocrModeLabel = 'OCR: mock';
+  SymbolPack _activePack = DefaultPacks.zettelkastenInk;
+  List<SymbolPack> _availablePacks = const [DefaultPacks.zettelkastenInk];
   bool _ready = false;
 
   String get _shutterHint => Platform.isAndroid && widget._camera == null
@@ -105,8 +120,18 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
   Future<void> _bootstrap() async {
     await _refreshOcrLabel();
+    try {
+      _availablePacks = await _packStore.availablePacks();
+      _activePack = widget._initialPack ?? await _packStore.activePack();
+    } catch (_) {
+      _activePack = DefaultPacks.zettelkastenInk;
+      _availablePacks = const [DefaultPacks.zettelkastenInk];
+    }
 
     if (widget._vault != null) {
+      try {
+        await _packStore.mirrorToVault(widget._vault!, _activePack);
+      } catch (_) {}
       setState(() {
         _vault = widget._vault;
         _vaultLabel = _labelFor(widget._vault!);
@@ -149,6 +174,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       }
 
       await _vaultSettings.writeVaultRoot(persist);
+      await _packStore.mirrorToVault(vault, _activePack);
       if (!mounted) return;
       setState(() {
         _vault = vault;
@@ -177,6 +203,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     if (isSafTreeUri(rootRef)) {
       final vault = SafVaultFs(treeUri: rootRef, documents: _safDocuments);
       await _vaultSettings.writeVaultRoot(rootRef);
+      await _packStore.mirrorToVault(vault, _activePack);
       setState(() {
         _vault = vault;
         _vaultLabel = safVaultLabel(rootRef);
@@ -185,10 +212,17 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     }
     final vault = LocalVaultFs(Directory(rootRef));
     await _vaultSettings.writeVaultRoot(rootRef);
+    await _packStore.mirrorToVault(vault, _activePack);
     setState(() {
       _vault = vault;
       _vaultLabel = vault.rootPath;
     });
+  }
+
+  Future<void> _selectPack(SymbolPack pack) async {
+    final vault = _vault;
+    await _packStore.setActivePack(pack, vault: vault);
+    setState(() => _activePack = pack);
   }
 
   @override
@@ -214,12 +248,15 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               ocrSettings: _ocrSettings,
               pageIds: _pageIds,
               safDocuments: _safDocuments,
+              activePack: _activePack,
+              availablePacks: _availablePacks,
               onVaultRootChanged: _setVaultRoot,
               onUseDefaultVault: () async {
                 final dir = await defaultVaultDirectory();
                 await _setVaultRoot(dir.path);
               },
               onOcrSettingsChanged: _refreshOcrLabel,
+              onSelectPack: _selectPack,
             ),
     );
   }
@@ -247,9 +284,12 @@ class _HomeNavigator extends StatefulWidget {
     required this.ocrSettings,
     required this.pageIds,
     required this.safDocuments,
+    required this.activePack,
+    required this.availablePacks,
     required this.onVaultRootChanged,
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
+    required this.onSelectPack,
   });
 
   final VaultFs vault;
@@ -262,16 +302,22 @@ class _HomeNavigator extends StatefulWidget {
   final OcrSettingsStore ocrSettings;
   final PageId pageIds;
   final SafDocuments safDocuments;
+  final SymbolPack activePack;
+  final List<SymbolPack> availablePacks;
   final Future<void> Function(String rootRef) onVaultRootChanged;
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
+  final Future<void> Function(SymbolPack pack) onSelectPack;
 
   @override
   State<_HomeNavigator> createState() => _HomeNavigatorState();
 }
 
 class _HomeNavigatorState extends State<_HomeNavigator> {
-  late CommitPipeline _pipeline = CommitPipeline(vault: widget.vault);
+  late CommitPipeline _pipeline = CommitPipeline(
+    vault: widget.vault,
+    router: SymbolRouter(pack: widget.activePack),
+  );
 
   PendingCapture? _pending;
   bool _busy = false;
@@ -291,8 +337,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   @override
   void didUpdateWidget(covariant _HomeNavigator oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.vault != widget.vault) {
-      _pipeline = CommitPipeline(vault: widget.vault);
+    if (oldWidget.vault != widget.vault ||
+        oldWidget.activePack.id != widget.activePack.id) {
+      _pipeline = CommitPipeline(
+        vault: widget.vault,
+        router: SymbolRouter(pack: widget.activePack),
+      );
     }
   }
 
@@ -311,12 +361,15 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       final shot = await source.capturePage();
       final meaning = await widget.ocr.extractMeaning(shot.imageBytes);
       final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
+      final routed = SymbolRouter(pack: widget.activePack)
+          .route(meaning.detectedGlyph);
       final pending = PendingCapture(
         pageId: pageId,
         imageBytes: shot.imageBytes,
         capturedAt: shot.capturedAt,
         meaning: meaning,
         imageExtension: shot.imageExtension,
+        symbolId: routed.symbol.id,
       );
       if (!mounted) return;
       setState(() {
@@ -474,8 +527,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           return SettingsHubShell(
             vaultLabel: widget.vaultLabel,
             ocrModeLabel: widget.ocrModeLabel,
+            packLabel: widget.activePack.displayName,
             onBack: () => setState(() => _settingsPane = null),
-            onOpenVault: () => setState(() => _settingsPane = _SettingsPane.vault),
+            onOpenVault: () =>
+                setState(() => _settingsPane = _SettingsPane.vault),
             onOpenOcr: () async {
               final ocr = await widget.ocrSettings.read();
               setState(() {
@@ -483,6 +538,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
                 _settingsPane = _SettingsPane.ocr;
               });
             },
+            onOpenSymbols: () =>
+                setState(() => _settingsPane = _SettingsPane.symbols),
           );
         case _SettingsPane.vault:
           return VaultSettingsShell(
@@ -513,6 +570,19 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               setState(() => _ocrDraft = settings);
             },
           );
+        case _SettingsPane.symbols:
+          return SymbolsSettingsShell(
+            packs: widget.availablePacks,
+            activePackId: widget.activePack.id,
+            busy: _settingsBusy,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onSelect: (pack) async {
+              setState(() => _settingsBusy = true);
+              await widget.onSelectPack(pack);
+              if (!mounted) return;
+              setState(() => _settingsBusy = false);
+            },
+          );
       }
     }
 
@@ -520,6 +590,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     if (pending != null) {
       return ConfirmShell(
         capture: pending,
+        pack: widget.activePack,
         linkCandidates: List.unmodifiable(_recentPages),
         committing: _committing,
         onCancel: _committing ? null : () => setState(() => _pending = null),
@@ -528,7 +599,8 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
     return CaptureShell(
       busy: _busy,
-      vaultLabel: '${widget.vaultLabel} · ${widget.ocrModeLabel}',
+      vaultLabel:
+          '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
       lastCommitPath: _lastCommitPath,
       onShutter: () => _beginCapture(widget.shutterCamera),
