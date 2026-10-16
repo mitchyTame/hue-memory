@@ -13,6 +13,7 @@ class SettingsHubShell extends StatelessWidget {
     this.onOpenOcr,
     this.onOpenSymbols,
     this.onOpenPaperKit,
+    this.onOpenPromote,
     this.onBack,
   });
 
@@ -23,6 +24,7 @@ class SettingsHubShell extends StatelessWidget {
   final VoidCallback? onOpenOcr;
   final VoidCallback? onOpenSymbols;
   final VoidCallback? onOpenPaperKit;
+  final VoidCallback? onOpenPromote;
   final VoidCallback? onBack;
 
   @override
@@ -69,6 +71,16 @@ class SettingsHubShell extends StatelessWidget {
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: onOpenPaperKit,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            title: Text('Promote ritual', style: textTheme.titleLarge),
+            subtitle: Text(
+              '∼ fleeting → ◇ permanent',
+              style: textTheme.labelMedium,
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenPromote,
           ),
         ],
       ),

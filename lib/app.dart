@@ -25,8 +25,10 @@ import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
 import 'printables/hue_code.dart';
 import 'printables/paper_kit_pdf.dart';
+import 'promote/promote_service.dart';
 import 'ui/ocr_settings_shell.dart';
 import 'ui/paper_kit_shell.dart';
+import 'ui/promote_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
@@ -327,11 +329,15 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   bool _committing = false;
   _SettingsPane? _settingsPane;
   bool _settingsBusy = false;
+  bool _showPromote = false;
+  bool _promoteBusy = false;
+  List<PromoteCandidate> _promoteCandidates = const [];
   String? _lastCommitPath;
   String? _lastProbePath;
   String? _lastPrintablePath;
   OcrSettings _ocrDraft = const OcrSettings();
   final PaperKitPdf _paperKit = const PaperKitPdf();
+  final PromoteService _promote = PromoteService();
   final List<LinkPick> _recentPages = [
     const LinkPick(
       targetPath: 'permanent/seed-attention',
@@ -525,6 +531,76 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
+  Future<void> _openPromote() async {
+    setState(() => _promoteBusy = true);
+    try {
+      final list = await _promote.listFleeting(widget.vault);
+      if (!mounted) return;
+      setState(() {
+        _promoteCandidates = list;
+        _showPromote = true;
+        _promoteBusy = false;
+        _settingsPane = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _promoteBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Promote list failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _runPromote({
+    required PromoteCandidate source,
+    required String title,
+    required String ownWords,
+    required bool keepOcrShallow,
+  }) async {
+    setState(() => _promoteBusy = true);
+    try {
+      final result = await _promote.promote(
+        vault: widget.vault,
+        source: source,
+        title: title,
+        ownWords: ownWords,
+        keepOcrShallow: keepOcrShallow,
+      );
+      _recentPages.insert(
+        0,
+        LinkPick(
+          targetPath: result.permanentPath,
+          displayTitle: title,
+        ),
+      );
+      final list = await _promote.listFleeting(widget.vault);
+      if (!mounted) return;
+      setState(() {
+        _promoteCandidates = list;
+        _promoteBusy = false;
+        _lastCommitPath = result.permanentPath;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Promoted → ${result.permanentPath}'),
+          backgroundColor: MemoryHues.recall,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _promoteBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
   Future<void> _writeLegendPdf() async {
     setState(() => _settingsBusy = true);
     try {
@@ -599,6 +675,15 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   @override
   Widget build(BuildContext context) {
+    if (_showPromote) {
+      return PromoteShell(
+        candidates: _promoteCandidates,
+        busy: _promoteBusy,
+        onBack: () => setState(() => _showPromote = false),
+        onPromote: _runPromote,
+      );
+    }
+
     final pane = _settingsPane;
     if (pane != null) {
       switch (pane) {
@@ -621,6 +706,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
                 setState(() => _settingsPane = _SettingsPane.symbols),
             onOpenPaperKit: () =>
                 setState(() => _settingsPane = _SettingsPane.paperKit),
+            onOpenPromote: () {
+              setState(() => _settingsPane = null);
+              _openPromote();
+            },
           );
         case _SettingsPane.vault:
           return VaultSettingsShell(
@@ -688,7 +777,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       );
     }
     return CaptureShell(
-      busy: _busy,
+      busy: _busy || _promoteBusy,
       vaultLabel:
           '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
@@ -696,6 +785,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       onShutter: () => _beginCapture(widget.shutterCamera),
       onPickImage: () => _beginCapture(widget.filePickCamera),
       onOpenSettings: _openSettings,
+      onOpenPromote: _openPromote,
     );
   }
 }
