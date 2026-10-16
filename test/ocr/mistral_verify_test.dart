@@ -19,18 +19,20 @@ Future<({Uint8List bytes, String mime})> _identityPrepare(
 }
 
 void main() {
-  test('verifyConnection succeeds on 200 OCR response', () async {
+  test('verifyConnection uses GET /v1/models — no OCR image upload', () async {
+    http.BaseRequest? seen;
     final client = MistralOcrClient(
       apiKey: 'live-key',
       prepareImage: _identityPrepare,
       httpClient: MockClient((request) async {
-        expect(request.url.path, '/v1/ocr');
+        seen = request;
+        expect(request.method, 'GET');
+        expect(request.url.path, '/v1/models');
         expect(request.headers['Authorization'], 'Bearer live-key');
         return http.Response(
           jsonEncode({
-            'model': 'mistral-ocr-latest',
-            'pages': [
-              {'markdown': ''},
+            'data': [
+              {'id': 'mistral-ocr-latest'},
             ],
           }),
           200,
@@ -41,10 +43,12 @@ void main() {
 
     final result = await client.verifyConnection();
     expect(result.ok, isTrue);
-    expect(result.message, contains('works'));
+    expect(result.message, contains('valid'));
+    expect(seen!.url.path, '/v1/models');
+    expect(seen!.method, 'GET');
   });
 
-  test('verifyConnection reports auth failure', () async {
+  test('verifyConnection reports auth failure from /v1/models', () async {
     final client = MistralOcrClient(
       apiKey: 'bad',
       prepareImage: _identityPrepare,
@@ -55,6 +59,7 @@ void main() {
     final result = await client.verifyConnection();
     expect(result.ok, isFalse);
     expect(result.message, contains('API key'));
+    expect(result.statusCode, 401);
   });
 
   test('extractMeaning uses jpeg mime for jpeg bytes when not re-encoded',
@@ -83,24 +88,19 @@ void main() {
     expect(body, contains('data:image/jpeg;base64,'));
   });
 
-  test('prepareImageForMistralOcr keeps small PNG as-is', () async {
+  test('prepareImageForMistralOcr re-encodes valid PNG to fresh PNG', () async {
     final prepared = await prepareImageForMistralOcr(kMistralProbePng);
     expect(prepared.mime, 'image/png');
-    expect(prepared.bytes, kMistralProbePng);
+    expect(prepared.bytes[0], 0x89);
+    expect(prepared.bytes[1], 0x50);
+    expect(prepared.bytes.length, greaterThan(8));
   });
 
-  test('prepareImageForMistralOcr re-encodes JPEG to PNG data URL bytes',
-      () async {
-    // Build a tiny JPEG via Flutter codec from the probe PNG.
-    final fromPng = await prepareImageForMistralOcr(kMistralProbePng);
-    expect(fromPng.mime, 'image/png');
-
-    // Force the JPEG path: decode probe → we already have PNG; create JPEG
-    // magic-labeled bytes by preparing a painted image isn't available here,
-    // so assert unknown/corrupt JPEG magic falls back without throwing.
+  test('prepareImageForMistralOcr rejects undecodable junk', () async {
     final junkJpeg = Uint8List.fromList([0xFF, 0xD8, 0xFF, 0x00, 1, 2, 3]);
-    final prepared = await prepareImageForMistralOcr(junkJpeg);
-    expect(prepared.mime, 'image/jpeg');
-    expect(prepared.bytes, junkJpeg);
+    expect(
+      () => prepareImageForMistralOcr(junkJpeg),
+      throwsA(isA<StateError>()),
+    );
   });
 }

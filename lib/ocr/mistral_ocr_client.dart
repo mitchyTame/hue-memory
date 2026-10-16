@@ -8,14 +8,15 @@ import 'mistral_ocr_request.dart';
 import 'ocr_client.dart';
 import 'ocr_image_prepare.dart';
 
-/// Minimal 1×1 PNG — cheap probe for auth + `/v1/ocr` reachability.
+/// Valid 1×1 RGB PNG (CRC-checked). Kept for fixtures / offline smoke only —
+/// [verifyConnection] does **not** upload this; it uses `GET /v1/models`.
 final Uint8List kMistralProbePng = Uint8List.fromList(const [
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D,
   0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
   0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00,
-  0x0C, 0x49, 0x44, 0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
-  0x00, 0x00, 0x03, 0x00, 0x01, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0x00, 0x00,
-  0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+  0x0C, 0x49, 0x44, 0x41, 0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0x00,
+  0x00, 0x03, 0x01, 0x01, 0x00, 0xF7, 0x03, 0x41, 0x43, 0x00, 0x00, 0x00,
+  0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
 ]);
 
 /// Prepares capture bytes before building the OCR data URL.
@@ -46,7 +47,10 @@ class MistralOcrClient implements OcrClient {
   final MistralOcrImagePreparer prepareImage;
   final http.Client _http;
 
-  /// Live check: auth + OCR endpoint with a tiny PNG.
+  /// Key-only check via `GET /v1/models` — no image upload.
+  ///
+  /// Avoids OCR 400s like "Your base64 could not be loaded as a valid image"
+  /// when Test connection only needs to prove the API key works.
   Future<MistralConnectionResult> verifyConnection() async {
     final key = apiKey.trim();
     if (key.isEmpty) {
@@ -55,26 +59,15 @@ class MistralOcrClient implements OcrClient {
         message: 'API key is empty',
       );
     }
+
+    late final http.Response response;
     try {
-      await extractMeaning(
-        kMistralProbePng,
-        imageMimeType: 'image/png',
-        allowEmpty: true,
-      );
-      return const MistralConnectionResult(
-        ok: true,
-        message: 'Connected — Mistral OCR key works',
-      );
-    } on MistralOcrException catch (e) {
-      return MistralConnectionResult(
-        ok: false,
-        message: e.readable,
-        statusCode: e.statusCode,
-      );
-    } on FormatException catch (e) {
-      return MistralConnectionResult(
-        ok: false,
-        message: e.message,
+      response = await _http.get(
+        Uri.parse('$baseUrl/v1/models'),
+        headers: {
+          'Authorization': 'Bearer $key',
+          'Accept': 'application/json',
+        },
       );
     } catch (e) {
       return MistralConnectionResult(
@@ -82,6 +75,27 @@ class MistralOcrClient implements OcrClient {
         message: _networkMessage(e),
       );
     }
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      return const MistralConnectionResult(
+        ok: true,
+        message: 'Connected — API key is valid',
+      );
+    }
+
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      return MistralConnectionResult(
+        ok: false,
+        message: 'Mistral rejected the API key (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    }
+
+    return MistralConnectionResult(
+      ok: false,
+      message: mistralHttpUserMessage(response.statusCode, response.body),
+      statusCode: response.statusCode,
+    );
   }
 
   @override
@@ -106,11 +120,21 @@ class MistralOcrClient implements OcrClient {
       );
     }
 
-    final prepared = await prepareImage(
-      imageBytes,
-      imageMimeType: imageMimeType,
-      extensionHint: extensionHint,
-    );
+    late final PreparedOcrImage prepared;
+    try {
+      prepared = await prepareImage(
+        imageBytes,
+        imageMimeType: imageMimeType,
+        extensionHint: extensionHint,
+      );
+    } catch (e) {
+      throw MistralOcrException(
+        statusCode: 0,
+        body: '$e',
+        userMessage:
+            'Could not prepare the photo for OCR — try another shot or gallery image',
+      );
+    }
     final uri = Uri.parse('$baseUrl/v1/ocr');
     final body = jsonEncode(
       buildMistralOcrRequestBody(

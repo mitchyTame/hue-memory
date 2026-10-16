@@ -11,24 +11,17 @@ typedef PreparedOcrImage = ({Uint8List bytes, String mime});
 
 /// Decode any Flutter-supported image and re-encode as a scaled PNG.
 ///
-/// Test connection uses a tiny PNG successfully; camera JPEGs / gallery HEIC
-/// / oversized shots often 400 with a base64-image complaint. Normalizing to
-/// PNG (same as the probe) with a bounded size avoids mime mismatch and huge
-/// payloads while keeping the same `data:image/png;base64,…` document shape.
+/// Always re-encodes when decode succeeds so we never ship a corrupt file that
+/// only has a PNG/JPEG magic header (Mistral: "base64 could not be loaded as
+/// a valid image"). Undecodable bytes throw — better than a silent 400.
 Future<PreparedOcrImage> prepareImageForMistralOcr(
   Uint8List bytes, {
   String? imageMimeType,
   String? extensionHint,
   int maxSide = kOcrMaxImageSide,
 }) async {
-  final fallbackMime = resolveOcrMime(
-    bytes,
-    imageMimeType: imageMimeType,
-    extensionHint: extensionHint,
-  );
-
   if (bytes.isEmpty) {
-    return (bytes: bytes, mime: fallbackMime);
+    throw StateError('Capture has no image bytes');
   }
 
   try {
@@ -46,13 +39,6 @@ Future<PreparedOcrImage> prepareImageForMistralOcr(
       targetHeight = maxSide;
     }
 
-    // Already a small PNG with correct magic — skip re-encode.
-    if (targetWidth == null &&
-        targetHeight == null &&
-        fallbackMime == 'image/png') {
-      return (bytes: bytes, mime: 'image/png');
-    }
-
     final codec = await ui.instantiateImageCodec(
       bytes,
       targetWidth: targetWidth,
@@ -62,11 +48,17 @@ Future<PreparedOcrImage> prepareImageForMistralOcr(
     final png = await frame.image.toByteData(format: ui.ImageByteFormat.png);
     frame.image.dispose();
     if (png == null) {
-      return (bytes: bytes, mime: fallbackMime);
+      throw StateError('Could not encode image for OCR');
     }
     return (bytes: png.buffer.asUint8List(), mime: 'image/png');
-  } catch (_) {
-    // Undecodable (rare) — send original with best-effort mime.
-    return (bytes: bytes, mime: fallbackMime);
+  } catch (e) {
+    final mime = resolveOcrMime(
+      bytes,
+      imageMimeType: imageMimeType,
+      extensionHint: extensionHint,
+    );
+    throw StateError(
+      'Could not decode image for OCR ($mime): $e',
+    );
   }
 }
