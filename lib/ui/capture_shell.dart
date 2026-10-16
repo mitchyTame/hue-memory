@@ -10,6 +10,8 @@ class CaptureShell extends StatelessWidget {
     this.onPickImage,
     this.onOpenSettings,
     this.onOpenPromote,
+    this.onOpenQueue,
+    this.queueCount = 0,
     this.vaultLabel = 'In-memory vault (FakeVaultFs)',
     this.lastCommitPath,
     this.busy = false,
@@ -21,6 +23,8 @@ class CaptureShell extends StatelessWidget {
   final VoidCallback? onPickImage;
   final VoidCallback? onOpenSettings;
   final VoidCallback? onOpenPromote;
+  final VoidCallback? onOpenQueue;
+  final int queueCount;
   final String vaultLabel;
   final String? lastCommitPath;
   final bool busy;
@@ -157,7 +161,45 @@ class CaptureShell extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 68),
+                  const SizedBox(width: 28),
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      IconButton(
+                        tooltip: 'Capture queue',
+                        onPressed: busy ? null : onOpenQueue,
+                        icon: Icon(
+                          Icons.inbox_outlined,
+                          color: queueCount > 0
+                              ? MemoryHues.recall
+                              : MemoryHues.paperElevated,
+                          size: 28,
+                        ),
+                      ),
+                      if (queueCount > 0)
+                        Positioned(
+                          right: 6,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 5,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: MemoryHues.recall,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              '$queueCount',
+                              style: textTheme.labelSmall?.copyWith(
+                                color: MemoryHues.ink,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),

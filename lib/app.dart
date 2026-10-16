@@ -27,9 +27,13 @@ import 'links/thread_tick.dart';
 import 'printables/hue_code.dart';
 import 'printables/paper_kit_pdf.dart';
 import 'promote/promote_service.dart';
+import 'queue/capture_queue.dart';
+import 'queue/file_capture_queue.dart';
+import 'queue/inbox_only_commit.dart';
 import 'ui/ocr_settings_shell.dart';
 import 'ui/paper_kit_shell.dart';
 import 'ui/promote_shell.dart';
+import 'ui/queue_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
@@ -55,6 +59,7 @@ class HueMemoryApp extends StatefulWidget {
     SafDocuments? safDocuments,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
+    CaptureQueue? captureQueue,
   })  : _vault = vault,
         _camera = camera,
         _ocr = ocr,
@@ -63,7 +68,8 @@ class HueMemoryApp extends StatefulWidget {
         _ocrSettings = ocrSettings,
         _safDocuments = safDocuments,
         _packStore = packStore,
-        _initialPack = initialPack;
+        _initialPack = initialPack,
+        _captureQueue = captureQueue;
 
   final VaultFs? _vault;
   final CameraCapture? _camera;
@@ -74,6 +80,7 @@ class HueMemoryApp extends StatefulWidget {
   final SafDocuments? _safDocuments;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
+  final CaptureQueue? _captureQueue;
 
   @override
   State<HueMemoryApp> createState() => _HueMemoryAppState();
@@ -100,6 +107,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       widget._safDocuments ?? PluginSafDocuments();
   late final ActivePackStore _packStore =
       widget._packStore ?? ActivePackStore();
+  late final CaptureQueue _captureQueue =
+      widget._captureQueue ?? FileCaptureQueue();
 
   VaultFs? _vault;
   String _vaultLabel = 'Loading vault…';
@@ -256,6 +265,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               safDocuments: _safDocuments,
               activePack: _activePack,
               availablePacks: _availablePacks,
+              captureQueue: _captureQueue,
               onVaultRootChanged: _setVaultRoot,
               onUseDefaultVault: () async {
                 final dir = await defaultVaultDirectory();
@@ -292,6 +302,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.safDocuments,
     required this.activePack,
     required this.availablePacks,
+    required this.captureQueue,
     required this.onVaultRootChanged,
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
@@ -310,6 +321,7 @@ class _HomeNavigator extends StatefulWidget {
   final SafDocuments safDocuments;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
+  final CaptureQueue captureQueue;
   final Future<void> Function(String rootRef) onVaultRootChanged;
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
@@ -332,6 +344,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   bool _settingsBusy = false;
   bool _showPromote = false;
   bool _promoteBusy = false;
+  bool _showQueue = false;
+  bool _queueBusy = false;
+  int _queueCount = 0;
+  List<QueueJob> _queueJobs = const [];
   List<PromoteCandidate> _promoteCandidates = const [];
   String? _lastCommitPath;
   String? _lastProbePath;
@@ -347,6 +363,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _refreshQueueCount();
+  }
+
+  @override
   void didUpdateWidget(covariant _HomeNavigator oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.vault != widget.vault ||
@@ -356,6 +378,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         router: SymbolRouter(pack: widget.activePack),
       );
     }
+  }
+
+  Future<void> _refreshQueueCount() async {
+    final n = await widget.captureQueue.pendingCount();
+    if (!mounted) return;
+    setState(() => _queueCount = n);
   }
 
   Future<void> _openSettings() async {
@@ -371,29 +399,53 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     setState(() => _busy = true);
     try {
       final shot = await source.capturePage();
-      final meaning = await widget.ocr.extractMeaning(shot.imageBytes);
-      final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
-      final routed = SymbolRouter(pack: widget.activePack)
-          .route(meaning.detectedGlyph);
-      final seededLinks = meaning.threadTick
-          ? ThreadTick.mergePrevious(
-              previous: _recentPages.isEmpty ? null : _recentPages.first,
-            )
-          : const <LinkPick>[];
-      final pending = PendingCapture(
-        pageId: pageId,
-        imageBytes: shot.imageBytes,
-        capturedAt: shot.capturedAt,
-        meaning: meaning,
-        imageExtension: shot.imageExtension,
-        symbolId: routed.symbol.id,
-        links: seededLinks,
-      );
-      if (!mounted) return;
-      setState(() {
-        _pending = pending;
-        _busy = false;
-      });
+      try {
+        final meaning = await widget.ocr.extractMeaning(shot.imageBytes);
+        final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
+        final routed = SymbolRouter(pack: widget.activePack)
+            .route(meaning.detectedGlyph);
+        final seededLinks = meaning.threadTick
+            ? ThreadTick.mergePrevious(
+                previous: _recentPages.isEmpty ? null : _recentPages.first,
+              )
+            : const <LinkPick>[];
+        final pending = PendingCapture(
+          pageId: pageId,
+          imageBytes: shot.imageBytes,
+          capturedAt: shot.capturedAt,
+          meaning: meaning,
+          imageExtension: shot.imageExtension,
+          symbolId: routed.symbol.id,
+          links: seededLinks,
+        );
+        if (!mounted) return;
+        setState(() {
+          _pending = pending;
+          _busy = false;
+        });
+      } catch (ocrError) {
+        // Offline / OCR failure — keep the photo in the app-private queue.
+        final job = await widget.captureQueue.enqueue(
+          imageBytes: shot.imageBytes,
+          capturedAt: shot.capturedAt,
+          imageExtension: shot.imageExtension,
+        );
+        await widget.captureQueue.markFailed(job.id, '$ocrError');
+        await _refreshQueueCount();
+        if (!mounted) return;
+        setState(() => _busy = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('OCR failed — queued ${job.id}'),
+            backgroundColor: MemoryHues.recall,
+            action: SnackBarAction(
+              label: 'Queue',
+              textColor: MemoryHues.ink,
+              onPressed: _openQueue,
+            ),
+          ),
+        );
+      }
     } on CaptureCancelled {
       if (!mounted) return;
       setState(() => _busy = false);
@@ -402,7 +454,141 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       setState(() => _busy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Capture / OCR failed: $e'),
+          content: Text('Capture failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _openQueue() async {
+    setState(() => _queueBusy = true);
+    try {
+      final jobs = await widget.captureQueue.list();
+      if (!mounted) return;
+      setState(() {
+        _queueJobs = jobs;
+        _queueCount = jobs.length;
+        _showQueue = true;
+        _queueBusy = false;
+        _settingsPane = null;
+        _showPromote = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _queueBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Queue open failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _retryQueuedOcr(QueueJob job) async {
+    setState(() => _queueBusy = true);
+    try {
+      final bytes = await widget.captureQueue.readImage(job.id);
+      final meaning = await widget.ocr.extractMeaning(bytes);
+      final pageId = widget.pageIds.generate(at: job.capturedAt.toLocal());
+      final routed =
+          SymbolRouter(pack: widget.activePack).route(meaning.detectedGlyph);
+      final pending = PendingCapture(
+        pageId: pageId,
+        imageBytes: bytes,
+        capturedAt: job.capturedAt,
+        meaning: meaning,
+        imageExtension: job.imageExtension,
+        symbolId: routed.symbol.id,
+      );
+      await widget.captureQueue.markDone(job.id);
+      final jobs = await widget.captureQueue.list();
+      if (!mounted) return;
+      setState(() {
+        _pending = pending;
+        _showQueue = false;
+        _queueJobs = jobs;
+        _queueCount = jobs.length;
+        _queueBusy = false;
+      });
+    } catch (e) {
+      await widget.captureQueue.markFailed(job.id, '$e');
+      final jobs = await widget.captureQueue.list();
+      if (!mounted) return;
+      setState(() {
+        _queueJobs = jobs;
+        _queueCount = jobs.length;
+        _queueBusy = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Retry OCR failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _inboxOnlyQueued(QueueJob job) async {
+    setState(() => _queueBusy = true);
+    try {
+      final bytes = await widget.captureQueue.readImage(job.id);
+      final pageId = widget.pageIds.generate(at: job.capturedAt.toLocal());
+      final capture = inboxOnlyCapture(
+        pageId: pageId,
+        imageBytes: bytes,
+        capturedAt: job.capturedAt,
+        imageExtension: job.imageExtension,
+      );
+      final result = await commitInboxOnly(
+        pipeline: _pipeline,
+        capture: capture,
+      );
+      await widget.captureQueue.markDone(job.id);
+      final jobs = await widget.captureQueue.list();
+      if (!mounted) return;
+      setState(() {
+        _queueJobs = jobs;
+        _queueCount = jobs.length;
+        _queueBusy = false;
+        _lastCommitPath = result.primaryPath;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Inbox-only → ${result.primaryPath}'),
+          backgroundColor: MemoryHues.accent,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _queueBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Inbox-only failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _discardQueued(QueueJob job) async {
+    setState(() => _queueBusy = true);
+    try {
+      await widget.captureQueue.remove(job.id);
+      final jobs = await widget.captureQueue.list();
+      if (!mounted) return;
+      setState(() {
+        _queueJobs = jobs;
+        _queueCount = jobs.length;
+        _queueBusy = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _queueBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Discard failed: $e'),
           backgroundColor: MemoryHues.danger,
         ),
       );
@@ -691,6 +877,17 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       );
     }
 
+    if (_showQueue) {
+      return QueueShell(
+        jobs: _queueJobs,
+        busy: _queueBusy,
+        onBack: () => setState(() => _showQueue = false),
+        onRetryOcr: _retryQueuedOcr,
+        onInboxOnly: _inboxOnlyQueued,
+        onDiscard: _discardQueued,
+      );
+    }
+
     final pane = _settingsPane;
     if (pane != null) {
       switch (pane) {
@@ -784,15 +981,17 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       );
     }
     return CaptureShell(
-      busy: _busy || _promoteBusy,
+      busy: _busy || _promoteBusy || _queueBusy,
       vaultLabel:
           '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
       lastCommitPath: _lastCommitPath,
+      queueCount: _queueCount,
       onShutter: () => _beginCapture(widget.shutterCamera),
       onPickImage: () => _beginCapture(widget.filePickCamera),
       onOpenSettings: _openSettings,
       onOpenPromote: _openPromote,
+      onOpenQueue: _openQueue,
     );
   }
 }

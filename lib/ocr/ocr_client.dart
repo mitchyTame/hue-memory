@@ -40,7 +40,7 @@ class MeaningResult {
 /// Cloud / on-device OCR boundary. MVP: Mistral cloud + consent.
 ///
 /// Live: [MistralOcrClient] via [ConfigurableOcrClient] when key + consent.
-/// TODO(ocr): offline capture queue + retry when network returns.
+/// Offline: failures enqueue via CaptureQueue (retry / inbox-only).
 abstract interface class OcrClient {
   Future<MeaningResult> extractMeaning(Uint8List imageBytes);
 }
