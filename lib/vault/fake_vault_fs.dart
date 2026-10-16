@@ -125,10 +125,19 @@ class FakeVaultFs implements VaultFs {
     );
   }
 
-  /// Test helper: snapshot of stored text files (path → content).
+  /// All stored file paths (normalized with leading `/`).
+  List<String> get filePaths => _files.keys.toList()..sort();
+
+  /// Test helper: snapshot of UTF-8 text files (skips binary e.g. images).
   Map<String, String> textSnapshot() {
-    return {
-      for (final e in _files.entries) e.key: utf8.decode(e.value),
-    };
+    final out = <String, String>{};
+    for (final e in _files.entries) {
+      try {
+        out[e.key] = utf8.decode(e.value);
+      } on FormatException {
+        // binary
+      }
+    }
+    return out;
   }
 }

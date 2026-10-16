@@ -2,20 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../theme/memory_hues.dart';
 
-/// Capture home shell — camera is the home screen.
-///
-/// TODO(camera): Replace placeholder plane with real CameraPreview + shutter.
+/// Capture home — sample shutter for Linux; camera later on Android.
 class CaptureShell extends StatelessWidget {
   const CaptureShell({
     super.key,
     this.onShutter,
-    this.onOpenConfirm,
-    this.vaultLabel = 'No vault selected',
+    this.vaultLabel = 'In-memory vault (FakeVaultFs)',
+    this.lastCommitPath,
+    this.busy = false,
   });
 
   final VoidCallback? onShutter;
-  final VoidCallback? onOpenConfirm;
   final String vaultLabel;
+  final String? lastCommitPath;
+  final bool busy;
 
   @override
   Widget build(BuildContext context) {
@@ -60,11 +60,38 @@ class CaptureShell extends StatelessWidget {
                   const ColoredBox(color: Color(0xFF0F1726)),
                   CustomPaint(painter: _CornerBracketPainter()),
                   Center(
-                    child: Text(
-                      'Camera preview\n(stub)',
-                      textAlign: TextAlign.center,
-                      style: textTheme.bodyMedium?.copyWith(
-                        color: MemoryHues.inkMuted,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'hue-memory',
+                            style: textTheme.headlineMedium?.copyWith(
+                              color: MemoryHues.paperElevated,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            busy
+                                ? 'Reading sample page…'
+                                : 'Tap shutter for sample page\n(camera on Android later)',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: MemoryHues.inkMuted,
+                            ),
+                          ),
+                          if (lastCommitPath != null) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'Last commit:\n$lastCommitPath',
+                              textAlign: TextAlign.center,
+                              style: textTheme.labelMedium?.copyWith(
+                                color: MemoryHues.accentSoft,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                     ),
                   ),
@@ -73,40 +100,35 @@ class CaptureShell extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  TextButton(
-                    onPressed: onOpenConfirm,
-                    child: Text(
-                      'Confirm shell',
-                      style: textTheme.bodySmall?.copyWith(
+              child: Semantics(
+                button: true,
+                label: 'Shutter',
+                child: GestureDetector(
+                  onTap: busy ? null : onShutter,
+                  child: Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: busy
+                          ? MemoryHues.accent.withValues(alpha: 0.5)
+                          : MemoryHues.accent,
+                      shape: BoxShape.circle,
+                      border: Border.all(
                         color: MemoryHues.paperElevated,
+                        width: 3,
                       ),
                     ),
+                    child: busy
+                        ? const Padding(
+                            padding: EdgeInsets.all(20),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: MemoryHues.paperElevated,
+                            ),
+                          )
+                        : null,
                   ),
-                  const SizedBox(width: 24),
-                  Semantics(
-                    button: true,
-                    label: 'Shutter',
-                    child: GestureDetector(
-                      onTap: onShutter,
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          color: MemoryHues.accent,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: MemoryHues.paperElevated,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 72),
-                ],
+                ),
               ),
             ),
           ],
@@ -132,16 +154,12 @@ class _CornerBracketPainter extends CustomPainter {
     final right = size.width - inset;
     final bottom = size.height - inset;
 
-    // Top-left
     canvas.drawLine(Offset(left, top + arm), Offset(left, top), paint);
     canvas.drawLine(Offset(left, top), Offset(left + arm, top), paint);
-    // Top-right
     canvas.drawLine(Offset(right - arm, top), Offset(right, top), paint);
     canvas.drawLine(Offset(right, top), Offset(right, top + arm), paint);
-    // Bottom-left
     canvas.drawLine(Offset(left, bottom - arm), Offset(left, bottom), paint);
     canvas.drawLine(Offset(left, bottom), Offset(left + arm, bottom), paint);
-    // Bottom-right
     canvas.drawLine(Offset(right - arm, bottom), Offset(right, bottom), paint);
     canvas.drawLine(Offset(right, bottom), Offset(right, bottom - arm), paint);
   }

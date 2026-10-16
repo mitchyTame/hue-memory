@@ -5,6 +5,9 @@ import 'memory_hues.dart';
 
 /// ThemeData for hue-memory. ColorScheme is locked — never ColorScheme.fromSeed.
 abstract final class AppTheme {
+  /// When true, skip runtime Google Fonts (widget tests / offline CI).
+  static bool skipGoogleFonts = false;
+
   static ThemeData light() {
     final colorScheme = const ColorScheme.light(
       surface: MemoryHues.paper,
@@ -21,9 +24,19 @@ abstract final class AppTheme {
       surfaceContainerHighest: MemoryHues.paperElevated,
     );
 
-    final plex = GoogleFonts.ibmPlexSansTextTheme();
-    final fraunces = GoogleFonts.frauncesTextTheme();
-    final plexMono = GoogleFonts.ibmPlexMonoTextTheme();
+    final TextTheme plex;
+    final TextTheme fraunces;
+    final TextTheme plexMono;
+    if (skipGoogleFonts) {
+      final base = ThemeData(brightness: Brightness.light).textTheme;
+      plex = base;
+      fraunces = base;
+      plexMono = base;
+    } else {
+      plex = GoogleFonts.ibmPlexSansTextTheme();
+      fraunces = GoogleFonts.frauncesTextTheme();
+      plexMono = GoogleFonts.ibmPlexMonoTextTheme();
+    }
 
     final textTheme = plex.copyWith(
       displayLarge: fraunces.displayLarge?.copyWith(

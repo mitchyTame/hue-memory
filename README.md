@@ -14,46 +14,55 @@ Paper → confirm → Obsidian vault files. Flutter, Android-first.
 
 ## Prerequisites
 
-- Flutter SDK (stable). On this WSL machine it was installed at `~/sdk/flutter` — add to PATH:
+- Flutter SDK (stable). On this WSL machine: `~/sdk/flutter`
   ```bash
   export PATH="$HOME/sdk/flutter/bin:$PATH"
   ```
 - Android toolchain for device/emulator runs (`flutter doctor`).
 
-## Run
+## Run (slice 2 flow)
 
 ```bash
-cd /home/mitch/projects/hue-memory   # or D:\source\repos\hue-memory on Windows
+cd /home/mitch/projects/hue-memory
 flutter pub get
 flutter test
-flutter run                          # attach a device / emulator
+flutter run
 ```
+
+1. Home is capture — tap the **teal shutter** (loads `assets/sample_page.png`; no camera required on Linux).
+2. Mock OCR assigns a symbol chip (default ∼ fleeting) + region overlays.
+3. Edit title/body, optionally **Link** recent pages, tap **Commit**.
+4. Writes into an in-memory `FakeVaultFs`: `captures/raw/{page_id}.png` + `.meaning.json` + routed `.md` / `.canvas` / Daily Note append.
+5. Snackbar + “Last commit” path on the capture screen.
+
+Switch the confirm chip to **△ visual** or **· daily-tasks** to exercise those writers.
 
 ## Memory hues
 
-UI tokens live in `lib/theme/memory_hues.dart` and `AppTheme` (`lib/theme/app_theme.dart`).
+UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 
-- Paper ground `#F1F0EC`, ink `#1B2A4A`, accent teal `#2A6B66`, recall amber `#C4923A`
+- Paper `#F1F0EC`, ink `#1B2A4A`, accent teal `#2A6B66`, recall amber `#C4923A`
 - **No** `ColorScheme.fromSeed` / purple Material drift
-- Fonts: Fraunces (titles) + IBM Plex Sans / Mono via `google_fonts`
+- Fonts: Fraunces + IBM Plex Sans / Mono via `google_fonts`
 
-## Package map (slice 1)
+## Package map
 
 | Area | Path |
 | --- | --- |
+| Capture session / page id | `lib/capture/` |
+| Commit pipeline + daily append | `lib/vault/commit_pipeline.dart`, `daily_tasks_appender.dart` |
+| Sample capture | `lib/camera/sample_capture.dart`, `assets/sample_page.png` |
+| Confirm + link picker | `lib/ui/confirm_shell.dart`, `link_picker_sheet.dart` |
 | Symbol pack + routing | `lib/symbols/` |
-| `VaultFs` + fake + daily path | `lib/vault/` |
-| Markdown / Canvas / wikilinks | `lib/writers/` |
-| OCR interface + mock | `lib/ocr/` |
-| Camera stub | `lib/camera/` |
-| Capture / confirm shells | `lib/ui/` |
+| Writers | `lib/writers/` |
 
-Real SAF vault I/O and camera preview are intentionally stubbed — see TODOs in those files.
+**Still TODO:** real Android camera, SAF `VaultFs`, Mistral OCR.
 
 ## Tests
 
 ```bash
 flutter test
+flutter analyze
 ```
 
-Covers symbol routing (ZK ○∼≡◇△·), daily-note Moment path expansion, markdown frontmatter, JSON Canvas shape, and Link-picker wikilinks.
+Covers symbol routing, daily-note paths, writers, daily-tasks append, commit pipeline (`FakeVaultFs`), and shutter→confirm→commit widget flow.
