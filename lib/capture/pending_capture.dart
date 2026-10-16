@@ -55,10 +55,13 @@ class PendingCapture {
   }
 
   static String _joinedRegions(MeaningResult meaning) {
+    // Visual / mindmap: short label lines only — never a page prose dump.
+    final sep = meaning.pageGenre == 'visual' ? '\n' : '\n\n';
     return meaning.regions
         .map((r) => r.text.trim())
         .where((t) => t.isNotEmpty)
-        .join('\n\n');
+        .take(meaning.pageGenre == 'visual' ? 12 : 100)
+        .join(sep);
   }
 
   static String _stripBulletPrefix(String line) {

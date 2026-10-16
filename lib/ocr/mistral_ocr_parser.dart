@@ -1,11 +1,16 @@
 import 'package:mistralai_dart/mistralai_dart.dart';
 
+import '../writers/mindmap_propose.dart';
 import 'ocr_client.dart';
 
 /// Maps Mistral OCR output into [MeaningResult].
 ///
 /// Symbol detection is a light heuristic on markdown text (corner glyph OCR
 /// comes later). Unknown → inbox glyph `○`.
+///
+/// For △ / visual: OCR is truncated for loops, then turned into a **JSON-shaped**
+/// [MindmapStructure] (short labels + hub→spoke). Never dumps freeform page
+/// prose into confirm — ink-ghost photo stays source of truth.
 class MistralOcrParser {
   const MistralOcrParser();
 
@@ -44,7 +49,6 @@ class MistralOcrParser {
     String? model,
   }) {
     final full = markdownChunks.join('\n\n');
-    final regions = _regionsFromMarkdown(full);
     final glyph = detectGlyph(full);
     final genre = glyph == '·'
         ? 'task_list'
@@ -52,9 +56,28 @@ class MistralOcrParser {
             ? 'visual'
             : 'text';
 
+    if (genre == 'visual') {
+      final structure = MindmapPropose.structureFromOcrMarkdown(full);
+      final regions = MindmapPropose.regionsFromStructure(structure);
+      return MeaningResult(
+        detectedGlyph: glyph,
+        regions: regions,
+        pageGenre: genre,
+        rawJson: {
+          'provider': 'mistral',
+          'model': model,
+          'pages': markdownChunks.length,
+          'hybrid_mindmap': true,
+          'mindmap': structure.toJson(),
+          // Never store the raw looping OCR dump for UI.
+          'ocr_truncated': structure.truncated,
+        },
+      );
+    }
+
     return MeaningResult(
       detectedGlyph: glyph,
-      regions: regions,
+      regions: _regionsFromMarkdown(full),
       pageGenre: genre,
       rawJson: {
         'provider': 'mistral',
@@ -72,18 +95,18 @@ class MistralOcrParser {
         return g == '•' ? '·' : g;
       }
     }
-    // Letter aliases (optional)
     final upper = markdown.toUpperCase();
     if (RegExp(r'\bP\b').hasMatch(upper)) return '◇';
     if (RegExp(r'\bV\b').hasMatch(upper)) return '△';
     if (RegExp(r'\bL\b').hasMatch(upper)) return '≡';
     if (RegExp(r'\bF\b').hasMatch(upper)) return '∼';
     if (RegExp(r'\bI\b').hasMatch(upper)) return '○';
-    return '○'; // inbox fallback when uncertain
+    return '○';
   }
 
   List<OcrRegion> _regionsFromMarkdown(String markdown) {
-    if (markdown.trim().isEmpty) {
+    final safe = MindmapPropose.truncateLoopingProse(markdown);
+    if (safe.trim().isEmpty) {
       return const [
         OcrRegion(
           id: 'r1',
@@ -94,7 +117,7 @@ class MistralOcrParser {
       ];
     }
 
-    final blocks = markdown
+    final blocks = safe
         .split(RegExp(r'\n\s*\n'))
         .map((b) => b.trim())
         .where((b) => b.isNotEmpty)
@@ -104,7 +127,7 @@ class MistralOcrParser {
       return [
         OcrRegion(
           id: 'r1',
-          text: markdown.trim(),
+          text: MindmapPropose.clipLabel(safe),
           confidence: 0.8,
           bbox: const [0.1, 0.15, 0.8, 0.2],
         ),
@@ -112,14 +135,14 @@ class MistralOcrParser {
     }
 
     final regions = <OcrRegion>[];
-    final n = blocks.length;
+    final n = blocks.length.clamp(1, 16);
     for (var i = 0; i < n; i++) {
       final top = 0.12 + (i / n) * 0.7;
       final height = (0.7 / n).clamp(0.06, 0.25);
       regions.add(
         OcrRegion(
           id: 'r${i + 1}',
-          text: blocks[i],
+          text: MindmapPropose.clipLabel(blocks[i]),
           confidence: 0.85,
           bbox: [0.1, top, 0.8, height],
         ),

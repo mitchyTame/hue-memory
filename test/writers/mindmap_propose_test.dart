@@ -1,0 +1,61 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hue_memory/writers/mindmap_propose.dart';
+
+void main() {
+  test('structureFromOcrMarkdown yields short labels, not page dump', () {
+    final md = '''
+△ Hub idea
+
+Spoke one
+Spoke two
+Spoke three
+''';
+    final structure = MindmapPropose.structureFromOcrMarkdown(md);
+    expect(structure.nodes, isNotEmpty);
+    expect(structure.nodes.length, lessThanOrEqualTo(MindmapPropose.maxLabels));
+    expect(structure.source, 'ocr');
+    for (final n in structure.nodes) {
+      expect(n.label.length, lessThanOrEqualTo(MindmapPropose.maxLabelChars));
+    }
+    final regions = MindmapPropose.regionsFromStructure(structure);
+    expect(regions.length, structure.nodes.length);
+    expect(regions.first.bbox, isNotNull);
+    expect(regions.first.bbox!.length, 4);
+  });
+
+  test('truncateLoopingProse cuts repeated lines', () {
+    final loop = List.filled(12, 'Same long label again').join('\n');
+    final cut = MindmapPropose.truncateLoopingProse(loop);
+    expect(cut.split('\n').length, lessThan(12));
+    expect(MindmapPropose.looksLikeLoopingProse(loop), isTrue);
+  });
+
+  test('parseJson keeps balanced object and normalized coords', () {
+    const raw = '''
+Here is noise {"nodes":[{"id":"a","label":"Hub","x":0.4,"y":0.3},
+{"id":"b","label":"Spoke","x":70,"y":50}],"edges":[{"from":"a","to":"b"}]} trailing
+''';
+    final structure = MindmapStructure.parseJson(raw);
+    expect(structure.nodes, hasLength(2));
+    expect(structure.nodes.first.x, closeTo(0.4, 0.001));
+    expect(structure.nodes.last.x, closeTo(0.7, 0.001));
+    expect(structure.edges, hasLength(1));
+    expect(structure.source, 'vision');
+  });
+
+  test('mergeOcrLabelsOntoVision prefers OCR text, keeps vision xy', () {
+    final vision = MindmapStructure.parseJson('''
+{"nodes":[{"id":"n1","label":"hub","x":0.3,"y":0.3},
+{"id":"n2","label":"spoke","x":0.7,"y":0.2}],
+"edges":[{"from":"n1","to":"n2"}]}
+''');
+    final merged = MindmapPropose.mergeOcrLabelsOntoVision(
+      ocrLabels: const ['Central hub', 'Outer spoke'],
+      vision: vision,
+    );
+    expect(merged.source, 'merged');
+    expect(merged.nodes.first.label, 'Central hub');
+    expect(merged.nodes.first.x, closeTo(0.3, 0.001));
+    expect(merged.nodes[1].label, 'Outer spoke');
+  });
+}

@@ -743,6 +743,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     required String noteBody,
     required List<LinkPick> links,
     bool inkGhost = true,
+    List<OcrRegion>? regions,
   }) async {
     final pending = _pending;
     if (pending == null || _committing) return;
@@ -756,6 +757,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           noteBody: noteBody,
           links: links,
           inkGhost: inkGhost,
+          regions: regions,
           taskLines: symbolId == 'daily-tasks'
               ? noteBody
                   .split('\n')

@@ -3,7 +3,15 @@ import 'package:flutter/material.dart';
 import '../ocr/ocr_client.dart';
 import '../theme/memory_hues.dart';
 
+/// Debug-only hairline OCR bboxes — **not** shown on confirm/ghost preview.
+///
+/// Confirm uses a clean photo (+ intentional △ node cards). Keep this painter
+/// for widget tests / debug overlays only. Flip to `true` locally when needed.
+const bool kDebugRegionOverlay = false;
+
 /// Hairline region rects over the page photo (Memory hues — no glow).
+///
+/// No-ops unless [kDebugRegionOverlay] is true — never draws on product UI.
 class RegionOverlayPainter extends CustomPainter {
   RegionOverlayPainter({
     required this.regions,
@@ -15,6 +23,8 @@ class RegionOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (!kDebugRegionOverlay) return;
+
     for (final region in regions) {
       final bbox = region.bbox;
       if (bbox == null || bbox.length < 4) continue;

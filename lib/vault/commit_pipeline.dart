@@ -22,6 +22,7 @@ class CommitInput {
     this.links = const [],
     this.taskLines,
     this.inkGhost = true,
+    this.regions,
   });
 
   final PendingCapture capture;
@@ -35,6 +36,9 @@ class CommitInput {
 
   /// Visual / canvas only — page photo under editable nodes (default on).
   final bool inkGhost;
+
+  /// Edited mindmap labels from confirm (△). Falls back to capture regions.
+  final List<OcrRegion>? regions;
 }
 
 class CommitResult {
@@ -130,8 +134,8 @@ class CommitPipeline {
       final slug = slugify(input.title);
       final canvasPath =
           '${_router.noteRelativeDir(route)}/${capture.pageId}-$slug.canvas';
-      final textNodes =
-          CanvasWriter.nodesFromRegions(capture.meaning.regions);
+      final regionList = input.regions ?? capture.meaning.regions;
+      final textNodes = CanvasWriter.nodesFromRegions(regionList);
       final edges = CanvasWriter.heuristicEdges(textNodes);
       final doc = _canvas.buildVisualCanvas(
         sourceImage: rawImagePath,
@@ -140,11 +144,21 @@ class CommitPipeline {
         inkGhost: input.inkGhost,
       );
       await _vault.writeText(canvasPath, _canvas.writeJson(doc));
+      final meaningForWrite = MeaningResult(
+        detectedGlyph: capture.meaning.detectedGlyph,
+        regions: regionList,
+        pageGenre: capture.meaning.pageGenre,
+        threadTick: capture.meaning.threadTick,
+        rawJson: {
+          ...capture.meaning.rawJson,
+          'hybrid_mindmap': true,
+        },
+      );
       // Re-write meaning with ink_ghost flag once we know the route.
       await _vault.writeText(
         meaningPath,
         _meaningJson(
-          capture.meaning,
+          meaningForWrite,
           route.symbol,
           capture.pageId,
           inkGhost: input.inkGhost,

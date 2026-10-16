@@ -8,11 +8,17 @@ import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_client.dart';
 import 'package:hue_memory/theme/app_theme.dart';
 import 'package:hue_memory/ui/confirm_shell.dart';
+import 'package:hue_memory/ui/region_overlay_painter.dart';
+
+Finder _regionOverlayPaints() => find.byWidgetPredicate(
+      (w) => w is CustomPaint && w.painter is RegionOverlayPainter,
+    );
 
 void main() {
   testWidgets('visual chip shows ink-ghost toggle; commit passes flag',
       (tester) async {
     bool? committedGhost;
+    List<OcrRegion>? committedRegions;
     final bytes = Uint8List.fromList(
       File('test/fixtures/pixel.png').readAsBytesSync(),
     );
@@ -42,8 +48,10 @@ void main() {
             required noteBody,
             required links,
             inkGhost = true,
+            regions,
           }) async {
             committedGhost = inkGhost;
+            committedRegions = regions;
           },
         ),
       ),
@@ -51,13 +59,64 @@ void main() {
     await tester.pump(); // allow image decode
 
     expect(find.text('Ink ghost'), findsOneWidget);
-    expect(find.byType(SwitchListTile), findsOneWidget);
+    // Clean photo — OCR bbox hairlines stay debug-only.
+    expect(_regionOverlayPaints(), findsNothing);
+    expect(kDebugRegionOverlay, isFalse);
 
-    await tester.tap(find.byType(SwitchListTile));
+    final inkGhostSwitch = find.widgetWithText(SwitchListTile, 'Ink ghost');
+    await tester.ensureVisible(inkGhostSwitch);
+    await tester.pumpAndSettle();
+    await tester.tap(inkGhostSwitch);
     await tester.pump();
+    await tester.ensureVisible(find.text('Commit'));
     await tester.tap(find.text('Commit'));
     await tester.pumpAndSettle();
 
     expect(committedGhost, isFalse);
+    expect(committedRegions, isNotNull);
+    expect(committedRegions, isNotEmpty);
+  });
+
+  testWidgets('non-visual confirm shows clean photo without bbox overlays',
+      (tester) async {
+    final bytes = Uint8List.fromList(
+      File('test/fixtures/pixel.png').readAsBytesSync(),
+    );
+    final capture = PendingCapture(
+      pageId: '20261016-p7k2',
+      imageBytes: bytes,
+      capturedAt: DateTime.utc(2026, 10, 16, 12),
+      meaning: MeaningResult(
+        detectedGlyph: '∼',
+        regions: MockOcrClient.defaultFleetingRegions,
+        pageGenre: 'text',
+      ),
+      imageExtension: 'png',
+      symbolId: 'fleeting',
+      title: 'Note',
+      noteBody: 'Body',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: ConfirmShell(
+          capture: capture,
+          onCommit: ({
+            required symbolId,
+            required title,
+            required noteBody,
+            required links,
+            inkGhost = true,
+            regions,
+          }) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Ink ghost'), findsNothing);
+    expect(_regionOverlayPaints(), findsNothing);
+    expect(find.byType(Image), findsOneWidget);
   });
 }

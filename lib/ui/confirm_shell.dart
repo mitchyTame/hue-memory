@@ -9,7 +9,6 @@ import '../symbols/symbol_router.dart';
 import '../theme/memory_hues.dart';
 import '../writers/link_writer.dart';
 import 'link_picker_sheet.dart';
-import 'region_overlay_painter.dart';
 
 typedef ConfirmCommitCallback = Future<void> Function({
   required String symbolId,
@@ -17,11 +16,13 @@ typedef ConfirmCommitCallback = Future<void> Function({
   required String noteBody,
   required List<LinkPick> links,
   bool inkGhost,
+  List<OcrRegion>? regions,
 });
 
 /// Confirm-on-photo — photo hero, chips, edit title/body, Link picker, Commit.
 ///
 /// For △ visual: ink-ghost toggle dims the page under editable region cards.
+/// Nodes are OCR guesses; the photo stays under them (hybrid mindmap).
 class ConfirmShell extends StatefulWidget {
   const ConfirmShell({
     super.key,
@@ -52,6 +53,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   late final SymbolRouter _router;
   bool _inkGhost = true;
   late bool _threadFromLast;
+  late List<OcrRegion> _regions;
 
   @override
   void initState() {
@@ -65,6 +67,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
     _bodyController = TextEditingController(text: widget.capture.noteBody);
     _links = List<LinkPick>.from(widget.capture.links);
     _threadFromLast = widget.capture.meaning.threadTick || _links.isNotEmpty;
+    _regions = List<OcrRegion>.from(widget.capture.meaning.regions);
   }
 
   LinkPick? get _previousCandidate =>
@@ -108,6 +111,40 @@ class _ConfirmShellState extends State<ConfirmShell> {
     }
   }
 
+  void _onRegionText(int index, String text) {
+    if (index < 0 || index >= _regions.length) return;
+    final r = _regions[index];
+    setState(() {
+      _regions[index] = OcrRegion(
+        id: r.id,
+        text: text,
+        confidence: r.confidence,
+        bbox: r.bbox,
+      );
+    });
+  }
+
+  void _onRegionDrag(int index, Offset delta, Size parentSize) {
+    if (index < 0 || index >= _regions.length || parentSize.width <= 0) {
+      return;
+    }
+    final r = _regions[index];
+    final bbox = List<double>.from(
+      r.bbox ?? [0.12, 0.18 + index * 0.14, 0.5, 0.1],
+    );
+    if (bbox.length < 4) return;
+    bbox[0] = (bbox[0] + delta.dx / parentSize.width).clamp(0.0, 0.85);
+    bbox[1] = (bbox[1] + delta.dy / parentSize.height).clamp(0.0, 0.85);
+    setState(() {
+      _regions[index] = OcrRegion(
+        id: r.id,
+        text: r.text,
+        confidence: r.confidence,
+        bbox: bbox,
+      );
+    });
+  }
+
   Future<void> _commit() async {
     final callback = widget.onCommit;
     if (callback == null || widget.committing) return;
@@ -119,6 +156,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
       noteBody: _bodyController.text,
       links: _links,
       inkGhost: _isCanvas ? _inkGhost : true,
+      regions: _isCanvas ? List<OcrRegion>.from(_regions) : null,
     );
   }
 
@@ -159,19 +197,18 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                 gaplessPlayback: true,
                               ),
                             ),
+                            // Clean photo only — no OCR bbox / guide lines.
+                            // △ / visual: intentional editable node cards on top.
                             if (_isCanvas)
                               _InkGhostNodeLayer(
-                                regions: widget.capture.meaning.regions,
+                                regions: _regions,
                                 parentSize: Size(
                                   photoConstraints.maxWidth,
                                   photoConstraints.maxHeight,
                                 ),
-                              )
-                            else
-                              CustomPaint(
-                                painter: RegionOverlayPainter(
-                                  regions: widget.capture.meaning.regions,
-                                ),
+                                enabled: !widget.committing,
+                                onTextChanged: _onRegionText,
+                                onDrag: _onRegionDrag,
                               ),
                           ],
                         );
@@ -271,7 +308,22 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                       ? null
                                       : _setThreadFromLast,
                                 ),
-                              if (_isCanvas)
+                              if (_isCanvas) ...[
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    8,
+                                    16,
+                                    0,
+                                  ),
+                                  child: Text(
+                                    'Nodes are guesses — photo stays under them. '
+                                    'Edit labels here; fix edges in Obsidian.',
+                                    style: textTheme.bodySmall?.copyWith(
+                                      color: MemoryHues.inkMuted,
+                                    ),
+                                  ),
+                                ),
                                 SwitchListTile(
                                   contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 16,
@@ -281,7 +333,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     style: textTheme.titleMedium,
                                   ),
                                   subtitle: Text(
-                                    'Page photo under editable nodes',
+                                    'Page photo under proposed nodes',
                                     style: textTheme.bodySmall?.copyWith(
                                       color: MemoryHues.inkMuted,
                                     ),
@@ -293,6 +345,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                       ? null
                                       : (v) => setState(() => _inkGhost = v),
                                 ),
+                              ],
                               Padding(
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -307,23 +360,28 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   ),
                                 ),
                               ),
-                              Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                                child: TextField(
-                                  controller: _bodyController,
-                                  enabled: !widget.committing,
-                                  minLines: _isDaily ? 2 : 3,
-                                  maxLines: 5,
-                                  decoration: InputDecoration(
-                                    labelText: _isDaily
-                                        ? 'Tasks (one per line)'
-                                        : 'Note',
-                                    border: const OutlineInputBorder(),
-                                    isDense: true,
+                              if (!_isCanvas)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    12,
+                                    16,
+                                    0,
+                                  ),
+                                  child: TextField(
+                                    controller: _bodyController,
+                                    enabled: !widget.committing,
+                                    minLines: _isDaily ? 2 : 3,
+                                    maxLines: 5,
+                                    decoration: InputDecoration(
+                                      labelText: _isDaily
+                                          ? 'Tasks (one per line)'
+                                          : 'Note',
+                                      border: const OutlineInputBorder(),
+                                      isDense: true,
+                                    ),
                                   ),
                                 ),
-                              ),
                               if (route.folder != null || route.isDailyTasks)
                                 Padding(
                                   padding: const EdgeInsets.fromLTRB(
@@ -414,42 +472,97 @@ class _ConfirmShellState extends State<ConfirmShell> {
 }
 
 
-/// Editable-looking region cards laid over the (optionally ghosted) page photo.
+/// Editable / draggable region cards over the (optionally ghosted) page photo.
 class _InkGhostNodeLayer extends StatelessWidget {
   const _InkGhostNodeLayer({
     required this.regions,
     required this.parentSize,
+    required this.enabled,
+    required this.onTextChanged,
+    required this.onDrag,
   });
 
   final List<OcrRegion> regions;
   final Size parentSize;
+  final bool enabled;
+  final void Function(int index, String text) onTextChanged;
+  final void Function(int index, Offset delta, Size parentSize) onDrag;
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
     return Stack(
       children: [
         for (var i = 0; i < regions.length; i++)
-          _positionedCard(
+          _InkGhostNodeCard(
+            key: ValueKey(regions[i].id),
             region: regions[i],
             index: i,
-            textTheme: textTheme,
+            parentSize: parentSize,
+            enabled: enabled,
+            onTextChanged: onTextChanged,
+            onDrag: onDrag,
           ),
       ],
     );
   }
+}
 
-  Widget _positionedCard({
-    required OcrRegion region,
-    required int index,
-    required TextTheme textTheme,
-  }) {
-    final bbox = region.bbox;
+class _InkGhostNodeCard extends StatefulWidget {
+  const _InkGhostNodeCard({
+    super.key,
+    required this.region,
+    required this.index,
+    required this.parentSize,
+    required this.enabled,
+    required this.onTextChanged,
+    required this.onDrag,
+  });
+
+  final OcrRegion region;
+  final int index;
+  final Size parentSize;
+  final bool enabled;
+  final void Function(int index, String text) onTextChanged;
+  final void Function(int index, Offset delta, Size parentSize) onDrag;
+
+  @override
+  State<_InkGhostNodeCard> createState() => _InkGhostNodeCardState();
+}
+
+class _InkGhostNodeCardState extends State<_InkGhostNodeCard> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.region.text);
+  }
+
+  @override
+  void didUpdateWidget(covariant _InkGhostNodeCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.region.text != widget.region.text &&
+        _controller.text != widget.region.text) {
+      _controller.text = widget.region.text;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final bbox = widget.region.bbox;
+    final parentSize = widget.parentSize;
     final left = (bbox != null && bbox.length >= 4 ? bbox[0] : 0.12) *
         parentSize.width;
     final top = (bbox != null && bbox.length >= 4
             ? bbox[1]
-            : 0.18 + index * 0.14) *
+            : 0.18 + widget.index * 0.14) *
         parentSize.height;
     final width = (bbox != null && bbox.length >= 4 ? bbox[2] : 0.5) *
         parentSize.width;
@@ -460,20 +573,31 @@ class _InkGhostNodeLayer extends StatelessWidget {
       left: left.clamp(0, parentSize.width - 48),
       top: top.clamp(0, parentSize.height - 32),
       width: width.clamp(96, parentSize.width),
-      height: height.clamp(36, parentSize.height),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: MemoryHues.paperElevated.withValues(alpha: 0.92),
-          border: Border.all(color: MemoryHues.accent, width: 1.2),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Text(
-            region.text,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-            style: textTheme.labelMedium?.copyWith(color: MemoryHues.ink),
+      height: height.clamp(40, parentSize.height),
+      child: GestureDetector(
+        onPanUpdate: widget.enabled
+            ? (d) => widget.onDrag(widget.index, d.delta, parentSize)
+            : null,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: MemoryHues.paperElevated.withValues(alpha: 0.92),
+            border: Border.all(color: MemoryHues.accent, width: 1.2),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: TextField(
+              controller: _controller,
+              enabled: widget.enabled,
+              maxLines: 3,
+              style: textTheme.labelMedium?.copyWith(color: MemoryHues.ink),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                contentPadding: EdgeInsets.zero,
+              ),
+              onChanged: (v) => widget.onTextChanged(widget.index, v),
+            ),
           ),
         ),
       ),

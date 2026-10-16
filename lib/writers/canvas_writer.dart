@@ -170,17 +170,23 @@ class CanvasWriter {
     return nodes;
   }
 
-  /// Naive hub edges: first region → each subsequent (good enough for MVP).
+  /// Conservative hub→spoke edges for hybrid mindmaps.
+  ///
+  /// Skips when fewer than two text nodes (uncertain / single label). Mitch
+  /// can fix links in Obsidian — we do not invent arrow OCR.
   static List<CanvasEdge> heuristicEdges(List<CanvasNode> textNodes) {
-    if (textNodes.length < 2) return const [];
-    final hub = textNodes.first;
+    final usable = textNodes
+        .where((n) => (n.text ?? '').trim().isNotEmpty)
+        .toList();
+    if (usable.length < 2) return const [];
+    final hub = usable.first;
     final edges = <CanvasEdge>[];
-    for (var i = 1; i < textNodes.length; i++) {
+    for (var i = 1; i < usable.length; i++) {
       edges.add(
         CanvasEdge(
           id: 'e$i',
           fromNode: hub.id,
-          toNode: textNodes[i].id,
+          toNode: usable[i].id,
         ),
       );
     }

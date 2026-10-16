@@ -50,4 +50,28 @@ void main() {
   test('falls back to inbox when no glyph', () {
     expect(parser.detectGlyph('Just some notes'), '○');
   });
+
+  test('visual glyph builds hybrid mindmap regions, not prose dump', () {
+    final result = parser.parseResponse(
+      const OcrResponse(
+        model: 'mistral-ocr-latest',
+        pages: [
+          OcrPage(
+            index: 0,
+            markdown: '△ Central idea\n\nBranch A\n\nBranch B\n\nBranch C',
+          ),
+        ],
+      ),
+    );
+
+    expect(result.detectedGlyph, '△');
+    expect(result.pageGenre, 'visual');
+    expect(result.rawJson['hybrid_mindmap'], isTrue);
+    expect(result.rawJson['mindmap'], isA<Map>());
+    expect(result.regions, isNotEmpty);
+    expect(result.regions.length, lessThanOrEqualTo(12));
+    for (final r in result.regions) {
+      expect(r.text.length, lessThanOrEqualTo(64));
+    }
+  });
 }
