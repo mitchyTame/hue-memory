@@ -12,6 +12,7 @@ class SettingsHubShell extends StatelessWidget {
     this.onOpenVault,
     this.onOpenOcr,
     this.onOpenSymbols,
+    this.onOpenPaperKit,
     this.onBack,
   });
 
@@ -21,6 +22,7 @@ class SettingsHubShell extends StatelessWidget {
   final VoidCallback? onOpenVault;
   final VoidCallback? onOpenOcr;
   final VoidCallback? onOpenSymbols;
+  final VoidCallback? onOpenPaperKit;
   final VoidCallback? onBack;
 
   @override
@@ -57,6 +59,16 @@ class SettingsHubShell extends StatelessWidget {
             subtitle: Text(packLabel, style: textTheme.labelMedium),
             trailing: const Icon(Icons.chevron_right),
             onTap: onOpenSymbols,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            title: Text('Paper kit', style: textTheme.titleLarge),
+            subtitle: Text(
+              'A6 legend + hue-dot stickers',
+              style: textTheme.labelMedium,
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenPaperKit,
           ),
         ],
       ),
