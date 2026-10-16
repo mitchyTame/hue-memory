@@ -21,12 +21,12 @@ export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$PATH"
 # already appended to ~/.bashrc on this machine
 ```
 
-### Linux desktop build deps (Ubuntu/Debian)
+### Linux desktop build deps — run once (`sudo`)
 
-Required for `flutter run -d linux` / `flutter build linux` (fixes CMake “unable to find Ninja” / missing `CMAKE_CXX_COMPILER` / GTK):
+Required for `flutter run -d linux` / `flutter build linux` (fixes CMake “unable to find Ninja” / missing `CMAKE_CXX_COMPILER` / GTK). Password prompt is expected:
 
 ```bash
-sudo apt-get update
+sudo DEBIAN_FRONTEND=noninteractive apt-get update
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   clang \
   cmake \
@@ -37,9 +37,10 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   mesa-utils
 ```
 
-Then verify:
+Then verify (no sudo):
 
 ```bash
+export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$PATH"
 flutter doctor -v
 # Linux toolchain should show clang++, cmake, ninja, GTK 3.0
 ```
