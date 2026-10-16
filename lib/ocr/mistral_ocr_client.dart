@@ -195,6 +195,12 @@ class MistralOcrClient implements OcrClient {
         return 'Mistral rejected the API key (HTTP ${e.statusCode})';
       case 404:
         return 'Mistral OCR endpoint not found (HTTP 404)';
+      case 422:
+        final detail = _validationDetail(e);
+        if (detail != null) {
+          return 'Mistral rejected the photo (HTTP 422): $detail';
+        }
+        return 'Mistral rejected the photo format (HTTP 422) — try another shot';
       case 429:
         return 'Mistral rate limit — try again shortly (HTTP 429)';
       case >= 500:
@@ -202,6 +208,34 @@ class MistralOcrClient implements OcrClient {
       default:
         return 'Mistral OCR failed (HTTP ${e.statusCode}): ${e.message}';
     }
+  }
+
+  /// Prefer a concrete field error over the SDK's generic "Validation error".
+  static String? _validationDetail(ApiException e) {
+    final msg = e.message.trim();
+    if (msg.isNotEmpty && msg.toLowerCase() != 'validation error') {
+      return msg;
+    }
+    for (final detail in e.details) {
+      if (detail is Map) {
+        final list = detail['detail'];
+        if (list is List && list.isNotEmpty) {
+          final first = list.first;
+          if (first is Map) {
+            final m = first['msg'] ?? first['message'];
+            if (m is String && m.trim().isNotEmpty) return m.trim();
+          }
+          if (first is String && first.trim().isNotEmpty) return first.trim();
+        }
+        final nested = detail['message'];
+        if (nested is String &&
+            nested.trim().isNotEmpty &&
+            nested.toLowerCase() != 'validation error') {
+          return nested.trim();
+        }
+      }
+    }
+    return null;
   }
 
   static String _networkMessage(Object e) {

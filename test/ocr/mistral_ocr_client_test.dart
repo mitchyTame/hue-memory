@@ -66,6 +66,34 @@ void main() {
     }
   });
 
+  test('MistralOcrClient surfaces 422 with concrete detail when present', () async {
+    final fake = FakeMistralSdk(
+      ocrError: const ApiException(
+        statusCode: 422,
+        message: 'Validation error',
+        details: [
+          {
+            'detail': [
+              {'msg': 'Input should be a valid dictionary or string'},
+            ],
+          },
+        ],
+      ),
+    );
+    final client = MistralOcrClient(
+      apiKey: 'k',
+      prepareImage: _identityPrepare,
+      sdk: fake,
+    );
+    try {
+      await client.extractMeaning(Uint8List.fromList([9]));
+      fail('expected MistralOcrException');
+    } on MistralOcrException catch (e) {
+      expect(e.statusCode, 422);
+      expect(e.readable, contains('Input should be a valid dictionary'));
+    }
+  });
+
   test('MistralOcrClient maps auth failure', () async {
     final fake = FakeMistralSdk(
       ocrError: const AuthenticationException(message: 'Unauthorized'),

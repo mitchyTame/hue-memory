@@ -1,8 +1,9 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:mistralai_dart/mistralai_dart.dart';
+
+import 'mistral_ocr_request.dart';
 
 /// Narrow seam over [MistralClient] for hue-memory OCR.
 ///
@@ -11,7 +12,7 @@ abstract interface class MistralSdk {
   /// `GET /v1/models` — proves the API key without uploading an image.
   Future<void> verifyApiKey();
 
-  /// Run OCR on prepared image bytes (library owns request encoding).
+  /// Run OCR on prepared image bytes (library owns transport/errors).
   Future<OcrResponse> ocrImage({
     required String model,
     required Uint8List bytes,
@@ -21,7 +22,11 @@ abstract interface class MistralSdk {
   void close();
 }
 
-/// Real [mistralai_dart] client — pure Dart, typed models, retries/errors.
+/// Real [mistralai_dart] client — key check via SDK; OCR uses ImageURLChunk.
+///
+/// `OcrRequest.fromBase64` in mistralai_dart 8.1.0 serializes as
+/// `{type: base64, data, mime_type}`, which Mistral rejects with HTTP 422.
+/// Photos must be `type: image_url` with a `data:image/…;base64,…` string.
 class LiveMistralSdk implements MistralSdk {
   LiveMistralSdk({
     required String apiKey,
@@ -49,16 +54,40 @@ class LiveMistralSdk implements MistralSdk {
     required String mimeType,
   }) {
     return _client.ocr.process(
-      request: OcrRequest.fromBase64(
+      request: ImageUrlOcrRequest(
         model: model,
-        data: base64Encode(bytes),
-        mimeType: mimeType,
+        imageDataUrl: mistralImageDataUrl(bytes, mimeType),
       ),
     );
   }
 
   @override
   void close() => _client.close();
+}
+
+/// [OcrRequest] that emits Mistral's ImageURLChunk wire shape.
+///
+/// Subclasses [OcrRequest] so [OcrResource.process] still uses SDK auth,
+/// retries, and error mapping — only the JSON document differs.
+class ImageUrlOcrRequest extends OcrRequest {
+  ImageUrlOcrRequest({
+    required super.model,
+    required this.imageDataUrl,
+  }) : super(
+          // Placeholder for the sealed document field; [toJson] ignores it.
+          document: OcrDocument.url(imageDataUrl),
+        );
+
+  final String imageDataUrl;
+
+  @override
+  Map<String, dynamic> toJson() => {
+        'model': model,
+        'document': {
+          'type': 'image_url',
+          'image_url': imageDataUrl,
+        },
+      };
 }
 
 /// In-memory double for unit tests.

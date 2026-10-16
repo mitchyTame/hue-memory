@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'image_mime.dart';
@@ -48,4 +49,39 @@ String resolveOcrMime(
   final fromExt = imageMimeTypeOf(bytes, extensionHint: extensionHint);
   if (fromExt == 'image/jpg') return 'image/jpeg';
   return fromExt;
+}
+
+/// `data:<mime>;base64,<payload>` — required by Mistral OCR for local images.
+String mistralImageDataUrl(Uint8List imageBytes, String mime) {
+  final safeMime = mime == 'image/jpg' ? 'image/jpeg' : mime;
+  return 'data:$safeMime;base64,${base64Encode(imageBytes)}';
+}
+
+/// Document chunk for `POST /v1/ocr` (image bytes as a data URL).
+///
+/// Wire shape matches Mistral ImageURLChunk: flat string `image_url` with a
+/// `data:image/…;base64,…` value.
+///
+/// Note: `mistralai_dart` 8.1.0's [OcrRequest.fromBase64] emits `type: base64`,
+/// which the API rejects with HTTP 422 — use this shape instead.
+Map<String, Object?> buildMistralOcrDocument({
+  required Uint8List imageBytes,
+  required String mime,
+}) {
+  return {
+    'type': 'image_url',
+    'image_url': mistralImageDataUrl(imageBytes, mime),
+  };
+}
+
+/// Full JSON-encodable body for `POST /v1/ocr`.
+Map<String, Object?> buildMistralOcrRequestBody({
+  required String model,
+  required Uint8List imageBytes,
+  required String mime,
+}) {
+  return {
+    'model': model,
+    'document': buildMistralOcrDocument(imageBytes: imageBytes, mime: mime),
+  };
 }
