@@ -987,6 +987,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             busy: _settingsBusy,
             onBack: () => setState(() => _settingsPane = _SettingsPane.symbols),
             onSave: (pack) async {
+              final messenger = ScaffoldMessenger.of(context);
               setState(() => _settingsBusy = true);
               await widget.onSaveCustomPack(pack);
               if (!mounted) return;
@@ -994,8 +995,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
                 _settingsBusy = false;
                 _settingsPane = _SettingsPane.symbols;
               });
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              messenger.showSnackBar(
                 const SnackBar(
                   content: Text('Custom pack saved'),
                   backgroundColor: MemoryHues.accent,
