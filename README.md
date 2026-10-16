@@ -45,7 +45,32 @@ flutter doctor -v
 # Linux toolchain should show clang++, cmake, ninja, GTK 3.0
 ```
 
-Android SDK is separate (needed for phone/emulator only, not Linux desktop).
+### Android (phone / emulator)
+
+On this WSL machine the Android SDK is installed at `~/Android/Sdk` (cmdline-tools; licenses accepted). Ensure:
+
+```bash
+export ANDROID_HOME="$HOME/Android/Sdk"
+export ANDROID_SDK_ROOT="$ANDROID_HOME"
+export PATH="$HOME/.local/bin:$HOME/sdk/flutter/bin:$ANDROID_HOME/platform-tools:$PATH"
+flutter doctor   # Android toolchain should be ✓
+```
+
+**No device is attached yet.** Options:
+
+1. **Physical phone (easiest for WSL):** enable Developer options → USB debugging, plug in, then from **Windows** use `usbipd` to attach the device into WSL (`usbipd bind/attach`), or copy the debug APK:
+   ```bash
+   cd /home/mitch/projects/hue-memory
+   flutter build apk --debug
+   # APK: build/app/outputs/flutter-apk/app-debug.apk
+   # Copy to phone and install, or: adb install -r build/app/outputs/flutter-apk/app-debug.apk
+   ```
+2. **Emulator:** install system images + emulator via `sdkmanager` / Android Studio (heavy on WSL); often simpler to run Flutter from Windows once Studio is installed there.
+
+```bash
+flutter devices
+flutter run -d <device_id>
+```
 
 ## Run (slice 2 flow)
 
