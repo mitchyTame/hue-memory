@@ -5,7 +5,7 @@ import 'dart:ui' show Color;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-import '../symbols/default_packs.dart';
+import '../symbols/ink_library.dart';
 import '../symbols/symbol_models.dart';
 import '../theme/memory_hues.dart';
 import 'hue_code.dart';

@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import '../symbols/symbol_models.dart';
 import '../theme/memory_hues.dart';
 
-/// Settings → Symbols — pick active pack (YAML-backed).
+/// Settings → Symbols — pick active pack + open library editor.
 class SymbolsSettingsShell extends StatelessWidget {
   const SymbolsSettingsShell({
     super.key,
     required this.packs,
     required this.activePackId,
     required this.onSelect,
+    this.onOpenLibrary,
     this.onBack,
     this.busy = false,
   });
@@ -17,6 +18,7 @@ class SymbolsSettingsShell extends StatelessWidget {
   final List<SymbolPack> packs;
   final String activePackId;
   final ValueChanged<SymbolPack> onSelect;
+  final VoidCallback? onOpenLibrary;
   final VoidCallback? onBack;
   final bool busy;
 
@@ -38,8 +40,13 @@ class SymbolsSettingsShell extends StatelessWidget {
         children: [
           Text(
             'Active pack maps circled ink icons to vault folders. '
-            'Packs load from assets/packs/*.yaml.',
+            'Bundled packs load from assets; Blank custom is edited from the library.',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.tonal(
+            onPressed: busy ? null : onOpenLibrary,
+            child: const Text('Edit ink library / custom pack'),
           ),
           const SizedBox(height: 16),
           for (final pack in packs) ...[

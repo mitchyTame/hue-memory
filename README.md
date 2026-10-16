@@ -110,11 +110,13 @@ After capture → meaning pass. Default **mock**. Enable live: **Settings → OC
 
 Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; a copy is mirrored to `symbol-journal/packs/active.yaml` in the vault. Dart `DefaultPacks` remains a fallback if assets fail.
 
-**Still TODO:** full 18-glyph library editor.
-
 ### Offline OCR queue
 
 When OCR fails (offline / network), the photo is saved to an app-private queue (not the vault). Capture-home **queue** badge opens Retry OCR / Inbox-only / Discard.
+
+### Ink library editor
+
+**Settings → Symbols → Edit ink library** — browse all 18 ink-v1 glyphs (CustomPainter), add/remove on the Blank custom pack (inbox required), save to prefs + vault `symbol-journal/packs/custom.yaml`.
 
 ### Ink-ghost Canvas
 
