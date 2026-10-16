@@ -13,13 +13,15 @@ class CaptureResult {
   final String imageExtension;
 }
 
-/// Camera capture boundary.
-///
-/// TODO(camera): Wire `camera` / `camerawesome` — full-bleed viewfinder,
-/// shutter breath motion, optional meta-zone guide. This stub only exists so
-/// the confirm shell and queue can be developed without device hardware.
+/// Camera capture boundary (live viewfinder, gallery pick, or sample asset).
 abstract interface class CameraCapture {
   Future<CaptureResult> capturePage();
+}
+
+/// User dismissed the picker / viewfinder without a frame.
+class CaptureCancelled implements Exception {
+  @override
+  String toString() => 'Capture cancelled';
 }
 
 /// No-op capture that returns empty bytes. Does not pretend to open a camera.

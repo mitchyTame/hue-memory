@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'camera/camera_capture.dart';
 import 'camera/file_pick_capture.dart';
+import 'camera/live_camera_capture.dart';
 import 'camera/sample_capture.dart';
 import 'capture/page_id.dart';
 import 'capture/pending_capture.dart';
@@ -30,7 +31,7 @@ import 'writers/link_writer.dart';
 
 enum _SettingsPane { hub, vault, ocr }
 
-/// Root app. Slice 5: Android SAF vault + desktop LocalVaultFs.
+/// Root app. Slice 6: live camera (Android) + SAF / Local vault.
 class HueMemoryApp extends StatefulWidget {
   const HueMemoryApp({
     super.key,
@@ -68,9 +69,13 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       PrefsOcrSettingsStore(
         envApiKey: Platform.environment['MISTRAL_API_KEY'] ?? '',
       );
-  late final CameraCapture _sampleCamera =
-      widget._camera ?? SampleAssetCapture();
-  late final FilePickCapture _filePickCamera = FilePickCapture();
+  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+
+  late final CameraCapture _shutterCamera = widget._camera ??
+      (Platform.isAndroid
+          ? LiveCameraCapture(navigatorKey: _navKey)
+          : SampleAssetCapture());
+  late final FilePickCapture _filePickCamera = const FilePickCapture();
   late final OcrClient _ocr = widget._ocr ??
       ConfigurableOcrClient(settings: _ocrSettings);
   late final PageId _pageIds = widget._pageIds ?? PageId();
@@ -81,6 +86,10 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   String _vaultLabel = 'Loading vault…';
   String _ocrModeLabel = 'OCR: mock';
   bool _ready = false;
+
+  String get _shutterHint => Platform.isAndroid && widget._camera == null
+      ? 'Shutter = live camera\nGallery = pick a photo'
+      : 'Shutter = sample page\nGallery = pick a photo';
 
   @override
   void initState() {
@@ -186,6 +195,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'hue-memory',
+      navigatorKey: _navKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       home: !_ready || _vault == null
@@ -197,7 +207,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               vault: _vault!,
               vaultLabel: _vaultLabel,
               ocrModeLabel: _ocrModeLabel,
-              sampleCamera: _sampleCamera,
+              shutterHint: _shutterHint,
+              shutterCamera: _shutterCamera,
               filePickCamera: _filePickCamera,
               ocr: _ocr,
               ocrSettings: _ocrSettings,
@@ -229,7 +240,8 @@ class _HomeNavigator extends StatefulWidget {
     required this.vault,
     required this.vaultLabel,
     required this.ocrModeLabel,
-    required this.sampleCamera,
+    required this.shutterHint,
+    required this.shutterCamera,
     required this.filePickCamera,
     required this.ocr,
     required this.ocrSettings,
@@ -243,7 +255,8 @@ class _HomeNavigator extends StatefulWidget {
   final VaultFs vault;
   final String vaultLabel;
   final String ocrModeLabel;
-  final CameraCapture sampleCamera;
+  final String shutterHint;
+  final CameraCapture shutterCamera;
   final CameraCapture filePickCamera;
   final OcrClient ocr;
   final OcrSettingsStore ocrSettings;
@@ -516,8 +529,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     return CaptureShell(
       busy: _busy,
       vaultLabel: '${widget.vaultLabel} · ${widget.ocrModeLabel}',
+      shutterHint: widget.shutterHint,
       lastCommitPath: _lastCommitPath,
-      onShutter: () => _beginCapture(widget.sampleCamera),
+      onShutter: () => _beginCapture(widget.shutterCamera),
       onPickImage: () => _beginCapture(widget.filePickCamera),
       onOpenSettings: _openSettings,
     );

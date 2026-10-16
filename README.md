@@ -92,7 +92,7 @@ flutter pub get
 flutter run -d linux
 ```
 
-1. Home is capture — **teal shutter** = sample page; **gallery** = pick a photo.
+1. Home is capture — **teal shutter** = live camera on Android (sample page on desktop); **gallery** = pick a photo.
 2. Mock OCR assigns a symbol chip (default ∼ fleeting) + region overlays.
 3. Edit title/body, optionally **Link** recent pages, tap **Commit**.
 4. Writes into a vault: desktop uses `LocalVaultFs` (default under app Documents `hue-memory-vault`); **Android** picks the real Obsidian folder via **SAF** (`SafVaultFs`, persistable `content://` tree URI). Writes: `captures/raw/…` + routed `.md` / `.canvas` / Daily Note.
@@ -117,7 +117,8 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | Local vault (desktop) | `lib/vault/local_vault_fs.dart` — default `…/Documents/hue-memory-vault` |
 | SAF vault (Android) | `lib/vault/saf_vault_fs.dart` + `saf` plugin — persistable tree URI |
 | Vault settings | gear → choose folder (SAF on Android) / write test note |
-| Sample + file pick | shutter = sample; gallery icon = pick image |
+| Live camera (Android) | `lib/camera/live_camera_shell.dart` — full-bleed viewfinder + meta-zone guide |
+| Sample + file pick | desktop shutter = sample; gallery = hardened file pick |
 | Confirm + link picker | `lib/ui/confirm_shell.dart`, `link_picker_sheet.dart` |
 | Symbol pack + routing | `lib/symbols/` |
 | Writers | `lib/writers/` |
@@ -128,7 +129,7 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 
 Flow: shutter/gallery → `ConfigurableOcrClient` → Mistral `POST /v1/ocr` (image data URL) → confirm → vault write.
 
-**Still TODO:** real Android camera, offline OCR queue, secure key storage, YAML symbol packs.
+**Still TODO:** offline OCR queue, secure key storage, YAML symbol packs, ink-ghost Canvas, printables / promote ritual.
 
 ## Tests
 
