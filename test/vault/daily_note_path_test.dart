@@ -5,14 +5,21 @@ void main() {
   const resolver = DailyNotePathResolver();
   final date = DateTime(2026, 10, 16);
 
-  test('YYYY-MM-DD + Daily Notes folder', () {
+  test('YYYY-MM-DD + Organising/Daily folder', () {
     const settings = DailyNoteSettings(
-      folder: 'Daily Notes',
+      folder: 'Organising/Daily',
       format: 'YYYY-MM-DD',
     );
     expect(
       resolver.resolve(settings, date: date),
-      'Daily Notes/2026-10-16.md',
+      'Organising/Daily/2026-10-16.md',
+    );
+  });
+
+  test('default folder is Organising/Daily', () {
+    expect(
+      const DailyNoteSettings().folder,
+      'Organising/Daily',
     );
   });
 

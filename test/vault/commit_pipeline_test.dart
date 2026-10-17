@@ -50,7 +50,7 @@ void main() {
     pipeline = CommitPipeline(
       vault: vault,
       dailyNoteSettings: const DailyNoteSettings(
-        folder: 'Daily Notes',
+        folder: 'Organising/Daily',
         format: 'YYYY-MM-DD',
       ),
     );
@@ -74,10 +74,7 @@ void main() {
     );
 
     expect(result.rawImagePath, 'captures/raw/20261016-p7k2.png');
-    expect(
-      result.notePath,
-      'fleeting/20261016-p7k2-attention-is-a-muscle.md',
-    );
+    expect(result.notePath, 'fleeting/Attention is a muscle.md');
     expect(await vault.exists(result.rawImagePath), isTrue);
     expect(await vault.exists(result.notePath!), isTrue);
     expect(
@@ -114,10 +111,7 @@ void main() {
       ),
     );
 
-    expect(
-      result.canvasPath,
-      'mindmaps/20261016-p7k2-mindmap-topic.canvas',
-    );
+    expect(result.canvasPath, 'mindmaps/Mindmap topic.canvas');
     expect(result.notePath, isNull);
     final json =
         jsonDecode(await vault.readText(result.canvasPath!)) as Map;
@@ -172,27 +166,17 @@ void main() {
       ),
     );
 
-    // Exact Obsidian artifact paths
-    expect(result.canvasPath, 'mindmaps/20261017-v1s1-memory-map.canvas');
+    // Exact Obsidian artifact paths — title is the basename (no pageId).
+    expect(result.canvasPath, 'mindmaps/Memory map.canvas');
     expect(result.canvasPath!.endsWith('.canvas'), isTrue);
     expect(result.canvasPath!.contains('.json'), isFalse);
     expect(result.notePath, isNull);
     expect(result.rawImagePath, 'captures/raw/20261017-v1s1.png');
     expect(result.primaryPath, result.canvasPath);
 
-    // No companion markdown / json.canvas anywhere for this page
-    final pageFiles = vault.filePaths
-        .where((p) => p.contains('20261017-v1s1'))
-        .map((p) => p.replaceFirst(RegExp(r'^/'), ''))
-        .toList()
-      ..sort();
-    expect(
-      pageFiles,
-      [
-        'captures/raw/20261017-v1s1.png',
-        'mindmaps/20261017-v1s1-memory-map.canvas',
-      ],
-    );
+    expect(await vault.exists('mindmaps/Memory map.canvas'), isTrue);
+    expect(await vault.exists('captures/raw/20261017-v1s1.png'), isTrue);
+    expect(vault.filePaths.any((p) => p.contains('20261017-v1s1-memory')), isFalse);
     expect(vault.filePaths.any((p) => p.endsWith('.md')), isFalse);
     expect(vault.filePaths.any((p) => p.contains('.json')), isFalse);
 
@@ -211,6 +195,16 @@ void main() {
     final texts = nodes.where((n) => n['type'] == 'text').toList();
     expect(texts.length, greaterThanOrEqualTo(2));
     expect(texts.map((n) => n['text']), containsAll(['Chunking', 'Working memory']));
+    // Photo sits above the idea graph (y=0 band), not as a center hub.
+    expect(fileNode['y'], 0);
+    final ideaYs = texts
+        .where((n) => n['id'] != 'tags')
+        .map((n) => n['y'] as int)
+        .toList();
+    expect(
+      ideaYs.every((y) => y >= (fileNode['height'] as int)),
+      isTrue,
+    );
     // Labels live in JSON nodes — not burned into PNG pixels
     final pngAsLatin = String.fromCharCodes(vaultPng);
     expect(pngAsLatin.contains('Chunking'), isFalse);
@@ -251,7 +245,7 @@ void main() {
         noteBody: 'should not become md',
       ),
     );
-    expect(result.canvasPath, 'mindmaps/20261017-force-forced-canvas.canvas');
+    expect(result.canvasPath, 'mindmaps/Forced canvas.canvas');
     expect(result.notePath, isNull);
     expect(await vault.exists(result.canvasPath!), isTrue);
     expect(
@@ -296,12 +290,48 @@ void main() {
       ),
     );
 
-    expect(result.dailyNotePath, 'Daily Notes/2026-10-16.md');
+    expect(result.dailyNotePath, 'Organising/Daily/2026-10-16.md');
     final body = await vault.readText(result.dailyNotePath!);
     expect(body, contains('## Tasks'));
     expect(body, contains('- [ ] Buy ink cartridges'));
     expect(body, contains('<!-- symbol-journal:p7k2 -->'));
     expect(await vault.exists('captures/raw/20261016-p7k2.png'), isTrue);
+  });
+
+  test('fileStemFromTitle keeps typed name — no pageId suffix', () {
+    expect(
+      CommitPipeline.fileStemFromTitle('Attention is a muscle'),
+      'Attention is a muscle',
+    );
+    expect(CommitPipeline.fileStemFromTitle('Hello/World'), 'Hello-World');
+    expect(CommitPipeline.fileStemFromTitle('note.md'), 'note');
+    expect(CommitPipeline.fileStemFromTitle('   '), 'Untitled');
+  });
+
+  test('refuses overwrite when filename already exists', () async {
+    await vault.writeText('fleeting/Attention is a muscle.md', 'existing');
+    final capture = _capture();
+    expect(
+      () => pipeline.commit(
+        CommitInput(
+          capture: capture,
+          symbolId: 'fleeting',
+          title: 'Attention is a muscle',
+          noteBody: 'new',
+        ),
+      ),
+      throwsA(
+        isA<VaultNameCollisionException>().having(
+          (e) => e.readable,
+          'readable',
+          contains('already exists'),
+        ),
+      ),
+    );
+    expect(
+      await vault.readText('fleeting/Attention is a muscle.md'),
+      'existing',
+    );
   });
 
   test('slugify strips punctuation', () {

@@ -31,6 +31,6 @@ symbols:
   - id: daily-tasks
     draw: dot
     glyphs: ["·", "•"]
-    folder: Daily Notes
+    folder: Organising/Daily
     output: daily-note-append
     section: "## Tasks"

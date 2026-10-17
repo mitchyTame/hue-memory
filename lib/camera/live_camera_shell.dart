@@ -142,8 +142,22 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
             return Stack(
               fit: StackFit.expand,
               children: [
-                // Dim letterbox bars
-                const ColoredBox(color: MemoryHues.ink),
+                // Atmospheric letterbox — warm ink → teal hush (not flat black).
+                const DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFF152238),
+                        MemoryHues.ink,
+                        Color(0xFF1A3A3A),
+                        Color(0xFF24304A),
+                      ],
+                      stops: [0.0, 0.35, 0.7, 1.0],
+                    ),
+                  ),
+                ),
                 Center(
                   child: SizedBox(
                     width: previewW,
@@ -194,6 +208,25 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                   ),
                 ),
 
+                // Soft hue veils so chrome reads above the preview without clutter.
+                IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          MemoryHues.ink.withValues(alpha: 0.55),
+                          Colors.transparent,
+                          Colors.transparent,
+                          const Color(0xFF1A3A3A).withValues(alpha: 0.5),
+                        ],
+                        stops: const [0.0, 0.18, 0.72, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+
                 // Chrome overlays — never siblings that shrink the preview.
                 SafeArea(
                   child: Stack(
@@ -215,8 +248,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                                 onPressed: _snapping ? null : _cancel,
                                 style: IconButton.styleFrom(
                                   foregroundColor: MemoryHues.paperElevated,
-                                  backgroundColor:
-                                      MemoryHues.ink.withValues(alpha: 0.45),
+                                  backgroundColor: const Color(0xFF1A3A3A)
+                                      .withValues(alpha: 0.55),
                                 ),
                                 icon: const Icon(Icons.close),
                               ),
@@ -314,13 +347,13 @@ class _SymbolChipStrip extends StatelessWidget {
             child: Material(
               color: selected
                   ? MemoryHues.accent
-                  : MemoryHues.ink.withValues(alpha: 0.55),
+                  : const Color(0xFF1A3A3A).withValues(alpha: 0.72),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
                 side: BorderSide(
                   color: selected
                       ? MemoryHues.accentSoft
-                      : MemoryHues.paperElevated.withValues(alpha: 0.35),
+                      : MemoryHues.recall.withValues(alpha: 0.35),
                 ),
               ),
               child: InkWell(

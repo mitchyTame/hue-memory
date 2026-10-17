@@ -94,7 +94,7 @@ void main() {
     expect(edges.first.toNode, 'o');
   });
 
-  test('buildDiagramCanvas injects centered ghost file node', () {
+  test('buildDiagramCanvas places ghost photo above the idea graph', () {
     const writer = CanvasWriter();
     final draft = parser.parse(
       jsonEncode({
@@ -137,6 +137,15 @@ void main() {
     final files = doc.nodes.where((n) => n.type == 'file').toList();
     expect(files, hasLength(1));
     expect(files.first.file, 'captures/raw/p1.png');
+    expect(files.first.y, 0);
+    final texts = doc.nodes.where((n) => n.type == 'text').toList();
+    final minTextY = texts.map((n) => n.y).reduce((a, b) => a < b ? a : b);
+    expect(
+      minTextY,
+      greaterThanOrEqualTo(
+        files.first.height + CanvasWriter.photoAboveGap,
+      ),
+    );
     expect(doc.edges.first.fromSide, 'right');
   });
 }

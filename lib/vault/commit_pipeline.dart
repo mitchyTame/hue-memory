@@ -69,6 +69,18 @@ class CommitResult {
       notePath ?? canvasPath ?? dailyNotePath ?? rawImagePath;
 }
 
+/// Note/canvas basename already exists — Mitch must rename (no auto-suffix).
+class VaultNameCollisionException implements Exception {
+  const VaultNameCollisionException(this.path);
+
+  final String path;
+
+  String get readable => 'Filename already exists, please adjust';
+
+  @override
+  String toString() => readable;
+}
+
 /// Writes raw capture + routed vault artifacts through [VaultFs].
 ///
 /// Vault artifacts are **`.md` / `.canvas` / images only** — never `*.json`.
@@ -153,12 +165,13 @@ class CommitPipeline {
     }
 
     // markdown / inbox — never taken for visual / △
-    await _vault.writeBytes(rawImagePath, capture.imageBytes);
-    final slug = slugify(input.title);
+    // Basename is exactly Mitch's title (sanitized) — no pageId/date suffix.
     final notePath = joinVaultRelative(
       _router.noteRelativeDir(route),
-      '${capture.pageId}-$slug.md',
+      '${fileStemFromTitle(input.title)}.md',
     );
+    await _assertNameAvailable(notePath);
+    await _vault.writeBytes(rawImagePath, capture.imageBytes);
     final fmLinks = _links.frontmatterLinks(input.links);
     final linked = _links.linkedSection(input.links);
     var noteBody = input.noteBody;
@@ -196,8 +209,8 @@ class CommitPipeline {
 
   /// △ / photo_only commit: `.canvas` (JSON Canvas 1.0) + unaltered raw photo.
   ///
-  /// - Primary artifact is `mindmaps/<pageId>-<slug>.canvas` (never `.json.canvas`)
-  /// - Ink-ghost: file node → [rawImagePath]; labels are separate text nodes
+  /// - Primary artifact is `{folder}/{title}.canvas` (never `.json.canvas`)
+  /// - Ink-ghost: file node → [rawImagePath] **above** the idea graph
   /// - Vault image bytes are exactly [PendingCapture.imageBytes] (no burn-in)
   /// - No companion `.md` for the page
   /// - No `*.json` sidecars
@@ -210,12 +223,12 @@ class CommitPipeline {
     final folder = route.folder?.trim().isNotEmpty == true
         ? route.folder!
         : 'mindmaps';
-    final slug = slugify(input.title);
     final canvasPath = joinVaultRelative(
       normalizeVaultFolder(folder) ?? 'mindmaps',
-      '${capture.pageId}-$slug.canvas',
+      '${fileStemFromTitle(input.title)}.canvas',
     );
     _assertCanvasPath(canvasPath);
+    await _assertNameAvailable(canvasPath);
 
     final photoOnly = capture.meaning.pageGenre == 'photo_only' ||
         capture.meaning.rawJson['ghost_only'] == true;
@@ -286,7 +299,8 @@ class CommitPipeline {
         }
         edges = CanvasWriter.heuristicEdges(textNodes);
         final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
-        doc = _canvas.buildVisualCanvas(
+        // Same photo-above layout as Gemini diagrams.
+        doc = _canvas.buildDiagramCanvas(
           sourceImage: rawImagePath,
           textNodes: textNodes,
           edges: edges,
@@ -320,6 +334,12 @@ class CommitPipeline {
       canvasPath: canvasPath,
       // notePath intentionally null — △ never writes companion .md
     );
+  }
+
+  Future<void> _assertNameAvailable(String relativePath) async {
+    if (await _vault.exists(relativePath)) {
+      throw VaultNameCollisionException(relativePath);
+    }
   }
 
   static void _assertCanvasPath(String canvasPath) {
@@ -366,6 +386,23 @@ class CommitPipeline {
     return true;
   }
 
+  /// Basename stem from Mitch's typed title — casing/spaces kept; no pageId.
+  ///
+  /// Strips a trailing `.md` / `.canvas` if typed; replaces path-illegal chars.
+  static String fileStemFromTitle(String title) {
+    var s = title.trim();
+    if (s.isEmpty) return 'Untitled';
+    s = s.replaceFirst(RegExp(r'\.(md|canvas)$', caseSensitive: false), '');
+    s = s.trim();
+    s = s.replaceAll(RegExp(r'[\\/:*?"<>|\n\r\t]+'), '-');
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    s = s.replaceAll(RegExp(r'^[.\s]+|[.\s]+$'), '');
+    if (s.isEmpty) return 'Untitled';
+    return s.length <= 120 ? s : s.substring(0, 120).trim();
+  }
+
+  /// Lowercase kebab slug (legacy / promote helpers). Prefer [fileStemFromTitle]
+  /// for vault note/canvas basenames.
   static String slugify(String title) {
     final lower = title.toLowerCase().trim();
     final replaced = lower.replaceAll(RegExp(r'[^a-z0-9]+'), '-');

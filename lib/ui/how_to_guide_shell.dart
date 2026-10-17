@@ -69,8 +69,8 @@ class HowToGuideShell extends StatelessWidget {
                             body:
                                 'Gemini Flash classifies; text uses Mistral OCR, '
                                 'maps use Gemini → .canvas. Type a required title '
-                                'before Save. △ shows an editable label list '
-                                '(no text burned onto the photo).',
+                                '— that exact name is the filename (no date suffix). '
+                                '△ labels edit in the list only, never on the photo.',
                             accent: MemoryHues.accent,
                           ),
                           _StepBlock(
@@ -82,7 +82,9 @@ class HowToGuideShell extends StatelessWidget {
                                 'No companion JSON sidecars.',
                             accent: MemoryHues.recall,
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
+                          _FolderMapBand(textTheme: textTheme),
+                          const SizedBox(height: 20),
                           _FeatureBand(
                             title: 'Suggested wikilinks',
                             body:
@@ -242,6 +244,114 @@ class _StepBlock extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Concise Zettelkasten + GTD map for Mitch’s default pack.
+class _FolderMapBand extends StatelessWidget {
+  const _FolderMapBand({required this.textTheme});
+
+  final TextTheme textTheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFE8F0EE),
+            MemoryHues.paperElevated,
+            Color(0xFFF3EDE0),
+          ],
+        ),
+        border: Border.all(color: MemoryHues.rule.withValues(alpha: 0.65)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Your folders',
+            style: textTheme.titleLarge?.copyWith(color: MemoryHues.ink),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Default Zettelkasten ink + a GTD daily lane. Change any path in '
+            'Settings → Vault folders (nested OK).',
+            style: textTheme.bodyMedium?.copyWith(
+              color: MemoryHues.inkMuted,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 14),
+          _FolderRow(glyph: '○', name: 'inbox', role: 'Quick catch — sort later'),
+          _FolderRow(glyph: '∼', name: 'fleeting', role: 'Rough notes → promote weekly'),
+          _FolderRow(glyph: '≡', name: 'literature', role: 'Source / book captures'),
+          _FolderRow(glyph: '◇', name: 'permanent', role: 'Own-words lasting notes'),
+          _FolderRow(glyph: '△', name: 'mindmaps', role: 'Diagram → .canvas + photo'),
+          _FolderRow(
+            glyph: '·',
+            name: 'Organising/Daily',
+            role: 'GTD tasks appended to today’s note',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FolderRow extends StatelessWidget {
+  const _FolderRow({
+    required this.glyph,
+    required this.name,
+    required this.role,
+  });
+
+  final String glyph;
+  final String name;
+  final String role;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 28,
+            child: Text(
+              glyph,
+              style: textTheme.titleMedium?.copyWith(color: MemoryHues.accent),
+            ),
+          ),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: textTheme.bodyMedium?.copyWith(
+                  color: MemoryHues.ink,
+                  height: 1.35,
+                ),
+                children: [
+                  TextSpan(
+                    text: name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  TextSpan(
+                    text: ' — $role',
+                    style: TextStyle(color: MemoryHues.inkMuted),
+                  ),
+                ],
+              ),
             ),
           ),
         ],

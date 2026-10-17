@@ -86,7 +86,7 @@ Attention is a muscle
       ownWords: 'Focus grows when trained on paper before screens.',
     );
 
-    expect(result.permanentPath, startsWith('permanent/'));
+    expect(result.permanentPath, 'permanent/Attention as practice.md');
     final permanent = await vault.readText(result.permanentPath);
     expect(permanent, contains('type: permanent'));
     expect(permanent, contains('status: promoted'));
@@ -165,7 +165,7 @@ Custom folder fleeting
       title: 'Evergreen note',
       ownWords: 'Rewritten in my own words for the evergreen shelf.',
     );
-    expect(result.permanentPath, startsWith('evergreen/'));
+    expect(result.permanentPath, 'evergreen/Evergreen note.md');
     expect(await vault.exists(result.permanentPath), isTrue);
   });
 }

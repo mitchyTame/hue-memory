@@ -37,7 +37,7 @@ class _FolderMapShellState extends State<FolderMapShell> {
       for (final s in _pack.symbols)
         s.id: TextEditingController(
           text: s.output == SymbolOutput.dailyNoteAppend
-              ? (s.folder ?? 'Daily Notes')
+              ? (s.folder ?? 'Organising/Daily')
               : (s.folder ?? ''),
         ),
     };
@@ -60,7 +60,7 @@ class _FolderMapShellState extends State<FolderMapShell> {
         // Daily notes: folder is where the daily file lives.
         next.add(
           s.copyWith(
-            folder: normalized ?? 'Daily Notes',
+            folder: normalized ?? 'Organising/Daily',
           ),
         );
       } else {
@@ -118,9 +118,10 @@ class _FolderMapShellState extends State<FolderMapShell> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           Text(
-            'Each ink symbol writes into a vault folder. Defaults match the '
-            'Zettelkasten pack (inbox, fleeting, literature, permanent, '
-            'mindmaps, Daily Notes).',
+            'Type a vault-relative folder per symbol — nested paths are fine '
+            '(e.g. Organising/Daily, Organising/monthly). Defaults follow '
+            'Zettelkasten + GTD: inbox, fleeting, literature, permanent, '
+            'mindmaps, Organising/Daily.',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 16),
@@ -152,8 +153,8 @@ class _FolderMapShellState extends State<FolderMapShell> {
                     ? 'Daily notes folder'
                     : 'Vault folder',
                 hintText: s.output == SymbolOutput.dailyNoteAppend
-                    ? 'Daily Notes'
-                    : 'e.g. fleeting',
+                    ? 'Organising/Daily'
+                    : 'e.g. fleeting or Organising/monthly',
                 border: const OutlineInputBorder(),
                 isDense: true,
               ),

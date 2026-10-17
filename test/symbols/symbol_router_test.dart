@@ -17,7 +17,7 @@ void main() {
       '≡': ('literature', SymbolOutput.markdown, 'literature'),
       '◇': ('permanent', SymbolOutput.markdown, 'permanent'),
       '△': ('visual', SymbolOutput.canvas, 'mindmaps'),
-      '·': ('daily-tasks', SymbolOutput.dailyNoteAppend, 'Daily Notes'),
+      '·': ('daily-tasks', SymbolOutput.dailyNoteAppend, 'Organising/Daily'),
     };
 
     for (final entry in cases.entries) {

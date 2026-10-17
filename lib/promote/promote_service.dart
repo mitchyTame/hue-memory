@@ -106,11 +106,13 @@ class PromoteService {
     }
 
     final when = now ?? DateTime.now().toUtc();
-    final slug = CommitPipeline.slugify(title);
     final permanentPath = joinVaultRelative(
       permanentFolder,
-      '${source.pageId}-$slug.md',
+      '${CommitPipeline.fileStemFromTitle(title)}.md',
     );
+    if (await vault.exists(permanentPath)) {
+      throw VaultNameCollisionException(permanentPath);
+    }
     final body = keepOcrShallow && ownWords.trim().isEmpty
         ? source.body.trim()
         : ownWords.trim();

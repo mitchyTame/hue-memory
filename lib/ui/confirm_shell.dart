@@ -21,9 +21,8 @@ typedef ConfirmCommitCallback = Future<void> Function({
 
 /// Confirm-on-photo — photo hero, symbol chips, edits, Commit.
 ///
-/// - **△ / visual:** ink-ghost photo + tap markers; large node fields in the
-///   sheet (vision-primary text). Add / remove nodes. No tiny overlays fighting
-///   the photo.
+/// - **△ / visual:** clean photo (no text overlays); labels edited in the
+///   sheet list only. Add / remove nodes there.
 /// - **Everything else:** title + note body from OCR — no vision pass.
 class ConfirmShell extends StatefulWidget {
   const ConfirmShell({
@@ -237,29 +236,17 @@ class _ConfirmShellState extends State<ConfirmShell> {
                     maxScale: 4,
                     child: LayoutBuilder(
                       builder: (context, photoConstraints) {
-                        return Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Opacity(
-                              opacity: _isCanvas && _inkGhost ? 0.36 : 1,
-                              child: Image.memory(
-                                widget.capture.imageBytes,
-                                fit: BoxFit.contain,
-                                gaplessPlayback: true,
-                              ),
-                            ),
-                            if (_isCanvas)
-                              _MindmapMarkerLayer(
-                                regions: _regions,
-                                parentSize: Size(
-                                  photoConstraints.maxWidth,
-                                  photoConstraints.maxHeight,
-                                ),
-                                focusedIndex: _focusedNode,
-                                enabled: !widget.committing,
-                                onTap: _focusNode,
-                              ),
-                          ],
+                        // No text overlays on the capture — labels live in the
+                        // sheet list (remove / rename) only.
+                        return Opacity(
+                          opacity: _isCanvas && _inkGhost ? 0.42 : 1,
+                          child: Image.memory(
+                            widget.capture.imageBytes,
+                            fit: BoxFit.contain,
+                            gaplessPlayback: true,
+                            width: photoConstraints.maxWidth,
+                            height: photoConstraints.maxHeight,
+                          ),
                         );
                       },
                     ),
@@ -291,9 +278,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                               const SizedBox(height: 4),
                               Text(
                                 _isCanvas
-                                    ? 'Vision is a draft — wrong words are common. '
-                                        'Type a title, edit labels, then Save.'
-                                    : 'Type a title, check the note, then save.',
+                                    ? 'Vision is a draft — edit labels in the list '
+                                        '(not on the photo). Title becomes the filename.'
+                                    : 'Title becomes the filename. Check the note, then save.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,
                                 ),
@@ -353,7 +340,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   padding: const EdgeInsets.only(top: 8),
                                   child: Text(
                                     route.isDailyTasks
-                                        ? 'Saves to ${route.folder ?? 'Daily Notes'}'
+                                        ? 'Saves to ${route.folder ?? 'Organising/Daily'}'
                                         : route.isCanvas
                                             ? 'Saves to ${route.folder}/ as .canvas'
                                             : 'Saves to ${route.folder}/',
@@ -578,96 +565,3 @@ class _NodeEditTile extends StatelessWidget {
   }
 }
 
-/// Tap markers on the ghost photo — open the matching sheet field.
-class _MindmapMarkerLayer extends StatelessWidget {
-  const _MindmapMarkerLayer({
-    required this.regions,
-    required this.parentSize,
-    required this.focusedIndex,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final List<OcrRegion> regions;
-  final Size parentSize;
-  final int? focusedIndex;
-  final bool enabled;
-  final void Function(int index) onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        for (var i = 0; i < regions.length; i++)
-          _MindmapMarker(
-            key: ValueKey(regions[i].id),
-            region: regions[i],
-            index: i,
-            parentSize: parentSize,
-            focused: focusedIndex == i,
-            enabled: enabled,
-            onTap: () => onTap(i),
-          ),
-      ],
-    );
-  }
-}
-
-class _MindmapMarker extends StatelessWidget {
-  const _MindmapMarker({
-    super.key,
-    required this.region,
-    required this.index,
-    required this.parentSize,
-    required this.focused,
-    required this.enabled,
-    required this.onTap,
-  });
-
-  final OcrRegion region;
-  final int index;
-  final Size parentSize;
-  final bool focused;
-  final bool enabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    final bbox = region.bbox;
-    final left =
-        (bbox != null && bbox.length >= 4 ? bbox[0] : 0.12) * parentSize.width;
-    final top = (bbox != null && bbox.length >= 4
-            ? bbox[1]
-            : 0.18 + index * 0.14) *
-        parentSize.height;
-    final label = region.text.trim().isEmpty ? 'Node ${index + 1}' : region.text;
-    final short =
-        label.length <= 28 ? label : '${label.substring(0, 26)}…';
-
-    return Positioned(
-      left: left.clamp(0, parentSize.width - 72),
-      top: top.clamp(0, parentSize.height - 40),
-      child: Material(
-        color: focused
-            ? MemoryHues.accent
-            : MemoryHues.paperElevated.withValues(alpha: 0.94),
-        borderRadius: BorderRadius.circular(8),
-        elevation: focused ? 2 : 0,
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(8),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            child: Text(
-              short,
-              style: textTheme.labelLarge?.copyWith(
-                color: focused ? MemoryHues.paperElevated : MemoryHues.ink,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}

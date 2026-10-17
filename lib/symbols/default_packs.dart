@@ -51,7 +51,7 @@ abstract final class DefaultPacks {
         id: 'daily-tasks',
         draw: InkDrawIds.dot,
         glyphs: ['·', '•'],
-        folder: 'Daily Notes',
+        folder: 'Organising/Daily',
         output: SymbolOutput.dailyNoteAppend,
         section: '## Tasks',
       ),

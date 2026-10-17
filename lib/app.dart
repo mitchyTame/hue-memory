@@ -383,7 +383,9 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
 DailyNoteSettings dailyNoteSettingsForPack(SymbolPack pack) {
   final daily = pack.byId('daily-tasks');
-  return DailyNoteSettings(folder: daily?.folder ?? 'Daily Notes');
+  return DailyNoteSettings(
+    folder: daily?.folder ?? 'Organising/Daily',
+  );
 }
 
 LastCommitSummary lastCommitSummaryFromResult({
@@ -396,7 +398,7 @@ LastCommitSummary lastCommitSummaryFromResult({
   final dir = p.dirname(primary);
   final sym = pack.byId(symbolId) ?? pack.byId(result.symbolId);
   final folder = dir == '.' || dir.isEmpty
-      ? (sym?.folder ?? 'Daily Notes')
+      ? (sym?.folder ?? 'Organising/Daily')
       : dir;
   return LastCommitSummary(
     fileName: fileName,
@@ -992,6 +994,16 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             'Saved ${summary.fileName} in ${summary.folderLabel}',
           ),
           backgroundColor: MemoryHues.accent,
+        ),
+      );
+    } on VaultNameCollisionException catch (e) {
+      if (!mounted) return;
+      setState(() => _committing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.readable),
+          backgroundColor: MemoryHues.danger,
+          duration: const Duration(seconds: 4),
         ),
       );
     } catch (e) {

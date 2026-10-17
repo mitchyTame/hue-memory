@@ -5,7 +5,7 @@ import 'vault_paths.dart';
 /// Settings mirrored from Obsidian Daily notes (folder + Moment-style format).
 class DailyNoteSettings {
   const DailyNoteSettings({
-    this.folder = 'Daily Notes',
+    this.folder = 'Organising/Daily',
     this.format = 'YYYY-MM-DD',
   });
 

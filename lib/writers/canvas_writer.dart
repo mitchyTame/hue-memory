@@ -138,10 +138,9 @@ class CanvasWriter {
         ? null
         : _tagsNode(
             hierarchicalTags,
-            imageX: imageX,
-            imageY: imageY,
-            imageWidth: imageWidth,
-            imageHeight: imageHeight,
+            x: imageX,
+            y: imageY + imageHeight + 16,
+            width: math.max(220, imageWidth),
           );
     final text = tagsNode == null ? textNodes : [...textNodes, tagsNode];
     // Image first = under; ghost off still keeps the photo for dual coding,
@@ -152,10 +151,13 @@ class CanvasWriter {
     return CanvasDocument(nodes: nodes, edges: edges);
   }
 
-  /// Diagram layout: center ink-ghost file node + satellite text nodes.
+  /// Vertical gap between the ghost photo and the idea graph below it.
+  static const int photoAboveGap = 56;
+
+  /// Diagram layout: ghost photo **above** the idea graph (not a center hub).
   ///
-  /// Places the photo at the centroid of [textNodes] (or 0,0) so Gemini
-  /// absolute Canvas coords stay meaningful.
+  /// Shifts [textNodes] so the map sits under the photo band; edges unchanged
+  /// (node ids stay the same). Tags card goes below the graph.
   CanvasDocument buildDiagramCanvas({
     required String sourceImage,
     required List<CanvasNode> textNodes,
@@ -165,41 +167,88 @@ class CanvasWriter {
     int imageWidth = defaultImageWidth,
     int imageHeight = defaultImageHeight,
   }) {
-    var cx = 0;
-    var cy = 0;
-    if (textNodes.isNotEmpty) {
-      var sx = 0;
-      var sy = 0;
-      for (final n in textNodes) {
-        sx += n.x + n.width ~/ 2;
-        sy += n.y + n.height ~/ 2;
-      }
-      cx = sx ~/ textNodes.length;
-      cy = sy ~/ textNodes.length;
+    if (textNodes.isEmpty) {
+      return buildVisualCanvas(
+        sourceImage: sourceImage,
+        textNodes: const [],
+        edges: edges,
+        imageWidth: imageWidth,
+        imageHeight: imageHeight,
+        imageX: 0,
+        imageY: 0,
+        inkGhost: inkGhost,
+        hierarchicalTags: hierarchicalTags,
+        allowEmptyText: true,
+      );
     }
-    final imageX = cx - imageWidth ~/ 2;
-    final imageY = cy - imageHeight ~/ 2;
-    return buildVisualCanvas(
-      sourceImage: sourceImage,
-      textNodes: textNodes,
-      edges: edges,
-      imageWidth: imageWidth,
-      imageHeight: imageHeight,
-      imageX: imageX,
-      imageY: imageY,
-      inkGhost: inkGhost,
-      hierarchicalTags: hierarchicalTags,
-      allowEmptyText: textNodes.isEmpty,
+
+    var minX = textNodes.first.x;
+    var maxX = textNodes.first.x + textNodes.first.width;
+    var minY = textNodes.first.y;
+    var maxY = textNodes.first.y + textNodes.first.height;
+    for (final n in textNodes.skip(1)) {
+      minX = math.min(minX, n.x);
+      maxX = math.max(maxX, n.x + n.width);
+      minY = math.min(minY, n.y);
+      maxY = math.max(maxY, n.y + n.height);
+    }
+
+    final targetGraphTop = imageHeight + photoAboveGap;
+    final shiftY = targetGraphTop - minY;
+    final shifted = [
+      for (final n in textNodes)
+        CanvasNode(
+          id: n.id,
+          type: n.type,
+          text: n.text,
+          x: n.x,
+          y: n.y + shiftY,
+          width: n.width,
+          height: n.height,
+          color: n.color,
+          file: n.file,
+        ),
+    ];
+
+    final graphCx = (minX + maxX) ~/ 2;
+    final imageX = graphCx - imageWidth ~/ 2;
+    const imageY = 0;
+
+    var graphBottom = shifted.first.y + shifted.first.height;
+    for (final n in shifted) {
+      graphBottom = math.max(graphBottom, n.y + n.height);
+    }
+
+    final tags = _tagsNode(
+      hierarchicalTags,
+      x: imageX,
+      y: graphBottom + 16,
+      width: math.max(220, imageWidth),
     );
+    final text = tags == null ? shifted : [...shifted, tags];
+
+    final imageNode = CanvasNode(
+      id: 'img',
+      type: 'file',
+      file: sourceImage,
+      x: imageX,
+      y: imageY,
+      width: imageWidth,
+      height: imageHeight,
+      color: inkGhost ? ghostImageColor : null,
+    );
+    final nodes = inkGhost
+        ? <CanvasNode>[imageNode, ...text]
+        : <CanvasNode>[...text, imageNode];
+    return CanvasDocument(nodes: nodes, edges: edges);
   }
 
-  /// Optional tags card below the image frame (△ has no companion `.md`).
+  /// Optional tags card (△ has no companion `.md`).
   static CanvasNode? _tagsNode(
     String? hierarchicalTags, {
-    required int imageX,
-    required int imageY,
-    required int imageWidth,
-    required int imageHeight,
+    required int x,
+    required int y,
+    required int width,
   }) {
     final line = hierarchicalTags?.trim() ?? '';
     if (line.isEmpty) return null;
@@ -207,9 +256,9 @@ class CanvasWriter {
       id: 'tags',
       type: 'text',
       text: line,
-      x: imageX,
-      y: imageY + imageHeight + 16,
-      width: math.max(220, imageWidth),
+      x: x,
+      y: y,
+      width: width,
       height: 64,
       color: '5',
     );
