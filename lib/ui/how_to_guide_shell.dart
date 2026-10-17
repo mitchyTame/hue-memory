@@ -57,34 +57,56 @@ class HowToGuideShell extends StatelessWidget {
                             index: '01',
                             title: 'Mark the page',
                             body:
-                                'Draw one symbol in the meta zone — ∼ fleeting, '
-                                '◇ permanent, J journal, △ mindmap, · daily. '
-                                'On the camera, drag the glyph box over that ink '
-                                '(no stickers). Chip △ forces the diagram path.',
+                                'Draw one routing symbol in the meta zone — '
+                                '∼ fleeting, ◇ permanent, J journal, △ mindmap, '
+                                '· daily. On the camera, drag the glyph box over '
+                                'that ink (no stickers). Chip △ forces the '
+                                'diagram path.',
                             accent: MemoryHues.ink,
                           ),
                           _StepBlock(
                             index: '02',
-                            title: 'Shoot & confirm',
+                            title: 'Shoot & frame (optional)',
                             body:
-                                'Gemini Flash classifies; text uses Mistral OCR, '
-                                'maps use Gemini → .canvas. Type a required title '
-                                '— that exact name is the filename (no date suffix). '
-                                '△ labels edit in the list only, never on the photo.',
+                                'After the shutter on a text note, drag a box '
+                                'around what to OCR — move it, resize corners. '
+                                'Or tap Use whole page for the full photo. '
+                                'One note per capture on busy A3 pages. '
+                                '△ / mindmap skips framing.',
                             accent: MemoryHues.accent,
                           ),
                           _StepBlock(
                             index: '03',
+                            title: 'Confirm & save',
+                            body:
+                                'Gemini Flash classifies; text uses Mistral OCR, '
+                                'maps use Gemini → .canvas. Type a required title '
+                                '— that exact name is the filename (no date '
+                                'suffix). Confirm may show a transparent region '
+                                'overlay; it never burns into the vault photo. '
+                                '△ labels edit in the list only.',
+                            accent: MemoryHues.recall,
+                          ),
+                          _StepBlock(
+                            index: '04',
                             title: 'Files appear',
                             body:
                                 'Save writes only Obsidian-friendly files: '
                                 '.md notes, .canvas mindmaps, and the page photo. '
                                 'No companion JSON sidecars.',
-                            accent: MemoryHues.recall,
+                            accent: MemoryHues.confidence,
                           ),
                           const SizedBox(height: 8),
                           _FolderMapBand(textTheme: textTheme),
                           const SizedBox(height: 20),
+                          _FeatureBand(
+                            title: 'OCR region',
+                            body:
+                                'Framing is optional. Skip → whole-page OCR. '
+                                'No need to draw corner marks on paper — just '
+                                'box the note on screen when you want a crop.',
+                            glyph: '□',
+                          ),
                           _FeatureBand(
                             title: 'Links in Obsidian',
                             body:

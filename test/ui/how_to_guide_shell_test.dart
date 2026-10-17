@@ -17,10 +17,14 @@ void main() {
     );
     expect(find.text('hue-memory'), findsOneWidget);
     expect(find.text('Mark the page'), findsOneWidget);
+    expect(find.text('Shoot & frame (optional)'), findsOneWidget);
+    expect(find.text('OCR region'), findsOneWidget);
     expect(find.text('Links in Obsidian'), findsOneWidget);
     expect(find.text('Your folders'), findsOneWidget);
     expect(find.textContaining('journal'), findsWidgets);
     expect(find.text('Hierarchical tags'), findsOneWidget);
+    expect(find.textContaining('L-corner'), findsNothing);
+    expect(find.textContaining('L-corners'), findsNothing);
   });
 
   testWidgets('settings hub opens How to use entry', (tester) async {
