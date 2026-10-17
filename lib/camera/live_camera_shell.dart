@@ -116,10 +116,11 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: Colors.transparent,
-        systemNavigationBarColor: MemoryHues.ink,
+        systemNavigationBarColor: MemoryHues.hueTealDeep,
       ),
       child: Scaffold(
-        backgroundColor: MemoryHues.ink,
+        // Transparent so the hue letterbox gradient is the only ground plane.
+        backgroundColor: Colors.transparent,
         body: LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
@@ -138,23 +139,48 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
             final shutterSize = landscape
                 ? (maxH < 360 ? 56.0 : 64.0)
                 : (maxH < 640 ? 64.0 : 72.0);
+            // Visible hue bands even when the preview nearly fills the screen.
+            final railH = landscape
+                ? (maxH * 0.14).clamp(36.0, 64.0)
+                : (maxH * 0.11).clamp(48.0, 88.0);
+            final sideRail = landscape
+                ? (maxW - previewW).clamp(0.0, maxW) / 2
+                : 0.0;
 
             return Stack(
               fit: StackFit.expand,
               children: [
-                // Atmospheric letterbox — warm ink → teal hush (not flat black).
+                // Full-bleed hue field — teal → warm ink → amber → coral.
+                // Must read as multi-hue, never a single navy slab.
                 const DecoratedBox(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Color(0xFF152238),
-                        MemoryHues.ink,
-                        Color(0xFF1A3A3A),
-                        Color(0xFF24304A),
+                        MemoryHues.hueTealDeep,
+                        MemoryHues.hueInkWarm,
+                        MemoryHues.hueAmberDeep,
+                        MemoryHues.hueCoralDeep,
                       ],
-                      stops: [0.0, 0.35, 0.7, 1.0],
+                      stops: [0.0, 0.32, 0.68, 1.0],
+                    ),
+                  ),
+                ),
+                // Soft second wash so corners keep shifting hue.
+                const IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topRight,
+                        end: Alignment.bottomLeft,
+                        colors: [
+                          Color(0x662A6B66), // accent teal @ 40%
+                          Colors.transparent,
+                          Color(0x55C4923A), // recall amber @ ~33%
+                        ],
+                        stops: [0.0, 0.45, 1.0],
+                      ),
                     ),
                   ),
                 ),
@@ -168,7 +194,7 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                       children: [
                         if (error != null)
                           ColoredBox(
-                            color: MemoryHues.ink.withValues(alpha: 0.92),
+                            color: MemoryHues.ink.withValues(alpha: 0.88),
                             child: Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(24),
@@ -183,11 +209,11 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                             ),
                           )
                         else if (session == null || !session.isInitialized)
-                          const ColoredBox(
-                            color: Color(0xFF0F1726),
-                            child: Center(
+                          ColoredBox(
+                            color: MemoryHues.hueInkWarm.withValues(alpha: 0.85),
+                            child: const Center(
                               child: CircularProgressIndicator(
-                                color: MemoryHues.accent,
+                                color: MemoryHues.accentSoft,
                                 strokeWidth: 2.5,
                               ),
                             ),
@@ -208,24 +234,91 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                   ),
                 ),
 
-                // Soft hue veils so chrome reads above the preview without clutter.
+                // Top hue rail (teal → clear) — always visible over letterbox/preview.
                 IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          MemoryHues.ink.withValues(alpha: 0.55),
-                          Colors.transparent,
-                          Colors.transparent,
-                          const Color(0xFF1A3A3A).withValues(alpha: 0.5),
-                        ],
-                        stops: const [0.0, 0.18, 0.72, 1.0],
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Container(
+                      height: railH + media.padding.top,
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            MemoryHues.hueTealDeep,
+                            Color(0xCC163F3C),
+                            Colors.transparent,
+                          ],
+                          stops: [0.0, 0.45, 1.0],
+                        ),
                       ),
                     ),
                   ),
                 ),
+                // Bottom hue rail (amber → coral → clear).
+                IgnorePointer(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Container(
+                      height: railH + media.padding.bottom,
+                      width: double.infinity,
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            MemoryHues.hueCoralDeep,
+                            MemoryHues.hueAmberDeep,
+                            Colors.transparent,
+                          ],
+                          stops: [0.0, 0.4, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                // Landscape side rails when letterbox is on the left/right.
+                if (landscape && sideRail > 8) ...[
+                  IgnorePointer(
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        width: sideRail.clamp(24.0, 120.0),
+                        height: double.infinity,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+                              MemoryHues.hueTealDeep,
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  IgnorePointer(
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        width: sideRail.clamp(24.0, 120.0),
+                        height: double.infinity,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerRight,
+                            end: Alignment.centerLeft,
+                            colors: [
+                              MemoryHues.hueAmberDeep,
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
 
                 // Chrome overlays — never siblings that shrink the preview.
                 SafeArea(
@@ -248,8 +341,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                                 onPressed: _snapping ? null : _cancel,
                                 style: IconButton.styleFrom(
                                   foregroundColor: MemoryHues.paperElevated,
-                                  backgroundColor: const Color(0xFF1A3A3A)
-                                      .withValues(alpha: 0.55),
+                                  backgroundColor: MemoryHues.hueTealDeep
+                                      .withValues(alpha: 0.72),
                                 ),
                                 icon: const Icon(Icons.close),
                               ),
@@ -263,8 +356,14 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                                   overflow: TextOverflow.ellipsis,
                                   style: textTheme.labelMedium?.copyWith(
                                     color: MemoryHues.paperElevated
-                                        .withValues(alpha: 0.92),
+                                        .withValues(alpha: 0.95),
                                     letterSpacing: 0.2,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Color(0x88000000),
+                                        blurRadius: 6,
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),
@@ -347,13 +446,13 @@ class _SymbolChipStrip extends StatelessWidget {
             child: Material(
               color: selected
                   ? MemoryHues.accent
-                  : const Color(0xFF1A3A3A).withValues(alpha: 0.72),
+                  : MemoryHues.hueAmberDeep.withValues(alpha: 0.78),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
                 side: BorderSide(
                   color: selected
                       ? MemoryHues.accentSoft
-                      : MemoryHues.recall.withValues(alpha: 0.35),
+                      : MemoryHues.recall.withValues(alpha: 0.55),
                 ),
               ),
               child: InkWell(

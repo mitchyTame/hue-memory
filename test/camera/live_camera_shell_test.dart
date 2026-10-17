@@ -6,6 +6,7 @@ import 'package:hue_memory/camera/camera_capture.dart';
 import 'package:hue_memory/camera/camera_session.dart';
 import 'package:hue_memory/camera/live_camera_shell.dart';
 import 'package:hue_memory/theme/app_theme.dart';
+import 'package:hue_memory/theme/memory_hues.dart';
 
 void main() {
   setUp(() => AppTheme.skipGoogleFonts = true);
@@ -106,6 +107,45 @@ void main() {
 
     expect(completed, isTrue);
     expect(popped, isNull);
+  });
+
+  testWidgets('camera chrome uses multi-stop hue gradient (not flat ink)', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: LiveCameraShell(
+          sessionFactory: () async => FakeCameraSession(
+            imageBytes: Uint8List.fromList([1]),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final gradients = tester
+        .widgetList<DecoratedBox>(find.byType(DecoratedBox))
+        .map((w) => w.decoration)
+        .whereType<BoxDecoration>()
+        .map((d) => d.gradient)
+        .whereType<LinearGradient>()
+        .toList();
+
+    expect(gradients, isNotEmpty);
+    final allColors = gradients.expand((g) => g.colors).toSet();
+    expect(allColors, contains(MemoryHues.hueTealDeep));
+    expect(allColors, contains(MemoryHues.hueAmberDeep));
+    expect(allColors, contains(MemoryHues.hueCoralDeep));
+    expect(allColors, contains(MemoryHues.hueInkWarm));
+    // Must not be a single-stop / solid-navy letterbox.
+    final multiStop = gradients.any((g) => g.colors.length >= 3);
+    expect(multiStop, isTrue);
   });
 
   testWidgets('landscape shutter rail is on-screen and tappable', (tester) async {

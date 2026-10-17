@@ -15,4 +15,10 @@ abstract final class MemoryHues {
   static const Color danger = Color(0xFF8B3A3A);
   static const Color overlayScrim = Color(0x6B1B2A4A); // ~42% navy
   static const Color focusRing = accent;
+
+  // Camera chrome — readable “hue” on dark letterbox (not flat navy).
+  static const Color hueTealDeep = Color(0xFF163F3C);
+  static const Color hueAmberDeep = Color(0xFF6E4E1C);
+  static const Color hueCoralDeep = Color(0xFF5C322E);
+  static const Color hueInkWarm = Color(0xFF24324A);
 }
