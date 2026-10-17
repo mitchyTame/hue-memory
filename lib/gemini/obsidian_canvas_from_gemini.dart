@@ -71,9 +71,9 @@ class ObsidianCanvasFromGemini {
       );
     }
 
-    final parsed = <({CanvasNode node, bool hasCoords})>[];
+    final textNodes = <CanvasNode>[];
     final seen = <String>{};
-    for (var i = 0; i < nodesRaw.length && parsed.length < 24; i++) {
+    for (var i = 0; i < nodesRaw.length && textNodes.length < 24; i++) {
       final item = nodesRaw[i];
       if (item is! Map) continue;
       final type = '${item['type'] ?? 'text'}'.toLowerCase();
@@ -81,17 +81,17 @@ class ObsidianCanvasFromGemini {
       if (type == 'file') continue;
       final text = '${item['text'] ?? item['label'] ?? ''}'.trim();
       if (text.isEmpty) continue;
-      var id = '${item['id'] ?? 'n${parsed.length + 1}'}'.trim();
+      var id = '${item['id'] ?? 'n${textNodes.length + 1}'}'.trim();
       if (id.isEmpty || id == 'img' || id == 'ghost') {
-        id = 'n${parsed.length + 1}';
+        id = 'n${textNodes.length + 1}';
       }
       if (!seen.add(id)) {
-        id = '${id}_${parsed.length + 1}';
+        id = '${id}_${textNodes.length + 1}';
         seen.add(id);
       }
-      final hasCoords = item['x'] is num || item['y'] is num;
-      parsed.add((
-        node: CanvasNode(
+      // Keep Gemini x/y as-is — no ringLayout tidy (Obsidian owns arrange).
+      textNodes.add(
+        CanvasNode(
           id: id,
           type: 'text',
           text: text,
@@ -101,10 +101,9 @@ class ObsidianCanvasFromGemini {
           height: _dim(item['height'], fallback: 80, min: 48, max: 280),
           color: item['color']?.toString(),
         ),
-        hasCoords: hasCoords,
-      ));
+      );
     }
-    if (parsed.isEmpty) {
+    if (textNodes.isEmpty) {
       throw const GeminiException(
         statusCode: 200,
         body: 'no text nodes',
@@ -112,14 +111,8 @@ class ObsidianCanvasFromGemini {
       );
     }
 
-    final needsLayout = parsed.every((p) => !p.hasCoords) ||
-        parsed.every((p) => p.node.x == 0 && p.node.y == 0);
-    final textNodes = needsLayout
-        ? ringLayout(parsed.map((p) => p.node).toList())
-        : parsed.map((p) => p.node).toList();
-
-    final edges = _parseEdges(edgesRaw, textNodes.map((n) => n.id).toSet());
-    final connected = ensureConnected(textNodes, edges);
+    // Model edges only — photo-above shift is in CanvasWriter.buildDiagramCanvas.
+    final connected = _parseEdges(edgesRaw, textNodes.map((n) => n.id).toSet());
 
     final regions = <OcrRegion>[
       for (var i = 0; i < textNodes.length; i++)

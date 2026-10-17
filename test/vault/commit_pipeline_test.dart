@@ -88,9 +88,27 @@ void main() {
     expect(md, contains('page_id: 20261016-p7k2'));
     expect(md, contains('![[captures/raw/20261016-p7k2.png]]'));
     expect(md, contains('Practice on paper first.'));
-    expect(md, contains('[[permanent/seed-attention|Seed]]'));
-    expect(md, contains('[[Seed]]'));
+    // Personal v2: no auto [[wikilinks]] even if CommitInput.links is set.
+    expect(md, isNot(contains('[[permanent/seed-attention')));
+    expect(md, isNot(contains('[[Seed]]')));
     expect(md, isNot(contains('meaning:')));
+  });
+
+  test('journal symbol writes markdown under journal/', () async {
+    final capture = _capture(glyph: 'J');
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'journal',
+        title: 'Morning pages',
+        noteBody: 'Wrote by hand.',
+      ),
+    );
+    expect(result.notePath, 'journal/Morning pages.md');
+    expect(result.symbolId, 'journal');
+    final md = await vault.readText(result.notePath!);
+    expect(md, contains('type: journal'));
+    expect(md, contains('glyph: J'));
   });
 
   test('commits canvas for visual symbol without sidecar json', () async {
@@ -120,8 +138,10 @@ void main() {
     expect(nodes.first['file'], 'captures/raw/20261016-p7k2.png');
     expect(nodes.first['color'], '4');
     final tagsNode = nodes.cast<Map>().firstWhere((n) => n['id'] == 'tags');
-    expect(tagsNode['text'], contains('#psychology/memory'));
-    expect(tagsNode['text'], contains('#psychology/encoding'));
+    // Without Gemini edges, tags stay flat (no invented hub hierarchy).
+    expect(tagsNode['text'], contains('#psychology'));
+    expect(tagsNode['text'], contains('#memory'));
+    expect(tagsNode['text'], contains('#encoding'));
     expect(nodes.length, greaterThan(1));
     expect(
       vault.filePaths.any((p) => p.endsWith('.json')),

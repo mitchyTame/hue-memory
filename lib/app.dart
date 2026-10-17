@@ -30,8 +30,6 @@ import 'theme/memory_hues.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
 import 'ui/folder_map_shell.dart';
-import 'links/thread_tick.dart';
-import 'links/wikilink_suggester.dart';
 import 'printables/hue_code.dart';
 import 'printables/paper_kit_pdf.dart';
 import 'promote/promote_service.dart';
@@ -554,48 +552,6 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     });
   }
 
-  /// Recent pages plus any suggested picks not already listed.
-  static List<LinkPick> _mergeLinkCandidates(
-    List<LinkPick> recent,
-    List<LinkPick> suggested,
-  ) {
-    final out = <LinkPick>[];
-    final seen = <String>{};
-    for (final p in [...suggested, ...recent]) {
-      final key = p.targetPath
-          .trim()
-          .replaceAll(RegExp(r'\.md$', caseSensitive: false), '');
-      if (!seen.add(key)) continue;
-      out.add(p);
-    }
-    return out;
-  }
-
-  /// Lexical vault index → merge suggested [[wikilinks]] into [pending.links].
-  Future<List<LinkPick>> _suggestWikilinks(PendingCapture pending) async {
-    try {
-      final folders = <String>{
-        for (final s in widget.activePack.symbols)
-          if (s.folder != null && s.folder!.trim().isNotEmpty) s.folder!.trim(),
-      }.toList();
-      if (folders.isEmpty) return List<LinkPick>.from(pending.links);
-      const suggester = WikilinkSuggester();
-      final index = await suggester.indexVault(widget.vault, folders: folders);
-      final haystack = [
-        pending.title,
-        pending.noteBody,
-        for (final r in pending.meaning.regions) r.text,
-      ].join('\n');
-      return suggester.suggest(
-        haystack: haystack,
-        index: index,
-        existing: pending.links,
-      );
-    } catch (_) {
-      return List<LinkPick>.from(pending.links);
-    }
-  }
-
   String _captureFailureMessage(Object error) {
     if (error is MistralOcrException) return error.readable;
     if (error is GeminiException) return error.readable;
@@ -678,11 +634,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         } else {
           routed = router.route(meaning.detectedGlyph);
         }
-        final seededLinks = meaning.threadTick
-            ? ThreadTick.mergePrevious(
-                previous: _recentPages.isEmpty ? null : _recentPages.first,
-              )
-            : const <LinkPick>[];
+        // Personal v2: no auto/suggested [[wikilinks]] — Mitch links in Obsidian.
         final pending = PendingCapture(
           pageId: pageId,
           imageBytes: shot.imageBytes,
@@ -690,13 +642,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           meaning: meaning,
           imageExtension: shot.imageExtension,
           symbolId: routed.symbol.id,
-          links: seededLinks,
+          links: const [],
           draftTitleSuggestion: coordinated.draftTitleSuggestion,
         );
-        final suggested = coordinated.isTextPage
-            ? await _suggestWikilinks(pending)
-            : List<LinkPick>.from(pending.links);
-        pending.links = suggested;
         if (!mounted) return;
         setState(() {
           _pending = pending;
@@ -809,11 +757,6 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       } else {
         routed = router.route(meaning.detectedGlyph);
       }
-      final seededLinks = meaning.threadTick
-          ? ThreadTick.mergePrevious(
-              previous: _recentPages.isEmpty ? null : _recentPages.first,
-            )
-          : const <LinkPick>[];
       final pending = PendingCapture(
         pageId: pageId,
         imageBytes: bytes,
@@ -821,12 +764,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         meaning: meaning,
         imageExtension: job.imageExtension,
         symbolId: routed.symbol.id,
-        links: seededLinks,
+        links: const [],
         draftTitleSuggestion: coordinated.draftTitleSuggestion,
       );
-      if (coordinated.isTextPage) {
-        pending.links = await _suggestWikilinks(pending);
-      }
       await widget.captureQueue.markDone(job.id);
       final jobs = await widget.captureQueue.list();
       if (!mounted) return;
@@ -1441,9 +1381,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       return ConfirmShell(
         capture: pending,
         pack: widget.activePack,
-        linkCandidates: List.unmodifiable(
-          _mergeLinkCandidates(_recentPages, pending.links),
-        ),
+        linkCandidates: const [],
         committing: _committing,
         onCancel: _committing ? null : () => setState(() => _pending = null),
         onCommit: _commit,

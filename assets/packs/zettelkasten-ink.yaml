@@ -28,6 +28,11 @@ symbols:
     glyphs: ["△", "V"]
     folder: mindmaps
     output: canvas
+  - id: journal
+    draw: bar
+    glyphs: ["J"]
+    folder: journal
+    output: markdown
   - id: daily-tasks
     draw: dot
     glyphs: ["·", "•"]

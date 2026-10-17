@@ -36,22 +36,21 @@ void main() {
     expect(linked.length, greaterThanOrEqualTo(draft.textNodes.length - 0));
   });
 
-  test('strips markdown fences and ring-layouts when coords missing', () {
+  test('strips markdown fences; keeps Gemini edges without ring tidy', () {
     const raw = '''
 ```json
-{"nodes":[{"id":"a","type":"text","text":"Hub"},{"id":"b","type":"text","text":"Spoke"}],"edges":[]}
+{"nodes":[{"id":"a","type":"text","text":"Hub"},{"id":"b","type":"text","text":"Spoke"}],"edges":[{"id":"e1","fromNode":"a","toNode":"b"}]}
 ```
 ''';
     final draft = parser.parse(raw);
     expect(draft.textNodes, hasLength(2));
-    expect(draft.edges, isNotEmpty);
+    // No ringLayout — coords stay as model left them (here 0,0).
+    expect(draft.textNodes[0].x, 0);
+    expect(draft.textNodes[1].x, 0);
+    // Model edges kept; no invented hub spokes when edges empty.
+    expect(draft.edges, hasLength(1));
     expect(draft.edges.first.fromNode, 'a');
     expect(draft.edges.first.toNode, 'b');
-    // Ring layout should move spoke off origin.
-    expect(
-      draft.textNodes[1].x != 0 || draft.textNodes[1].y != 0,
-      isTrue,
-    );
   });
 
   test('invalid JSON throws GeminiException not FormatException', () {

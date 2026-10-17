@@ -4,10 +4,16 @@ import 'package:hue_memory/symbols/ink_library.dart';
 import 'package:hue_memory/symbols/pack_editor.dart';
 
 void main() {
-  test('ink library has exactly 18 glyphs', () {
-    expect(InkLibrary.glyphs, hasLength(18));
-    expect(InkDrawIds.all, hasLength(18));
-    expect(InkDrawIds.all.toSet(), hasLength(18));
+  test('ink library includes journal bar (J)', () {
+    expect(InkLibrary.glyphs, hasLength(19));
+    expect(InkDrawIds.all, hasLength(19));
+    expect(InkDrawIds.all.toSet(), hasLength(19));
+    expect(InkDrawIds.all, contains(InkDrawIds.bar));
+    expect(InkLibrary.byId(InkDrawIds.bar)?.unicode, 'J');
+    expect(
+      InkLibrary.suggestedSymbol(InkDrawIds.bar).folder,
+      'journal',
+    );
   });
 
   test('pack editor adds and refuses duplicate draw / inbox remove', () {

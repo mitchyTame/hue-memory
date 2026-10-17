@@ -21,6 +21,9 @@ abstract final class InkDrawIds {
   static const circleDot = 'circle-dot';
   static const invTriangle = 'inv-triangle';
 
+  /// One-stroke vertical bar — journal (easy on paper).
+  static const bar = 'bar';
+
   static const all = <String>[
     circleOpen,
     wave,
@@ -40,6 +43,7 @@ abstract final class InkDrawIds {
     corner,
     circleDot,
     invTriangle,
+    bar,
   ];
 }
 
@@ -66,6 +70,7 @@ abstract final class InkLibrary {
     DrawGlyph(id: InkDrawIds.corner, unicode: '⌜', label: 'reference'),
     DrawGlyph(id: InkDrawIds.circleDot, unicode: '◎', label: 'resource'),
     DrawGlyph(id: InkDrawIds.invTriangle, unicode: '▽', label: 'summary'),
+    DrawGlyph(id: InkDrawIds.bar, unicode: 'J', label: 'journal'),
   ];
 
   static DrawGlyph? byId(String id) {
@@ -128,6 +133,14 @@ abstract final class InkLibrary {
           glyphs: [unicode, '•'],
           output: SymbolOutput.dailyNoteAppend,
           section: '## Tasks',
+        );
+      case InkDrawIds.bar:
+        return PackSymbol(
+          id: 'journal',
+          draw: drawId,
+          glyphs: ['J'],
+          folder: 'journal',
+          output: SymbolOutput.markdown,
         );
       default:
         final slug = drawId.replaceAll('-', '_');

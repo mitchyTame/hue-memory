@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../capture/pending_capture.dart';
-import '../links/thread_tick.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
 import '../theme/memory_hues.dart';
 import '../writers/link_writer.dart';
-import 'link_picker_sheet.dart';
 
 typedef ConfirmCommitCallback = Future<void> Function({
   required String symbolId,
@@ -50,10 +48,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
   late String _selectedId;
   late final TextEditingController _titleController;
   late final TextEditingController _bodyController;
-  late List<LinkPick> _links;
   late final SymbolRouter _router;
   bool _inkGhost = true;
-  late bool _threadFromLast;
   late List<OcrRegion> _regions;
   late List<TextEditingController> _nodeControllers;
   int? _focusedNode;
@@ -68,32 +64,10 @@ class _ConfirmShellState extends State<ConfirmShell> {
     _selectedId = routed.symbol.id;
     _titleController = TextEditingController(text: widget.capture.title);
     _bodyController = TextEditingController(text: widget.capture.noteBody);
-    _links = List<LinkPick>.from(widget.capture.links);
-    _threadFromLast = widget.capture.meaning.threadTick || _links.isNotEmpty;
     _regions = List<OcrRegion>.from(widget.capture.meaning.regions);
     _nodeControllers = [
       for (final r in _regions) TextEditingController(text: r.text),
     ];
-  }
-
-  LinkPick? get _previousCandidate =>
-      widget.linkCandidates.isEmpty ? null : widget.linkCandidates.first;
-
-  void _setThreadFromLast(bool on) {
-    final prev = _previousCandidate;
-    setState(() {
-      _threadFromLast = on;
-      if (on) {
-        _links = ThreadTick.mergePrevious(previous: prev, existing: _links);
-      } else if (prev != null) {
-        final norm = prev.targetPath.replaceAll(RegExp(r'\.md$'), '');
-        _links = _links
-            .where(
-              (l) => l.targetPath.replaceAll(RegExp(r'\.md$'), '') != norm,
-            )
-            .toList();
-      }
-    });
   }
 
   @override
@@ -108,17 +82,6 @@ class _ConfirmShellState extends State<ConfirmShell> {
 
   bool get _isDaily => _router.routeById(_selectedId).isDailyTasks;
   bool get _isCanvas => _router.routeById(_selectedId).isCanvas;
-
-  Future<void> _openLinks() async {
-    final result = await showLinkPickerSheet(
-      context: context,
-      candidates: widget.linkCandidates,
-      initiallySelected: _links,
-    );
-    if (result != null) {
-      setState(() => _links = result);
-    }
-  }
 
   void _syncNodeText(int index, String text) {
     if (index < 0 || index >= _regions.length) return;
@@ -206,7 +169,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
       symbolId: _selectedId,
       title: _isDaily ? (title.isEmpty ? 'daily' : title) : title,
       noteBody: _bodyController.text,
-      links: _links,
+      links: const [],
       inkGhost: _isCanvas ? _inkGhost : true,
       regions: _isCanvas ? List<OcrRegion>.from(_regions) : null,
     );
@@ -349,27 +312,6 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     ),
                                   ),
                                 ),
-                              if (!_isDaily && _previousCandidate != null)
-                                SwitchListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(
-                                    'Link from last page',
-                                    style: textTheme.titleMedium,
-                                  ),
-                                  subtitle: Text(
-                                    _previousCandidate!.displayTitle ??
-                                        _previousCandidate!.targetPath,
-                                    style: textTheme.bodySmall?.copyWith(
-                                      color: MemoryHues.inkMuted,
-                                    ),
-                                  ),
-                                  value: _threadFromLast,
-                                  activeThumbColor: MemoryHues.accent,
-                                  activeTrackColor: MemoryHues.accentSoft,
-                                  onChanged: widget.committing || _isDaily
-                                      ? null
-                                      : _setThreadFromLast,
-                                ),
                               if (_isCanvas) ...[
                                 SwitchListTile(
                                   contentPadding: EdgeInsets.zero,
@@ -425,14 +367,6 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     ),
                                   ),
                                 ),
-                              if (_links.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    'Links: ${_links.map((l) => l.displayTitle ?? l.targetPath).join(', ')}',
-                                    style: textTheme.bodySmall,
-                                  ),
-                                ),
                             ],
                           ),
                         ),
@@ -446,15 +380,6 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     : widget.onCancel,
                                 child: const Text('Cancel'),
                               ),
-                              if (!_isDaily)
-                                TextButton(
-                                  onPressed: widget.committing
-                                      ? null
-                                      : _openLinks,
-                                  child: Text(
-                                    'Link${_links.isEmpty ? '' : ' (${_links.length})'}',
-                                  ),
-                                ),
                               const Spacer(),
                               FilledButton(
                                 onPressed: widget.committing || !_titleOk

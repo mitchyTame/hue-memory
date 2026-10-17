@@ -22,6 +22,8 @@ class LastCommitCard extends StatelessWidget {
         return 'diamond';
       case 'visual':
         return 'triangle';
+      case 'journal':
+        return 'bar';
       case 'daily-tasks':
         return 'dot';
       default:

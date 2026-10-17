@@ -17,6 +17,7 @@ void main() {
       '≡': ('literature', SymbolOutput.markdown, 'literature'),
       '◇': ('permanent', SymbolOutput.markdown, 'permanent'),
       '△': ('visual', SymbolOutput.canvas, 'mindmaps'),
+      'J': ('journal', SymbolOutput.markdown, 'journal'),
       '·': ('daily-tasks', SymbolOutput.dailyNoteAppend, 'Organising/Daily'),
     };
 

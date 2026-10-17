@@ -75,6 +75,20 @@ class InkGlyphPainter extends CustomPainter {
           Offset(w * 0.78, cy),
           paint,
         );
+      case InkDrawIds.bar:
+        // Simple stem for Journal (glyph on paper is the letter J).
+        canvas.drawLine(
+          Offset(cx, h * 0.14),
+          Offset(cx, h * 0.72),
+          paint,
+        );
+        canvas.drawArc(
+          Rect.fromLTWH(w * 0.28, h * 0.55, w * 0.36, h * 0.28),
+          0,
+          math.pi,
+          false,
+          paint,
+        );
       case InkDrawIds.squareOpen:
         canvas.drawRect(
           Rect.fromCenter(center: Offset(cx, cy), width: w * 0.58, height: h * 0.58),

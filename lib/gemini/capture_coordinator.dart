@@ -297,11 +297,8 @@ class CaptureCoordinator {
       textNodes: nodes,
       edited: meaning.regions,
     );
-    final connected = ObsidianCanvasFromGemini.ensureConnected(
-      edited,
-      edges.isEmpty ? CanvasWriter.heuristicEdges(edited) : edges,
-    );
-    return (nodes: edited, edges: connected);
+    // Edges as stored from Gemini — no heuristic / ensureConnected tidy.
+    return (nodes: edited, edges: edges);
   }
 
   /// Debug helper — never call with real keys in tests that print.

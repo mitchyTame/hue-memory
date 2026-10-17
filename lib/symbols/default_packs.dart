@@ -48,6 +48,13 @@ abstract final class DefaultPacks {
         output: SymbolOutput.canvas,
       ),
       PackSymbol(
+        id: 'journal',
+        draw: InkDrawIds.bar,
+        glyphs: ['J'],
+        folder: 'journal',
+        output: SymbolOutput.markdown,
+      ),
+      PackSymbol(
         id: 'daily-tasks',
         draw: InkDrawIds.dot,
         glyphs: ['·', '•'],

@@ -58,7 +58,7 @@ class HowToGuideShell extends StatelessWidget {
                             title: 'Mark the page',
                             body:
                                 'Draw one symbol in the meta zone — ∼ fleeting, '
-                                '◇ permanent, △ mindmap, · daily tasks. '
+                                '◇ permanent, J journal, △ mindmap, · daily. '
                                 'On the camera, drag the glyph box over that ink '
                                 '(no stickers). Chip △ forces the diagram path.',
                             accent: MemoryHues.ink,
@@ -86,13 +86,10 @@ class HowToGuideShell extends StatelessWidget {
                           _FolderMapBand(textTheme: textTheme),
                           const SizedBox(height: 20),
                           _FeatureBand(
-                            title: 'Suggested wikilinks',
+                            title: 'Links in Obsidian',
                             body:
-                                'When a new note mentions terms that already live '
-                                'in older vault notes, hue-memory pre-selects '
-                                '[[wikilinks]] — e.g. “Chunking” can pull in '
-                                '[[Working Memory Capacity]]. Review them on '
-                                'confirm; uncheck any you do not want.',
+                                'hue-memory does not auto-suggest [[wikilinks]]. '
+                                'Add connections yourself in Obsidian after save.',
                             glyph: '[[ ]]',
                           ),
                           _FeatureBand(
@@ -297,6 +294,7 @@ class _FolderMapBand extends StatelessWidget {
           _FolderRow(glyph: '≡', name: 'literature', role: 'Source / book captures'),
           _FolderRow(glyph: '◇', name: 'permanent', role: 'Own-words lasting notes'),
           _FolderRow(glyph: '△', name: 'mindmaps', role: 'Diagram → .canvas + photo'),
+          _FolderRow(glyph: 'J', name: 'journal', role: 'Journal entries (OCR → .md)'),
           _FolderRow(
             glyph: '·',
             name: 'Organising/Daily',

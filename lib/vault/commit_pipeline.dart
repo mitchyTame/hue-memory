@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import '../capture/pending_capture.dart';
 import '../gemini/capture_coordinator.dart';
 import '../gemini/obsidian_canvas_from_gemini.dart';
-import '../links/wikilink_suggester.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/symbol_router.dart';
 import '../writers/canvas_writer.dart';
@@ -26,13 +25,16 @@ class CommitInput {
     this.taskLines,
     this.inkGhost = true,
     this.regions,
-    this.weaveSuggestedWikilinks = true,
+    @Deprecated('Personal v2: Mitch links in Obsidian — ignored on commit')
+    this.weaveSuggestedWikilinks = false,
   });
 
   final PendingCapture capture;
   final String symbolId;
   final String title;
   final String noteBody;
+
+  /// Unused on commit (kept for API compat). Links are not written to vault.
   final List<LinkPick> links;
 
   /// Overrides [PendingCapture.taskLines] when non-null (daily-tasks).
@@ -44,7 +46,8 @@ class CommitInput {
   /// Edited mindmap labels from confirm (△). Falls back to capture regions.
   final List<OcrRegion>? regions;
 
-  /// When true, weave suggested `[[wikilinks]]` into the markdown body.
+  /// Ignored — personal v2 never auto-weaves `[[wikilinks]]`.
+  @Deprecated('Personal v2: Mitch links in Obsidian')
   final bool weaveSuggestedWikilinks;
 }
 
@@ -90,9 +93,7 @@ class CommitPipeline {
     SymbolRouter? router,
     MarkdownWriter markdownWriter = const MarkdownWriter(),
     CanvasWriter canvasWriter = const CanvasWriter(),
-    LinkWriter linkWriter = const LinkWriter(),
     TagBuilder tagBuilder = const TagBuilder(),
-    WikilinkSuggester wikilinkSuggester = const WikilinkSuggester(),
     DailyNotePathResolver dailyPathResolver = const DailyNotePathResolver(),
     DailyTasksAppender dailyAppender = const DailyTasksAppender(),
     DailyNoteSettings dailyNoteSettings = const DailyNoteSettings(),
@@ -100,9 +101,7 @@ class CommitPipeline {
         _router = router ?? SymbolRouter(),
         _markdown = markdownWriter,
         _canvas = canvasWriter,
-        _links = linkWriter,
         _tags = tagBuilder,
-        _wikilinks = wikilinkSuggester,
         _dailyPaths = dailyPathResolver,
         _dailyAppender = dailyAppender,
         _dailySettings = dailyNoteSettings;
@@ -111,9 +110,7 @@ class CommitPipeline {
   final SymbolRouter _router;
   final MarkdownWriter _markdown;
   final CanvasWriter _canvas;
-  final LinkWriter _links;
   final TagBuilder _tags;
-  final WikilinkSuggester _wikilinks;
   final DailyNotePathResolver _dailyPaths;
   final DailyTasksAppender _dailyAppender;
   final DailyNoteSettings _dailySettings;
@@ -172,14 +169,7 @@ class CommitPipeline {
     );
     await _assertNameAvailable(notePath);
     await _vault.writeBytes(rawImagePath, capture.imageBytes);
-    final fmLinks = _links.frontmatterLinks(input.links);
-    final linked = _links.linkedSection(input.links);
-    var noteBody = input.noteBody;
-    if (input.weaveSuggestedWikilinks && input.links.isNotEmpty) {
-      noteBody = _wikilinks.insertIntoBody(noteBody, input.links);
-    }
-    final body = linked.isEmpty ? noteBody : '${noteBody.trim()}\n\n$linked';
-
+    // Personal v2: no auto/suggested [[wikilinks]] — Mitch links in Obsidian.
     final md = _markdown.write(
       MarkdownNoteDraft(
         frontmatter: NoteFrontmatter(
@@ -190,10 +180,10 @@ class CommitPipeline {
           capturedAt: capture.capturedAt,
           sourceImage: rawImagePath,
           ocrConfidence: _avgConfidence(capture.meaning.regions),
-          links: fmLinks,
+          links: const [],
           threadTick: capture.meaning.threadTick,
         ),
-        noteBody: body,
+        noteBody: input.noteBody,
         ocrDraft: capture.ocrDraft,
       ),
     );
@@ -267,10 +257,8 @@ class CommitPipeline {
           textNodes: fromGemini.nodes,
           edited: regionList,
         );
-        edges = ObsidianCanvasFromGemini.ensureConnected(
-          textNodes,
-          fromGemini.edges,
-        );
+        // Keep Gemini edges as-is — no ensureConnected / ring tidy.
+        edges = fromGemini.edges;
         doc = _canvas.buildDiagramCanvas(
           sourceImage: rawImagePath,
           textNodes: textNodes,
@@ -297,9 +285,9 @@ class CommitPipeline {
             ),
           ];
         }
-        edges = CanvasWriter.heuristicEdges(textNodes);
+        // No invented hub–spoke layout — Obsidian owns further arrange.
+        edges = const <CanvasEdge>[];
         final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
-        // Same photo-above layout as Gemini diagrams.
         doc = _canvas.buildDiagramCanvas(
           sourceImage: rawImagePath,
           textNodes: textNodes,

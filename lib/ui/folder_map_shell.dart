@@ -119,9 +119,9 @@ class _FolderMapShellState extends State<FolderMapShell> {
         children: [
           Text(
             'Type a vault-relative folder per symbol — nested paths are fine '
-            '(e.g. Organising/Daily, Organising/monthly). Defaults follow '
-            'Zettelkasten + GTD: inbox, fleeting, literature, permanent, '
-            'mindmaps, Organising/Daily.',
+            '(e.g. Organising/Daily, journal). Defaults: inbox, fleeting, '
+            'literature, permanent, mindmaps, Journal → journal, '
+            'Organising/Daily.',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 16),
