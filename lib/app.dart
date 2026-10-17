@@ -45,7 +45,7 @@ import 'ui/ocr_settings_shell.dart';
 import 'ui/paper_kit_shell.dart';
 import 'ui/promote_shell.dart';
 import 'ui/queue_shell.dart';
-import 'ui/region_pick_shell.dart';
+import 'ui/manual_region_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
@@ -56,7 +56,7 @@ import 'vault/saf_documents.dart';
 import 'vault/saf_vault_fs.dart';
 import 'vault/vault_bind.dart';
 import 'vision/image_crop.dart';
-import 'vision/l_corner_regions.dart';
+import 'vision/page_region.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
@@ -642,7 +642,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
                 : 'Routing capture…';
           });
         }
-        // L-corner regions (not routing): crop OCR to the chosen note box.
+        // Optional manual OCR crop (not routing). Skip → whole page.
         final prep = await _prepareOcrCapture(
           shot.imageBytes,
           forceDiagram: shot.symbolId == 'visual',
@@ -766,10 +766,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
-  /// Detect L-corner page regions; if multiple, Mitch picks which to OCR.
+  /// Optional manual OCR region after shutter (text path).
   ///
-  /// Missing L-corners is normal — OCR the whole page (red confirm indicator).
-  /// Vault still stores the full [imageBytes] capture (overlays are UI-only).
+  /// "Use whole page" / dismiss → full-page OCR. Vault still stores the full
+  /// [imageBytes] capture (overlays are UI-only).
   Future<({Uint8List bytes, CaptureRegionFeedback feedback})>
       _prepareOcrCapture(
     Uint8List imageBytes, {
@@ -778,58 +778,21 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     if (forceDiagram) {
       return (bytes: imageBytes, feedback: CaptureRegionFeedback.diagramSkip);
     }
-    List<PageRegion> regions;
-    try {
-      setState(() => _captureStatus = 'Finding L-corner regions…');
-      regions = const LCornerRegionDetector().detect(imageBytes);
-    } catch (_) {
-      return (
-        bytes: imageBytes,
-        feedback: const CaptureRegionFeedback(),
-      );
+    if (!mounted) {
+      return (bytes: imageBytes, feedback: const CaptureRegionFeedback());
     }
-    if (regions.isEmpty) {
-      // Optional marks — no L-corners is fine; OCR whole page.
-      return (
-        bytes: imageBytes,
-        feedback: const CaptureRegionFeedback(),
-      );
+    setState(() => _captureStatus = 'Frame note region…');
+    final chosen = await Navigator.of(context).push<PageRegion?>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => ManualRegionShell(imageBytes: imageBytes),
+      ),
+    );
+    if (!mounted) {
+      return (bytes: imageBytes, feedback: const CaptureRegionFeedback());
     }
-
-    PageRegion? chosen;
-    if (regions.length == 1) {
-      chosen = regions.first;
-    } else {
-      if (!mounted) {
-        return (
-          bytes: imageBytes,
-          feedback: CaptureRegionFeedback(detected: regions),
-        );
-      }
-      setState(() => _captureStatus = 'Choose note region…');
-      chosen = await Navigator.of(context).push<PageRegion?>(
-        MaterialPageRoute(
-          fullscreenDialog: true,
-          builder: (_) => RegionPickShell(
-            imageBytes: imageBytes,
-            regions: regions,
-          ),
-        ),
-      );
-      if (!mounted) {
-        return (
-          bytes: imageBytes,
-          feedback: CaptureRegionFeedback(detected: regions),
-        );
-      }
-      // null = Whole page (still show green detected boxes on confirm).
-    }
-
     if (chosen == null) {
-      return (
-        bytes: imageBytes,
-        feedback: CaptureRegionFeedback(detected: regions),
-      );
+      return (bytes: imageBytes, feedback: const CaptureRegionFeedback());
     }
 
     final cropped = const ImageCrop().cropNorm(
@@ -838,10 +801,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     );
     return (
       bytes: cropped ?? imageBytes,
-      feedback: CaptureRegionFeedback(
-        detected: regions,
-        ocrRegion: chosen,
-      ),
+      feedback: CaptureRegionFeedback(ocrRegion: chosen),
     );
   }
 

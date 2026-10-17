@@ -5,11 +5,11 @@ import 'package:flutter/material.dart';
 
 import '../capture/region_feedback.dart';
 import '../theme/memory_hues.dart';
-import '../vision/l_corner_regions.dart';
+import '../vision/page_region.dart';
 
-/// Transparent L-corner region overlay on the confirm photo preview.
+/// Transparent OCR-region overlay on the confirm photo preview.
 ///
-/// Green = L-corners detected for that box; red = none (whole-page OCR).
+/// Green box = manual crop used for OCR; muted whole-page frame when skipped.
 /// Never baked into vault bytes.
 class CaptureRegionOverlay extends StatefulWidget {
   const CaptureRegionOverlay({
@@ -122,54 +122,25 @@ class _RegionFeedbackPainter extends CustomPainter {
   final CaptureRegionFeedback feedback;
 
   static const _green = Color(0xFF2E8B57);
-  static const _red = Color(0xFFC44B4B);
+  static const _muted = Color(0xFF5A6B86);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (feedback.lCornersDetected) {
-      for (final region in feedback.detected) {
-        final active = feedback.ocrRegion?.id == region.id;
-        _paintRegion(
-          canvas,
-          region,
-          color: _green,
-          active: active || feedback.ocrRegion == null,
-        );
-      }
-      _paintBadge(
-        canvas,
-        feedback.ocrRegion == null
-            ? 'L-corners · whole page OCR'
-            : 'L-corners · region OCR',
-        color: _green,
-      );
+    final region = feedback.ocrRegion;
+    if (region != null) {
+      _paintRegion(canvas, region, color: _green, active: true);
+      _paintBadge(canvas, 'Region OCR', color: _green);
       return;
     }
 
-    // No L-corners — optional marks; OCR whole page. Red indicator, not an error.
+    // Whole page — optional skip, not an error.
     final stroke = Paint()
-      ..color = _red.withValues(alpha: 0.85)
+      ..color = _muted.withValues(alpha: 0.85)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
+      ..strokeWidth = 2;
     final inset = contentRect.deflate(6);
     canvas.drawRect(inset, stroke);
-    // Corner ticks
-    const arm = 18.0;
-    final path = Path()
-      ..moveTo(inset.left, inset.top + arm)
-      ..lineTo(inset.left, inset.top)
-      ..lineTo(inset.left + arm, inset.top)
-      ..moveTo(inset.right - arm, inset.top)
-      ..lineTo(inset.right, inset.top)
-      ..lineTo(inset.right, inset.top + arm)
-      ..moveTo(inset.left, inset.bottom - arm)
-      ..lineTo(inset.left, inset.bottom)
-      ..lineTo(inset.left + arm, inset.bottom)
-      ..moveTo(inset.right - arm, inset.bottom)
-      ..lineTo(inset.right, inset.bottom)
-      ..lineTo(inset.right, inset.bottom - arm);
-    canvas.drawPath(path, stroke);
-    _paintBadge(canvas, 'No L-corners · whole page OCR', color: _red);
+    _paintBadge(canvas, 'Whole page OCR', color: _muted);
   }
 
   void _paintRegion(

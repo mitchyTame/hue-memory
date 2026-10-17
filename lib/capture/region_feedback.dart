@@ -1,28 +1,24 @@
-import '../vision/l_corner_regions.dart';
+import '../vision/page_region.dart';
 
-/// UI-only feedback about L-corner detection for confirm overlays.
+/// UI-only feedback about the OCR crop for confirm overlays.
 ///
 /// Never burned into the vault photo — confirm paints this on top of the preview.
 class CaptureRegionFeedback {
   const CaptureRegionFeedback({
-    this.detected = const [],
     this.ocrRegion,
     this.skippedForDiagram = false,
   });
 
-  /// All L-corner quads found on the full capture.
-  final List<PageRegion> detected;
-
-  /// Region used for OCR crop, or null when OCR ran on the whole page.
+  /// Manual region used for OCR crop, or null when OCR ran on the whole page.
   final PageRegion? ocrRegion;
 
-  /// Diagram / △ path skipped L-corner detection.
+  /// Diagram / △ path skipped the region picker.
   final bool skippedForDiagram;
 
-  /// True when at least one L-corner region was found (optional marks).
-  bool get lCornersDetected => detected.isNotEmpty;
+  /// True when Mitch framed a crop for OCR.
+  bool get hasRegion => ocrRegion != null;
 
-  /// Whole-page OCR because no L-corners (or user chose Whole page).
+  /// Whole-page OCR (skipped region picker or chose Use whole page).
   bool get usedWholePage => ocrRegion == null && !skippedForDiagram;
 
   static const none = CaptureRegionFeedback();
@@ -34,26 +30,22 @@ class CaptureRegionFeedback {
     return other is CaptureRegionFeedback &&
         other.skippedForDiagram == skippedForDiagram &&
         other.ocrRegion?.id == ocrRegion?.id &&
-        _sameRegions(other.detected, detected);
+        _sameBbox(other.ocrRegion?.bbox, ocrRegion?.bbox);
   }
 
   @override
   int get hashCode => Object.hash(
         skippedForDiagram,
         ocrRegion?.id,
-        Object.hashAll(detected.map((r) => r.id)),
+        ocrRegion == null ? null : Object.hashAll(ocrRegion!.bbox),
       );
 
-  static bool _sameRegions(List<PageRegion> a, List<PageRegion> b) {
+  static bool _sameBbox(List<double>? a, List<double>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return a == b;
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (a[i].id != b[i].id) return false;
-      final ab = a[i].bbox;
-      final bb = b[i].bbox;
-      if (ab.length != bb.length) return false;
-      for (var j = 0; j < ab.length; j++) {
-        if (ab[j] != bb[j]) return false;
-      }
+      if (a[i] != b[i]) return false;
     }
     return true;
   }

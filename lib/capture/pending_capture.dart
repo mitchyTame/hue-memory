@@ -33,7 +33,7 @@ class PendingCapture {
   /// Optional OCR/vision draft shown as a hint — not the save name.
   final String draftTitleSuggestion;
 
-  /// L-corner detection for confirm overlay only (never written to vault image).
+  /// OCR region for confirm overlay only (never written to vault image).
   final CaptureRegionFeedback regionFeedback;
 
   String title;

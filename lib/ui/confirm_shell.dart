@@ -201,8 +201,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
                     child: LayoutBuilder(
                       builder: (context, photoConstraints) {
                         // Mindmap labels stay in the sheet list only.
-                        // L-corner feedback is a transparent UI overlay — never
-                        // burned into the vault photo.
+                        // OCR region feedback is a transparent UI overlay —
+                        // never burned into the vault photo.
                         return Opacity(
                           opacity: _isCanvas && _inkGhost ? 0.42 : 1,
                           child: CaptureRegionOverlay(

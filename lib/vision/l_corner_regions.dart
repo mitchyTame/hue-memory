@@ -3,23 +3,12 @@ import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
-/// One note region defined by four ink L-corners (normalized 0–1 bbox).
-class PageRegion {
-  const PageRegion({
-    required this.id,
-    required this.bbox,
-  });
+import 'page_region.dart';
 
-  final String id;
+export 'page_region.dart';
 
-  /// `[left, top, width, height]` in normalized image space.
-  final List<double> bbox;
-
-  double get left => bbox[0];
-  double get top => bbox[1];
-  double get width => bbox[2];
-  double get height => bbox[3];
-}
+/// Legacy L-corner detector (unused in capture flow — kept for experiments).
+/// Capture uses the optional manual region picker instead.
 
 enum _CornerKind { tl, tr, bl, br }
 
