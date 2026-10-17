@@ -67,7 +67,11 @@ abstract final class InkLibrary {
     DrawGlyph(id: InkDrawIds.halfCircle, unicode: '◐', label: 'waiting'),
     DrawGlyph(id: InkDrawIds.chevron, unicode: '›', label: 'someday'),
     DrawGlyph(id: InkDrawIds.hook, unicode: 'ʔ', label: 'question'),
-    DrawGlyph(id: InkDrawIds.corner, unicode: '⌜', label: 'reference'),
+    DrawGlyph(
+      id: InkDrawIds.corner,
+      unicode: '⌜',
+      label: 'page region L-corner (not routing)',
+    ),
     DrawGlyph(id: InkDrawIds.circleDot, unicode: '◎', label: 'resource'),
     DrawGlyph(id: InkDrawIds.invTriangle, unicode: '▽', label: 'summary'),
     DrawGlyph(id: InkDrawIds.bar, unicode: 'J', label: 'journal'),
@@ -105,8 +109,16 @@ abstract final class InkLibrary {
         return PackSymbol(
           id: 'literature',
           draw: drawId,
-          glyphs: [unicode, 'L'],
+          glyphs: [unicode],
           folder: 'literature',
+          output: SymbolOutput.markdown,
+        );
+      case InkDrawIds.corner:
+        // L-corners mark page regions — never a vault routing symbol.
+        return PackSymbol(
+          id: 'page-region',
+          draw: drawId,
+          glyphs: [unicode],
           output: SymbolOutput.markdown,
         );
       case InkDrawIds.diamond:

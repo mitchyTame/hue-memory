@@ -23,6 +23,31 @@ void main() {
     expect(result.regions.first.text, contains('Permanent'));
     expect(result.pageGenre, 'text');
     expect(result.rawJson['provider'], 'mistral');
+    expect(result.rawJson['full_markdown'], contains('Second paragraph'));
+  });
+
+  test('text path keeps full long paragraphs (no 64-char clipLabel)', () {
+    final long = 'A' * 120;
+    final result = parser.parseResponse(
+      OcrResponse(
+        model: 'mistral-ocr-latest',
+        pages: [
+          OcrPage(
+            index: 0,
+            markdown: '∼ Fleeting\n\n$long',
+          ),
+        ],
+      ),
+    );
+    expect(result.pageGenre, 'text');
+    expect(result.regions.last.text.length, greaterThanOrEqualTo(120));
+    expect(result.regions.last.text, isNot(contains('…')));
+    expect(result.rawJson['full_markdown'], contains(long));
+  });
+
+  test('letter L is not routed to literature', () {
+    expect(parser.detectGlyph('See section L for notes'), '○');
+    expect(parser.detectGlyph('≡ Literature note'), '≡');
   });
 
   test('parses pages markdown into regions (map fixture)', () {

@@ -18,7 +18,6 @@ void main() {
           links: const ['[[fleeting/prior-note]]'],
         ),
         noteBody: 'Attention is a muscle.',
-        ocrDraft: 'attetion is a muscle',
       ),
     );
 
@@ -33,9 +32,9 @@ void main() {
     expect(md, contains('![[captures/raw/20261016-p7k2.jpg]]'));
     expect(md, contains('## Note'));
     expect(md, contains('Attention is a muscle.'));
-    expect(md, contains('## OCR draft'));
-    expect(md, contains('attetion is a muscle'));
-    expect(md.trimRight(), endsWith('attetion is a muscle'));
+    // Personal v2: one body only — never duplicate "## OCR draft".
+    expect(md, isNot(contains('## OCR draft')));
+    expect(md.trimRight(), endsWith('Attention is a muscle.'));
   });
 
   test('writes nested tags frontmatter when present', () {

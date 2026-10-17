@@ -184,7 +184,6 @@ class CommitPipeline {
           threadTick: capture.meaning.threadTick,
         ),
         noteBody: input.noteBody,
-        ocrDraft: capture.ocrDraft,
       ),
     );
     await _vault.writeText(notePath, md);

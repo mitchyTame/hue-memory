@@ -44,6 +44,7 @@ import 'ui/ocr_settings_shell.dart';
 import 'ui/paper_kit_shell.dart';
 import 'ui/promote_shell.dart';
 import 'ui/queue_shell.dart';
+import 'ui/region_pick_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
@@ -53,6 +54,8 @@ import 'vault/local_vault_fs.dart';
 import 'vault/saf_documents.dart';
 import 'vault/saf_vault_fs.dart';
 import 'vault/vault_bind.dart';
+import 'vision/image_crop.dart';
+import 'vision/l_corner_regions.dart';
 import 'vault/vault_fs.dart';
 import 'writers/link_writer.dart';
 
@@ -638,8 +641,13 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
                 : 'Routing capture…';
           });
         }
+        // L-corner regions (not routing): crop OCR to the chosen note box.
+        final ocrBytes = await _ocrBytesForCapture(
+          shot.imageBytes,
+          forceDiagram: shot.symbolId == 'visual',
+        );
         final coordinated = await _coordinator.run(
-          imageBytes: shot.imageBytes,
+          imageBytes: ocrBytes,
           extensionHint: shot.imageExtension,
           forcedSymbolId: shot.symbolId.isNotEmpty ? shot.symbolId : null,
         );
@@ -756,6 +764,50 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
+  /// Detect L-corner page regions; if multiple, Mitch picks which to OCR.
+  ///
+  /// Returns cropped PNG bytes for OCR, or the original when no region / whole page.
+  /// Vault still stores the full [imageBytes] capture.
+  Future<Uint8List> _ocrBytesForCapture(
+    Uint8List imageBytes, {
+    required bool forceDiagram,
+  }) async {
+    if (forceDiagram) return imageBytes;
+    List<PageRegion> regions;
+    try {
+      setState(() => _captureStatus = 'Finding L-corner regions…');
+      regions = const LCornerRegionDetector().detect(imageBytes);
+    } catch (_) {
+      return imageBytes;
+    }
+    if (regions.isEmpty) return imageBytes;
+
+    PageRegion? chosen;
+    if (regions.length == 1) {
+      chosen = regions.first;
+    } else {
+      if (!mounted) return imageBytes;
+      setState(() => _captureStatus = 'Choose note region…');
+      chosen = await Navigator.of(context).push<PageRegion?>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => RegionPickShell(
+            imageBytes: imageBytes,
+            regions: regions,
+          ),
+        ),
+      );
+      if (!mounted) return imageBytes;
+      if (chosen == null) return imageBytes; // Whole page
+    }
+
+    final cropped = const ImageCrop().cropNorm(
+      imageBytes,
+      bbox: chosen.bbox,
+    );
+    return cropped ?? imageBytes;
+  }
+
   /// Retry through [CaptureCoordinator] (same path as live capture).
   ///
   /// Preserves [QueueJob.forcedSymbolId] so △ never OCR-first on retry.
@@ -764,8 +816,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     try {
       final bytes = await widget.captureQueue.readImage(job.id);
       final forced = job.forcedSymbolId;
+      final ocrBytes = await _ocrBytesForCapture(
+        bytes,
+        forceDiagram: forced == 'visual',
+      );
       final coordinated = await _coordinator.run(
-        imageBytes: bytes,
+        imageBytes: ocrBytes,
         extensionHint: job.imageExtension,
         forcedSymbolId: forced,
       );

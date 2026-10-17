@@ -355,13 +355,13 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   child: TextField(
                                     controller: _bodyController,
                                     enabled: !widget.committing,
-                                    minLines: _isDaily ? 2 : 4,
-                                    maxLines: 8,
+                                    minLines: _isDaily ? 2 : 6,
+                                    maxLines: _isDaily ? 12 : null,
                                     style: textTheme.bodyLarge,
                                     decoration: InputDecoration(
                                       labelText: _isDaily
                                           ? 'Tasks (one per line)'
-                                          : 'Note',
+                                          : 'Note (full OCR text)',
                                       border: const OutlineInputBorder(),
                                       alignLabelWithHint: true,
                                     ),

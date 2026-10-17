@@ -33,6 +33,8 @@ void main() {
     expect(router.route('F').symbol.id, 'fleeting');
     expect(router.route('P').symbol.id, 'permanent');
     expect(router.route('V').output, SymbolOutput.canvas);
+    // L is reserved for page-region corners — not literature.
+    expect(router.route('L').symbol.id, 'inbox');
   });
 
   test('unknown glyph falls back to inbox', () {

@@ -14,7 +14,7 @@ symbols:
     output: markdown
   - id: literature
     draw: triple-bar
-    glyphs: ["≡", "L"]
+    glyphs: ["≡"]
     folder: literature
     output: markdown
   - id: permanent

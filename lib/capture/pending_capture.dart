@@ -50,12 +50,19 @@ class PendingCapture {
       .toList(growable: false);
 
   static String _joinedRegions(MeaningResult meaning) {
+    // Text / handwriting: prefer full OCR markdown when present.
+    if (meaning.pageGenre != 'visual') {
+      final full = meaning.rawJson['full_markdown'];
+      if (full is String && full.trim().isNotEmpty) {
+        return full.trim();
+      }
+    }
     // Visual / mindmap: short label lines only — never a page prose dump.
     final sep = meaning.pageGenre == 'visual' ? '\n' : '\n\n';
     return meaning.regions
         .map((r) => r.text.trim())
         .where((t) => t.isNotEmpty)
-        .take(meaning.pageGenre == 'visual' ? 12 : 100)
+        .take(meaning.pageGenre == 'visual' ? 12 : 200)
         .join(sep);
   }
 

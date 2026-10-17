@@ -28,7 +28,8 @@ abstract final class DefaultPacks {
       PackSymbol(
         id: 'literature',
         draw: InkDrawIds.tripleBar,
-        glyphs: ['≡', 'L'],
+        // L is reserved for page-region corners — not a routing alias.
+        glyphs: ['≡'],
         folder: 'literature',
         output: SymbolOutput.markdown,
       ),

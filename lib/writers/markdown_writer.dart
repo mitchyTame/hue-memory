@@ -35,11 +35,15 @@ class MarkdownNoteDraft {
   const MarkdownNoteDraft({
     required this.frontmatter,
     required this.noteBody,
+    @Deprecated('Personal v2: single ## Note body — OCR draft section removed')
     this.ocrDraft = '',
   });
 
   final NoteFrontmatter frontmatter;
   final String noteBody;
+
+  /// Ignored — kept for API compat. Vault notes are one ## Note only.
+  @Deprecated('Personal v2: single ## Note body')
   final String ocrDraft;
 }
 
@@ -86,18 +90,12 @@ class MarkdownWriter {
         ..writeln('![[${fm.sourceImage}]]')
         ..writeln();
     }
+    // One body only — never a duplicate "## OCR draft" section.
     buffer
       ..writeln('## Note')
       ..writeln()
       ..writeln(draft.noteBody.trim())
       ..writeln();
-    if (draft.ocrDraft.trim().isNotEmpty) {
-      buffer
-        ..writeln('## OCR draft')
-        ..writeln()
-        ..writeln(draft.ocrDraft.trim())
-        ..writeln();
-    }
     return buffer.toString();
   }
 

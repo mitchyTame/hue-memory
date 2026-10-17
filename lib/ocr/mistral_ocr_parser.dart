@@ -83,11 +83,15 @@ class MistralOcrParser {
         'provider': 'mistral',
         'model': model,
         'pages': markdownChunks.length,
+        // Full page text for confirm / vault — never clipLabel'd.
+        'full_markdown': full,
       },
     );
   }
 
   /// Prefer circled ZK glyphs appearing in the OCR text.
+  ///
+  /// Letter `L` is reserved for page-region L-corners — not literature.
   String detectGlyph(String markdown) {
     const candidates = ['◇', '△', '≡', '∼', '○', '·', '•'];
     for (final g in candidates) {
@@ -98,15 +102,17 @@ class MistralOcrParser {
     final upper = markdown.toUpperCase();
     if (RegExp(r'\bP\b').hasMatch(upper)) return '◇';
     if (RegExp(r'\bV\b').hasMatch(upper)) return '△';
-    if (RegExp(r'\bL\b').hasMatch(upper)) return '≡';
+    // Standalone J only (not the letter inside "Just" / "notes").
+    if (RegExp(r'(^|[^\w])J([^\w]|$)').hasMatch(upper)) return 'J';
     if (RegExp(r'\bF\b').hasMatch(upper)) return '∼';
     if (RegExp(r'\bI\b').hasMatch(upper)) return '○';
     return '○';
   }
 
+  /// Text / handwriting regions — **full** block text (no [MindmapPropose.clipLabel]).
   List<OcrRegion> _regionsFromMarkdown(String markdown) {
-    final safe = MindmapPropose.truncateLoopingProse(markdown);
-    if (safe.trim().isEmpty) {
+    final safe = markdown.trim();
+    if (safe.isEmpty) {
       return const [
         OcrRegion(
           id: 'r1',
@@ -127,7 +133,7 @@ class MistralOcrParser {
       return [
         OcrRegion(
           id: 'r1',
-          text: MindmapPropose.clipLabel(safe),
+          text: safe,
           confidence: 0.8,
           bbox: const [0.1, 0.15, 0.8, 0.2],
         ),
@@ -135,14 +141,14 @@ class MistralOcrParser {
     }
 
     final regions = <OcrRegion>[];
-    final n = blocks.length.clamp(1, 16);
+    final n = blocks.length.clamp(1, 64);
     for (var i = 0; i < n; i++) {
       final top = 0.12 + (i / n) * 0.7;
-      final height = (0.7 / n).clamp(0.06, 0.25);
+      final height = (0.7 / n).clamp(0.04, 0.35);
       regions.add(
         OcrRegion(
           id: 'r${i + 1}',
-          text: MindmapPropose.clipLabel(blocks[i]),
+          text: blocks[i],
           confidence: 0.85,
           bbox: [0.1, top, 0.8, height],
         ),
