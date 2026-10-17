@@ -575,6 +575,18 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     if (s.contains('FormatException')) {
       return 'Capture parse failed — Gemini/OCR returned invalid data';
     }
+    // Release APK without INTERNET (or offline device) surfaces these.
+    final lower = s.toLowerCase();
+    if (error is SocketException ||
+        lower.contains('socketexception') ||
+        lower.contains('failed host lookup') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection reset') ||
+        lower.contains('clientexception') && lower.contains('connection')) {
+      return 'No network — check Wi‑Fi/mobile data and that the app '
+          'has Internet permission (reinstall release if needed)';
+    }
     return s;
   }
 
