@@ -27,20 +27,48 @@ class ObsidianCanvasFromGemini {
   const ObsidianCanvasFromGemini();
 
   /// Parse model JSON; commit injects the real photo file node path.
+  ///
+  /// Throws [GeminiException] (never raw [FormatException]) so UI / queue
+  /// never surface SDK-style "line N, character M" as a mystery OCR failure.
   GeminiCanvasDraft parse(String raw) {
     final sliced = GeminiClient.stripFencesAndSliceJson(raw);
     if (sliced.trim().isEmpty) {
-      throw const FormatException('Gemini canvas JSON empty');
+      throw const GeminiException(
+        statusCode: 200,
+        body: 'empty canvas json',
+        userMessage:
+            'Gemini diagram JSON was empty — retry or switch Flash model',
+      );
     }
-    final decoded = jsonDecode(sliced);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(sliced);
+    } on FormatException catch (e) {
+      // e.message often looks like "Unexpected character … line 502, character 7"
+      // — that is the *JSON body* offset, not app.dart source.
+      throw GeminiException(
+        statusCode: 200,
+        body: e.message,
+        userMessage:
+            'Gemini diagram JSON was invalid — retry or switch Flash model',
+      );
+    }
     if (decoded is! Map) {
-      throw const FormatException('Gemini canvas JSON must be an object');
+      throw const GeminiException(
+        statusCode: 200,
+        body: 'canvas json not object',
+        userMessage: 'Gemini diagram JSON must be an object',
+      );
     }
     final map = Map<String, dynamic>.from(decoded);
     final nodesRaw = map['nodes'];
     final edgesRaw = map['edges'];
     if (nodesRaw is! List || nodesRaw.isEmpty) {
-      throw const FormatException('Gemini canvas needs a non-empty nodes list');
+      throw const GeminiException(
+        statusCode: 200,
+        body: 'missing nodes',
+        userMessage: 'Gemini diagram JSON needs a non-empty nodes list',
+      );
     }
 
     final parsed = <({CanvasNode node, bool hasCoords})>[];
@@ -77,7 +105,11 @@ class ObsidianCanvasFromGemini {
       ));
     }
     if (parsed.isEmpty) {
-      throw const FormatException('No text nodes in Gemini canvas JSON');
+      throw const GeminiException(
+        statusCode: 200,
+        body: 'no text nodes',
+        userMessage: 'Gemini diagram JSON had no usable text nodes',
+      );
     }
 
     final needsLayout = parsed.every((p) => !p.hasCoords) ||

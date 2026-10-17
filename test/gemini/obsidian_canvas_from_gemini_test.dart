@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hue_memory/gemini/gemini_client.dart';
 import 'package:hue_memory/gemini/obsidian_canvas_from_gemini.dart';
 import 'package:hue_memory/writers/canvas_writer.dart';
 
@@ -50,6 +51,19 @@ void main() {
     expect(
       draft.textNodes[1].x != 0 || draft.textNodes[1].y != 0,
       isTrue,
+    );
+  });
+
+  test('invalid JSON throws GeminiException not FormatException', () {
+    expect(
+      () => parser.parse('not-json-at-all {{{'),
+      throwsA(
+        isA<GeminiException>().having(
+          (e) => e.readable.toLowerCase(),
+          'readable',
+          contains('invalid'),
+        ),
+      ),
     );
   });
 

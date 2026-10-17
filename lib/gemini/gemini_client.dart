@@ -297,6 +297,10 @@ class GeminiClient {
     if (s.contains('TimeoutException') || s.contains('timed out')) {
       return 'Gemini timed out — check connection and retry';
     }
+    // SDK may FormatException-decode a large HTML/error body ("line N, char M").
+    if (e is FormatException || s.contains('FormatException')) {
+      return 'Gemini returned unreadable data — check API key, model, and network';
+    }
     if (e is GenerativeAIException) return e.message;
     return 'Gemini error: $s';
   }

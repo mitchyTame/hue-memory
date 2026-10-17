@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hue_memory/queue/capture_queue.dart';
 import 'package:hue_memory/queue/file_capture_queue.dart';
 import 'package:hue_memory/queue/inbox_only_commit.dart';
 import 'package:hue_memory/queue/memory_capture_queue.dart';
@@ -28,6 +29,19 @@ void main() {
       await q.markDone(job.id);
       expect(await q.pendingCount(), 0);
     });
+
+    test('persists forcedSymbolId for △ retry', () async {
+      final q = MemoryCaptureQueue();
+      final job = await q.enqueue(
+        imageBytes: Uint8List.fromList([1]),
+        capturedAt: DateTime.utc(2026, 10, 16),
+        forcedSymbolId: 'visual',
+      );
+      expect(job.forcedSymbolId, 'visual');
+      expect((await q.list()).single.forcedSymbolId, 'visual');
+      final roundTrip = QueueJob.fromJson(job.toJson());
+      expect(roundTrip.forcedSymbolId, 'visual');
+    });
   });
 
   group('FileCaptureQueue', () {
@@ -38,12 +52,14 @@ void main() {
       final job = await q.enqueue(
         imageBytes: Uint8List.fromList([9, 8, 7]),
         capturedAt: DateTime.utc(2026, 10, 16, 12),
+        forcedSymbolId: 'visual',
       );
       expect(File('${dir.path}/index.json').existsSync(), isTrue);
       expect(await q.readImage(job.id), [9, 8, 7]);
 
       final reopened = FileCaptureQueue(root: dir);
       expect(await reopened.pendingCount(), 1);
+      expect((await reopened.list()).single.forcedSymbolId, 'visual');
       await reopened.remove(job.id);
       expect(await reopened.pendingCount(), 0);
     });

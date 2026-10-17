@@ -17,14 +17,17 @@ class MemoryCaptureQueue implements CaptureQueue {
     required DateTime capturedAt,
     String imageExtension = 'jpg',
     String? id,
+    String? forcedSymbolId,
   }) async {
     final jobId = id ??
         'q${DateTime.now().toUtc().millisecondsSinceEpoch}-${_seq++}';
+    final forced = forcedSymbolId?.trim();
     final job = QueueJob(
       id: jobId,
       enqueuedAt: DateTime.now().toUtc(),
       capturedAt: capturedAt.toUtc(),
       imageExtension: imageExtension,
+      forcedSymbolId: (forced == null || forced.isEmpty) ? null : forced,
     );
     _jobs.add(job);
     _images[jobId] = Uint8List.fromList(imageBytes);

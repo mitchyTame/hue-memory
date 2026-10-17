@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../queue/capture_queue.dart';
 import '../theme/memory_hues.dart';
 
-/// Offline capture queue — retry OCR or commit inbox-only.
+/// Offline capture queue — retry coordinator path or commit inbox-only.
 class QueueShell extends StatelessWidget {
   const QueueShell({
     super.key,
@@ -38,7 +38,7 @@ class QueueShell extends StatelessWidget {
       body: jobs.isEmpty
           ? Center(
               child: Text(
-                'Queue empty.\nFailed OCR shots land here for retry.',
+                'Queue empty.\nFailed captures land here for retry.',
                 textAlign: TextAlign.center,
                 style: textTheme.bodyLarge?.copyWith(
                   color: MemoryHues.inkMuted,
@@ -68,7 +68,12 @@ class QueueShell extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${job.status.name} · ${job.capturedAt.toLocal()}',
+                          [
+                            job.status.name,
+                            if (job.forcedSymbolId != null)
+                              'chip:${job.forcedSymbolId}',
+                            '${job.capturedAt.toLocal()}',
+                          ].join(' · '),
                           style: textTheme.bodySmall?.copyWith(
                             color: MemoryHues.inkMuted,
                           ),
@@ -91,7 +96,7 @@ class QueueShell extends StatelessWidget {
                               onPressed: busy || onRetryOcr == null
                                   ? null
                                   : () => onRetryOcr!(job),
-                              child: const Text('Retry OCR'),
+                              child: const Text('Retry'),
                             ),
                             FilledButton.tonal(
                               onPressed: busy || onInboxOnly == null

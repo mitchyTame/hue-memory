@@ -594,10 +594,19 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
-  String _ocrFailureMessage(Object error) {
+  String _captureFailureMessage(Object error) {
     if (error is MistralOcrException) return error.readable;
     if (error is GeminiException) return error.readable;
-    return '$error';
+    if (error is FormatException) {
+      // jsonDecode offsets ("line 502, character 7") refer to response body,
+      // not Flutter source — never show raw FormatException as OCR failure.
+      return 'Capture parse failed — Gemini/OCR returned invalid data';
+    }
+    final s = '$error';
+    if (s.contains('FormatException')) {
+      return 'Capture parse failed — Gemini/OCR returned invalid data';
+    }
+    return s;
   }
 
   String _routeReadyMessage(CoordinatedCapture routed) {
@@ -699,12 +708,15 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             duration: const Duration(seconds: 3),
           ),
         );
-      } catch (ocrError) {
-        final reason = _ocrFailureMessage(ocrError);
+      } catch (captureError) {
+        final reason = _captureFailureMessage(captureError);
+        final forced =
+            shot.symbolId.isNotEmpty ? shot.symbolId : null;
         final job = await widget.captureQueue.enqueue(
           imageBytes: shot.imageBytes,
           capturedAt: shot.capturedAt,
           imageExtension: shot.imageExtension,
+          forcedSymbolId: forced,
         );
         await widget.captureQueue.markFailed(job.id, reason);
         await _refreshQueueCount();
@@ -771,17 +783,35 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
-  Future<void> _retryQueuedOcr(QueueJob job) async {
+  /// Retry through [CaptureCoordinator] (same path as live capture).
+  ///
+  /// Preserves [QueueJob.forcedSymbolId] so △ never OCR-first on retry.
+  Future<void> _retryQueuedCapture(QueueJob job) async {
     setState(() => _queueBusy = true);
     try {
       final bytes = await widget.captureQueue.readImage(job.id);
-      final meaning = await widget.ocr.extractMeaning(
-        bytes,
+      final forced = job.forcedSymbolId;
+      final coordinated = await _coordinator.run(
+        imageBytes: bytes,
         extensionHint: job.imageExtension,
+        forcedSymbolId: forced,
       );
       final pageId = widget.pageIds.generate(at: job.capturedAt.toLocal());
-      final routed =
-          SymbolRouter(pack: widget.activePack).route(meaning.detectedGlyph);
+      final meaning = coordinated.meaning;
+      final router = SymbolRouter(pack: widget.activePack);
+      final RouteResult routed;
+      if (forced != null && forced.isNotEmpty) {
+        routed = router.routeById(forced);
+      } else if (coordinated.isDiagram || coordinated.isPhotoOnly) {
+        routed = router.routeById('visual');
+      } else {
+        routed = router.route(meaning.detectedGlyph);
+      }
+      final seededLinks = meaning.threadTick
+          ? ThreadTick.mergePrevious(
+              previous: _recentPages.isEmpty ? null : _recentPages.first,
+            )
+          : const <LinkPick>[];
       final pending = PendingCapture(
         pageId: pageId,
         imageBytes: bytes,
@@ -789,7 +819,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         meaning: meaning,
         imageExtension: job.imageExtension,
         symbolId: routed.symbol.id,
+        links: seededLinks,
+        draftTitleSuggestion: coordinated.draftTitleSuggestion,
       );
+      if (coordinated.isTextPage) {
+        pending.links = await _suggestWikilinks(pending);
+      }
       await widget.captureQueue.markDone(job.id);
       final jobs = await widget.captureQueue.list();
       if (!mounted) return;
@@ -800,8 +835,16 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         _queueCount = jobs.length;
         _queueBusy = false;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_routeReadyMessage(coordinated)),
+          backgroundColor: MemoryHues.accent,
+          duration: const Duration(seconds: 3),
+        ),
+      );
     } catch (e) {
-      await widget.captureQueue.markFailed(job.id, '$e');
+      final reason = _captureFailureMessage(e);
+      await widget.captureQueue.markFailed(job.id, reason);
       final jobs = await widget.captureQueue.list();
       if (!mounted) return;
       setState(() {
@@ -811,7 +854,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Retry OCR failed: $e'),
+          content: Text('Retry failed: $reason'),
           backgroundColor: MemoryHues.danger,
         ),
       );
@@ -1203,7 +1246,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         jobs: _queueJobs,
         busy: _queueBusy,
         onBack: () => setState(() => _showQueue = false),
-        onRetryOcr: _retryQueuedOcr,
+        onRetryOcr: _retryQueuedCapture,
         onInboxOnly: _inboxOnlyQueued,
         onDiscard: _discardQueued,
       );

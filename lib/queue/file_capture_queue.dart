@@ -63,16 +63,19 @@ class FileCaptureQueue implements CaptureQueue {
     required DateTime capturedAt,
     String imageExtension = 'jpg',
     String? id,
+    String? forcedSymbolId,
   }) async {
     await _ensureRoot();
     final jobId = id ??
         'q${DateTime.now().toUtc().millisecondsSinceEpoch}-${_seq++}';
     final ext = imageExtension.replaceAll('.', '');
+    final forced = forcedSymbolId?.trim();
     final job = QueueJob(
       id: jobId,
       enqueuedAt: DateTime.now().toUtc(),
       capturedAt: capturedAt.toUtc(),
       imageExtension: ext,
+      forcedSymbolId: (forced == null || forced.isEmpty) ? null : forced,
     );
     await File(_imagePath(jobId, ext)).writeAsBytes(imageBytes, flush: true);
     final jobs = await _readIndex();
