@@ -58,7 +58,9 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.takeException(), isNull);
-    expect(find.textContaining('Frame the page'), findsOneWidget);
+    // Landscape uses the shorter hint; preview letterboxes (no overflow).
+    expect(find.textContaining('Frame page'), findsOneWidget);
+    expect(find.bySemanticsLabel('Shutter'), findsOneWidget);
   });
 
   testWidgets('ConfirmShell fits tight landscape without overflow', (tester) async {

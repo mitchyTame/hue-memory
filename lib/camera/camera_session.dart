@@ -12,7 +12,12 @@ abstract interface class CameraSession {
 
   bool get isInitialized;
 
-  /// Full-bleed preview widget once [initialize] succeeds.
+  /// Preview width ÷ height for letterboxing (never stretch to fill chrome).
+  ///
+  /// Defaults to a portrait 3∶4 frame when the sensor size is unknown.
+  double get previewAspectRatio;
+
+  /// Preview widget once [initialize] succeeds — sized by the shell, not stretched.
   Widget buildPreview();
 
   Future<CaptureResult> takePicture();
@@ -35,6 +40,17 @@ class PluginCameraSession implements CameraSession {
 
   @override
   bool get isInitialized => _controller?.value.isInitialized ?? false;
+
+  @override
+  double get previewAspectRatio {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
+      return 3 / 4;
+    }
+    final ar = controller.value.aspectRatio;
+    if (!ar.isFinite || ar <= 0) return 3 / 4;
+    return ar;
+  }
 
   @override
   Future<void> initialize() async {
@@ -100,11 +116,14 @@ class FakeCameraSession implements CameraSession {
     required this.imageBytes,
     this.imageExtension = 'jpg',
     this.failInitialize = false,
+    this.previewAspectRatio = 3 / 4,
   });
 
   final Uint8List imageBytes;
   final String imageExtension;
   final bool failInitialize;
+  @override
+  final double previewAspectRatio;
   bool _ready = false;
 
   @override

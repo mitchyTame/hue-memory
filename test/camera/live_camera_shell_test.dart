@@ -15,6 +15,12 @@ void main() {
     final bytes = Uint8List.fromList([1, 2, 3, 4]);
     CaptureResult? popped;
 
+    // Portrait phone — shutter sits bottom-center.
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(
       MaterialApp(
         theme: AppTheme.light(),
@@ -42,15 +48,14 @@ void main() {
     );
 
     await tester.tap(find.text('Open'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
 
-    expect(find.textContaining('Frame the page'), findsOneWidget);
+    expect(find.textContaining('Frame'), findsOneWidget);
     expect(find.text('Fake preview'), findsOneWidget);
+    expect(find.text('glyph'), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('Shutter'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
 
     expect(popped, isNotNull);
     expect(popped!.imageBytes, bytes);
@@ -60,6 +65,11 @@ void main() {
   testWidgets('close cancels without a result', (tester) async {
     CaptureResult? popped;
     var completed = false;
+
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -89,14 +99,61 @@ void main() {
     );
 
     await tester.tap(find.text('Open'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byTooltip('Cancel'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
+    await tester.pumpAndSettle();
 
     expect(completed, isTrue);
     expect(popped, isNull);
+  });
+
+  testWidgets('landscape shutter rail is on-screen and tappable', (tester) async {
+    CaptureResult? popped;
+
+    tester.view.physicalSize = const Size(800, 360);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.light(),
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: Center(
+                child: TextButton(
+                  onPressed: () async {
+                    popped = await Navigator.of(context).push<CaptureResult>(
+                      MaterialPageRoute(
+                        builder: (_) => LiveCameraShell(
+                          sessionFactory: () async => FakeCameraSession(
+                            imageBytes: Uint8List.fromList([9]),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Frame page'), findsOneWidget);
+    final shutterRect = tester.getRect(find.bySemanticsLabel('Shutter'));
+    expect(shutterRect.right, lessThanOrEqualTo(800.0 + 0.5));
+    expect(shutterRect.left, greaterThan(400)); // right rail
+
+    await tester.tap(find.bySemanticsLabel('Shutter'));
+    await tester.pumpAndSettle();
+    expect(popped, isNotNull);
   });
 }

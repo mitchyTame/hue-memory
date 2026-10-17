@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
@@ -7,7 +8,7 @@ import 'camera_capture.dart';
 import 'camera_session.dart';
 import 'symbol_box.dart';
 
-/// Full-bleed live viewfinder — movable symbol box + chips + teal shutter.
+/// Live viewfinder — letterboxed preview; chrome overlays, never squeezes aspect.
 class LiveCameraShell extends StatefulWidget {
   const LiveCameraShell({
     super.key,
@@ -97,174 +98,316 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     Navigator.of(context).pop<CaptureResult>();
   }
 
+  bool get _canShoot =>
+      _session != null &&
+      _session!.isInitialized &&
+      !_snapping &&
+      _error == null;
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final session = _session;
     final error = _error;
     final symbols = widget.pack.symbols;
+    final media = MediaQuery.of(context);
+    final landscape = media.size.width > media.size.height;
 
-    return Scaffold(
-      backgroundColor: MemoryHues.ink,
-      body: SafeArea(
-        child: LayoutBuilder(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: MemoryHues.ink,
+      ),
+      child: Scaffold(
+        backgroundColor: MemoryHues.ink,
+        body: LayoutBuilder(
           builder: (context, constraints) {
-            final short = constraints.maxHeight < 420;
-            final shutterSize = short ? 56.0 : 72.0;
-            final bottomPad = short ? 8.0 : 16.0;
-            final topPad = short ? 2.0 : 4.0;
+            final maxW = constraints.maxWidth;
+            final maxH = constraints.maxHeight;
+            final ar = session?.previewAspectRatio ?? 3 / 4;
 
-            return Column(
+            // Letterbox the sensor frame inside the full screen — chrome overlays
+            // this box and must not change its aspect.
+            var previewW = maxW;
+            var previewH = previewW / ar;
+            if (previewH > maxH) {
+              previewH = maxH;
+              previewW = previewH * ar;
+            }
+
+            final shutterSize = landscape
+                ? (maxH < 360 ? 56.0 : 64.0)
+                : (maxH < 640 ? 64.0 : 72.0);
+
+            return Stack(
+              fit: StackFit.expand,
               children: [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: topPad),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Cancel',
-                        onPressed: _snapping ? null : _cancel,
-                        icon: const Icon(
-                          Icons.close,
-                          color: MemoryHues.paperElevated,
-                        ),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'Frame the page · drag box over ink glyph',
-                          textAlign: TextAlign.center,
-                          style: textTheme.labelLarge?.copyWith(
-                            color: MemoryHues.paperElevated,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 48),
-                    ],
-                  ),
-                ),
-                if (symbols.isNotEmpty)
-                  SizedBox(
-                    height: 40,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      itemCount: symbols.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 6),
-                      itemBuilder: (context, index) {
-                        final s = symbols[index];
-                        final selected = s.id == _symbolId;
-                        return ChoiceChip(
-                          label: Text(
-                            s.primaryGlyph,
-                            style: TextStyle(
-                              color: selected
-                                  ? MemoryHues.ink
-                                  : MemoryHues.paperElevated,
-                            ),
-                          ),
-                          selected: selected,
-                          onSelected: _snapping
-                              ? null
-                              : (_) => setState(() {
-                                    _symbolId = selected ? '' : s.id;
-                                  }),
-                          selectedColor: MemoryHues.accentSoft,
-                          backgroundColor: MemoryHues.ink.withValues(alpha: 0.4),
-                          side: BorderSide(
-                            color: selected
-                                ? MemoryHues.accent
-                                : MemoryHues.paperElevated.withValues(
-                                    alpha: 0.4,
-                                  ),
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        );
-                      },
-                    ),
-                  ),
-                Expanded(
-                  child: LayoutBuilder(
-                    builder: (context, previewConstraints) {
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (error != null)
-                            Center(
+                // Dim letterbox bars
+                const ColoredBox(color: MemoryHues.ink),
+                Center(
+                  child: SizedBox(
+                    width: previewW,
+                    height: previewH,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        if (error != null)
+                          ColoredBox(
+                            color: MemoryHues.ink.withValues(alpha: 0.92),
+                            child: Center(
                               child: Padding(
                                 padding: const EdgeInsets.all(24),
                                 child: Text(
-                                  'Camera unavailable:\n$error',
+                                  'Camera unavailable\n$error',
                                   textAlign: TextAlign.center,
                                   style: textTheme.bodyMedium?.copyWith(
                                     color: MemoryHues.paperElevated,
                                   ),
                                 ),
                               ),
-                            )
-                          else if (session == null || !session.isInitialized)
-                            const Center(
+                            ),
+                          )
+                        else if (session == null || !session.isInitialized)
+                          const ColoredBox(
+                            color: Color(0xFF0F1726),
+                            child: Center(
                               child: CircularProgressIndicator(
                                 color: MemoryHues.accent,
+                                strokeWidth: 2.5,
                               ),
-                            )
-                          else
-                            Positioned.fill(child: session.buildPreview()),
-                          if (error == null)
-                            _MovableSymbolBox(
-                              box: _box,
-                              parentSize: Size(
-                                previewConstraints.maxWidth,
-                                previewConstraints.maxHeight,
-                              ),
-                              enabled: !_snapping,
-                              onChanged: (next) =>
-                                  setState(() => _box = next.clamped()),
                             ),
-                        ],
-                      );
-                    },
+                          )
+                        else
+                          session.buildPreview(),
+                        if (error == null)
+                          _MovableSymbolBox(
+                            box: _box,
+                            parentSize: Size(previewW, previewH),
+                            enabled: !_snapping,
+                            compact: landscape,
+                            onChanged: (next) =>
+                                setState(() => _box = next.clamped()),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
-                Padding(
-                  padding: EdgeInsets.fromLTRB(24, short ? 8 : 12, 24, bottomPad),
-                  child: Semantics(
-                    button: true,
-                    label: 'Shutter',
-                    child: GestureDetector(
-                      onTap: (session == null ||
-                              !session.isInitialized ||
-                              _snapping ||
-                              error != null)
-                          ? null
-                          : _shutter,
-                      child: Container(
-                        width: shutterSize,
-                        height: shutterSize,
-                        decoration: BoxDecoration(
-                          color: _snapping
-                              ? MemoryHues.accent.withValues(alpha: 0.5)
-                              : MemoryHues.accent,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: MemoryHues.paperElevated,
-                            width: 3,
+
+                // Chrome overlays — never siblings that shrink the preview.
+                SafeArea(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Align(
+                        alignment: Alignment.topCenter,
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            4,
+                            landscape ? 0 : 2,
+                            4,
+                            0,
+                          ),
+                          child: Row(
+                            children: [
+                              IconButton(
+                                tooltip: 'Cancel',
+                                onPressed: _snapping ? null : _cancel,
+                                style: IconButton.styleFrom(
+                                  foregroundColor: MemoryHues.paperElevated,
+                                  backgroundColor:
+                                      MemoryHues.ink.withValues(alpha: 0.45),
+                                ),
+                                icon: const Icon(Icons.close),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  landscape
+                                      ? 'Frame page · drag glyph box'
+                                      : 'Frame the page · drag box over ink glyph',
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textTheme.labelMedium?.copyWith(
+                                    color: MemoryHues.paperElevated
+                                        .withValues(alpha: 0.92),
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 48),
+                            ],
                           ),
                         ),
-                        child: _snapping
-                            ? Padding(
-                                padding: EdgeInsets.all(shutterSize * 0.28),
-                                child: const CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: MemoryHues.paperElevated,
-                                ),
-                              )
-                            : null,
                       ),
-                    ),
+                      if (symbols.isNotEmpty)
+                        Positioned(
+                          left: 12,
+                          right: landscape ? shutterSize + 28 : 12,
+                          top: 48,
+                          height: 40,
+                          child: _SymbolChipStrip(
+                            symbols: symbols,
+                            selectedId: _symbolId,
+                            enabled: !_snapping,
+                            onSelected: (id) => setState(() {
+                              _symbolId = id;
+                            }),
+                          ),
+                        ),
+                      Align(
+                        alignment: landscape
+                            ? Alignment.centerRight
+                            : Alignment.bottomCenter,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            right: landscape ? 12 : 0,
+                            bottom: landscape ? 0 : 8,
+                          ),
+                          child: _ShutterButton(
+                            size: shutterSize,
+                            busy: _snapping,
+                            enabled: _canShoot,
+                            onTap: _shutter,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact glyph chips — selected = accent fill, not Material ChoiceChip bulk.
+class _SymbolChipStrip extends StatelessWidget {
+  const _SymbolChipStrip({
+    required this.symbols,
+    required this.selectedId,
+    required this.enabled,
+    required this.onSelected,
+  });
+
+  final List<PackSymbol> symbols;
+  final String selectedId;
+  final bool enabled;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 40,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: symbols.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final s = symbols[index];
+          final selected = s.id == selectedId;
+          return Tooltip(
+            message: s.id,
+            child: Material(
+              color: selected
+                  ? MemoryHues.accent
+                  : MemoryHues.ink.withValues(alpha: 0.55),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: BorderSide(
+                  color: selected
+                      ? MemoryHues.accentSoft
+                      : MemoryHues.paperElevated.withValues(alpha: 0.35),
+                ),
+              ),
+              child: InkWell(
+                onTap: !enabled
+                    ? null
+                    : () => onSelected(selected ? '' : s.id),
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Center(
+                    child: Text(
+                      s.primaryGlyph,
+                      style: TextStyle(
+                        fontSize: 18,
+                        height: 1,
+                        color: selected
+                            ? MemoryHues.paperElevated
+                            : MemoryHues.paperElevated.withValues(alpha: 0.9),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ShutterButton extends StatelessWidget {
+  const _ShutterButton({
+    required this.size,
+    required this.busy,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final double size;
+  final bool busy;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Shutter',
+      child: GestureDetector(
+        onTap: enabled ? onTap : null,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: busy
+                ? MemoryHues.accent.withValues(alpha: 0.55)
+                : enabled
+                    ? MemoryHues.accent
+                    : MemoryHues.inkMuted,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: MemoryHues.paperElevated,
+              width: 3,
+            ),
+          ),
+          child: busy
+              ? Padding(
+                  padding: EdgeInsets.all(size * 0.28),
+                  child: const CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: MemoryHues.paperElevated,
+                  ),
+                )
+              : Center(
+                  child: Container(
+                    width: size * 0.42,
+                    height: size * 0.42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: MemoryHues.paperElevated.withValues(
+                        alpha: enabled ? 0.95 : 0.4,
+                      ),
+                    ),
+                  ),
+                ),
         ),
       ),
     );
@@ -278,11 +421,13 @@ class _MovableSymbolBox extends StatelessWidget {
     required this.parentSize,
     required this.enabled,
     required this.onChanged,
+    this.compact = false,
   });
 
   final SymbolBoxRect box;
   final Size parentSize;
   final bool enabled;
+  final bool compact;
   final ValueChanged<SymbolBoxRect> onChanged;
 
   @override
@@ -294,6 +439,7 @@ class _MovableSymbolBox extends StatelessWidget {
     final top = box.top * parentSize.height;
     final width = box.width * parentSize.width;
     final height = box.height * parentSize.height;
+    final handle = compact ? 24.0 : 28.0;
 
     return Stack(
       children: [
@@ -316,19 +462,22 @@ class _MovableSymbolBox extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: MemoryHues.recall.withValues(alpha: 0.9),
+                  color: MemoryHues.recall.withValues(alpha: 0.95),
                   width: 2,
                 ),
-                color: MemoryHues.recall.withValues(alpha: 0.12),
+                color: MemoryHues.recall.withValues(alpha: 0.14),
               ),
               child: Align(
                 alignment: Alignment.topLeft,
                 child: Padding(
-                  padding: const EdgeInsets.all(4),
+                  padding: const EdgeInsets.fromLTRB(5, 3, 5, 2),
                   child: Text(
                     'glyph',
                     style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: MemoryHues.paperElevated.withValues(alpha: 0.85),
+                          color: MemoryHues.paperElevated
+                              .withValues(alpha: 0.9),
+                          fontSize: compact ? 10 : 11,
+                          height: 1.1,
                         ),
                   ),
                 ),
@@ -337,10 +486,10 @@ class _MovableSymbolBox extends StatelessWidget {
           ),
         ),
         Positioned(
-          left: left + width - 22,
-          top: top + height - 22,
-          width: 28,
-          height: 28,
+          left: left + width - handle + 4,
+          top: top + height - handle + 4,
+          width: handle,
+          height: handle,
           child: GestureDetector(
             onPanUpdate: enabled
                 ? (d) {
@@ -356,11 +505,11 @@ class _MovableSymbolBox extends StatelessWidget {
               decoration: BoxDecoration(
                 color: MemoryHues.accent,
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: MemoryHues.paperElevated),
+                border: Border.all(color: MemoryHues.paperElevated, width: 1.5),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.open_in_full,
-                size: 16,
+                size: compact ? 14 : 16,
                 color: MemoryHues.paperElevated,
               ),
             ),
