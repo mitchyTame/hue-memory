@@ -1,9 +1,10 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../theme/memory_hues.dart';
 import 'camera_capture.dart';
 
 /// Hardware session behind the live viewfinder (mockable in tests).
@@ -49,7 +50,11 @@ class PluginCameraSession implements CameraSession {
     }
     final ar = controller.value.aspectRatio;
     if (!ar.isFinite || ar <= 0) return 3 / 4;
-    return ar;
+    // Match [CameraPreview]: portrait uses the inverted sensor ratio.
+    final o = controller.value.deviceOrientation;
+    final landscape = o == DeviceOrientation.landscapeLeft ||
+        o == DeviceOrientation.landscapeRight;
+    return landscape ? ar : 1 / ar;
   }
 
   @override
@@ -76,7 +81,7 @@ class PluginCameraSession implements CameraSession {
   Widget buildPreview() {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
-      return const ColoredBox(color: Color(0xFF0F1726));
+      return const ColoredBox(color: MemoryHues.hueInkWarm);
     }
     return CameraPreview(controller);
   }
@@ -139,12 +144,19 @@ class FakeCameraSession implements CameraSession {
 
   @override
   Widget buildPreview() {
-    return const ColoredBox(
-      color: Color(0xFF1B2A4A),
-      child: Center(
-        child: Text(
-          'Fake preview',
-          style: TextStyle(color: Color(0xFFF1F0EC)),
+    // Prefer the capture bytes when they decode; never paint flat navy that
+    // reads as “single blue” and hides the shell’s hue frame.
+    return ColoredBox(
+      color: MemoryHues.hueInkWarm,
+      child: Image.memory(
+        imageBytes,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => const Center(
+          child: Text(
+            'Fake preview',
+            style: TextStyle(color: MemoryHues.paperElevated),
+          ),
         ),
       ),
     );

@@ -2,13 +2,14 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'camera/camera_capture.dart';
+import 'camera/camera_session.dart';
 import 'camera/file_pick_capture.dart';
 import 'camera/live_camera_capture.dart';
-import 'camera/sample_capture.dart';
 import 'camera/symbol_box.dart';
 import 'capture/last_commit_summary.dart';
 import 'capture/page_id.dart';
@@ -124,13 +125,23 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final CaptureSessionPrefs _captureSession = CaptureSessionPrefs();
 
+  /// Live viewfinder on every platform so camera chrome (hue frame) is always
+  /// exercised. Android uses the device camera; desktop loads the sample page
+  /// into [FakeCameraSession] inside the same [LiveCameraShell].
   late final CameraCapture _shutterCamera = widget._camera ??
-      (Platform.isAndroid
-          ? LiveCameraCapture(
-              navigatorKey: _navKey,
-              sessionPrefs: _captureSession,
-            )
-          : SampleAssetCapture());
+      LiveCameraCapture(
+        navigatorKey: _navKey,
+        sessionPrefs: _captureSession,
+        sessionFactory: Platform.isAndroid
+            ? null
+            : () async {
+                final data = await rootBundle.load('assets/sample_page.png');
+                return FakeCameraSession(
+                  imageBytes: data.buffer.asUint8List(),
+                  imageExtension: 'png',
+                );
+              },
+      );
   late final FilePickCapture _filePickCamera = const FilePickCapture();
   late final OcrClient _ocr = widget._ocr ??
       ConfigurableOcrClient(settings: _ocrSettings);
@@ -152,7 +163,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
   String get _shutterHint => Platform.isAndroid && widget._camera == null
       ? 'Shutter = live camera\nGallery = pick a photo'
-      : 'Shutter = sample page\nGallery = pick a photo';
+      : 'Shutter = camera chrome (sample)\nGallery = pick a photo';
 
   @override
   void initState() {

@@ -109,7 +109,7 @@ void main() {
     expect(popped, isNull);
   });
 
-  testWidgets('camera chrome uses multi-stop hue gradient (not flat ink)', (
+  testWidgets('camera chrome uses multi-stop hue frame (not flat ink)', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -129,6 +129,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
+    // Must not be transparent paper/navy leak-through.
+    expect(scaffold.backgroundColor, MemoryHues.hueInkWarm);
+
     final gradients = tester
         .widgetList<DecoratedBox>(find.byType(DecoratedBox))
         .map((w) => w.decoration)
@@ -140,10 +144,10 @@ void main() {
     expect(gradients, isNotEmpty);
     final allColors = gradients.expand((g) => g.colors).toSet();
     expect(allColors, contains(MemoryHues.hueTealDeep));
-    expect(allColors, contains(MemoryHues.hueAmberDeep));
-    expect(allColors, contains(MemoryHues.hueCoralDeep));
+    expect(allColors, contains(MemoryHues.hueAmberMid));
+    expect(allColors, contains(MemoryHues.hueCoralMid));
     expect(allColors, contains(MemoryHues.hueInkWarm));
-    // Must not be a single-stop / solid-navy letterbox.
+    // Opaque multi-stop frame bands (not a single navy fill).
     final multiStop = gradients.any((g) => g.colors.length >= 3);
     expect(multiStop, isTrue);
   });

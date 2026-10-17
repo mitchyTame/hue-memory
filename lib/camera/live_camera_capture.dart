@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
+import '../theme/memory_hues.dart';
 import 'camera_capture.dart';
 import 'camera_session.dart';
 import 'live_camera_shell.dart';
@@ -31,11 +32,17 @@ class LiveCameraCapture implements CameraCapture {
     }
     final result = await nav.push<CaptureResult>(
       MaterialPageRoute(
-        builder: (_) => LiveCameraShell(
-          sessionFactory: sessionFactory,
-          pack: pack,
-          initialSymbolId: sessionPrefs.symbolId,
-          initialSymbolBox: sessionPrefs.symbolBox,
+        // Opaque route so the paper-colored navigator surface never shows
+        // through the camera scaffold.
+        fullscreenDialog: true,
+        builder: (_) => Material(
+          color: MemoryHues.hueInkWarm,
+          child: LiveCameraShell(
+            sessionFactory: sessionFactory,
+            pack: pack,
+            initialSymbolId: sessionPrefs.symbolId,
+            initialSymbolBox: sessionPrefs.symbolBox,
+          ),
         ),
       ),
     );

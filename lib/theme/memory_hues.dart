@@ -16,9 +16,13 @@ abstract final class MemoryHues {
   static const Color overlayScrim = Color(0x6B1B2A4A); // ~42% navy
   static const Color focusRing = accent;
 
-  // Camera chrome — readable “hue” on dark letterbox (not flat navy).
-  static const Color hueTealDeep = Color(0xFF163F3C);
-  static const Color hueAmberDeep = Color(0xFF6E4E1C);
-  static const Color hueCoralDeep = Color(0xFF5C322E);
-  static const Color hueInkWarm = Color(0xFF24324A);
+  /// Camera chrome — saturated enough to read as multi-hue at a glance
+  /// (not a dark navy slab). Warm ink / teal / amber / coral.
+  static const Color hueTealDeep = Color(0xFF1A5C56);
+  static const Color hueTealMid = Color(0xFF2A6B66);
+  static const Color hueInkWarm = Color(0xFF2C3A52);
+  static const Color hueAmberDeep = Color(0xFF8A5A18);
+  static const Color hueAmberMid = Color(0xFFC4923A);
+  static const Color hueCoralDeep = Color(0xFF8B4540);
+  static const Color hueCoralMid = Color(0xFFC4785C);
 }
