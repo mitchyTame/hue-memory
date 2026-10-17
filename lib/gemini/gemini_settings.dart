@@ -2,23 +2,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../settings/secret_store.dart';
 
-/// Gemini (AI Studio) settings — classify + diagram Flash models.
+/// Gemini (AI Studio) settings — one Flash model for classify + diagram.
 ///
-/// Defaults are Flash-class only (no Pro). Key stored like Mistral.
+/// Default is Flash-lite. Key stored like Mistral.
 class GeminiSettings {
   const GeminiSettings({
     this.apiKey = '',
     this.consentGiven = false,
     this.useLive = false,
-    this.classifyModel = GeminiSettings.defaultClassifyModel,
-    this.diagramModel = GeminiSettings.defaultDiagramModel,
+    this.model = GeminiSettings.defaultModel,
   });
 
-  /// Cheap Flash-lite for coordinator classify (+ Test Gemini).
-  static const String defaultClassifyModel = 'gemini-3.5-flash-lite';
+  /// Default for router, mindmaps, and Test Gemini.
+  static const String defaultModel = 'gemini-3.5-flash-lite';
 
-  /// Flash for diagram → Obsidian Canvas structure.
-  static const String defaultDiagramModel = 'gemini-3.6-flash';
+  /// Optional stronger Flash Mitch can pick in Settings.
+  static const String flash36Model = 'gemini-3.6-flash';
+
+  /// Clear picker options in Settings (defaults first).
+  static const List<String> selectableModels = [
+    defaultModel,
+    flash36Model,
+  ];
 
   /// Retired AI Studio ids — never recommend; treat legacy prefs as unset.
   static const Set<String> retiredModels = {
@@ -34,23 +39,21 @@ class GeminiSettings {
   /// When true (and consent + key), run Gemini classify / diagram.
   final bool useLive;
 
-  /// Router / classify model id (overrideable in Settings).
-  final String classifyModel;
+  /// Shared model for classify, diagram Canvas, and Test Gemini.
+  final String model;
 
-  /// Diagram / Canvas structure model id (overrideable in Settings).
-  final String diagramModel;
+  /// Same as [model] — kept so coordinator / client call sites stay clear.
+  String get classifyModel => model;
+  String get diagramModel => model;
 
   bool get shouldUseLive =>
       useLive && consentGiven && apiKey.trim().isNotEmpty;
 
   /// Short label for Settings hub.
-  String get modelsLabel =>
-      '${_short(classifyModel)} / ${_short(diagramModel)}';
-
-  static String _short(String id) {
-    final t = id.trim();
-    if (t == defaultClassifyModel) return '3.5-lite';
-    if (t == defaultDiagramModel) return '3.6-flash';
+  String get modelsLabel {
+    final t = model.trim();
+    if (t == defaultModel) return '3.5-lite';
+    if (t == flash36Model) return '3.6-flash';
     return t;
   }
 
@@ -58,20 +61,18 @@ class GeminiSettings {
     String? apiKey,
     bool? consentGiven,
     bool? useLive,
-    String? classifyModel,
-    String? diagramModel,
+    String? model,
   }) {
     return GeminiSettings(
       apiKey: apiKey ?? this.apiKey,
       consentGiven: consentGiven ?? this.consentGiven,
       useLive: useLive ?? this.useLive,
-      classifyModel: classifyModel ?? this.classifyModel,
-      diagramModel: diagramModel ?? this.diagramModel,
+      model: model ?? this.model,
     );
   }
 
   /// Normalize a stored model id — empty / retired → [fallback].
-  static String resolveModel(String? raw, String fallback) {
+  static String resolveModel(String? raw, [String fallback = defaultModel]) {
     final t = raw?.trim() ?? '';
     if (t.isEmpty || retiredModels.contains(t)) return fallback;
     return t;
@@ -94,11 +95,11 @@ class PrefsGeminiSettingsStore implements GeminiSettingsStore {
   static const keyApiKey = 'gemini_api_key';
   static const keyConsent = 'gemini_consent';
   static const keyUseLive = 'gemini_use_live';
+  static const keyModel = 'gemini_model';
+
+  /// Brief split-key era (classify vs diagram) — migrated on read.
   static const keyClassifyModel = 'gemini_classify_model';
   static const keyDiagramModel = 'gemini_diagram_model';
-
-  /// Legacy single-model key from personal-v2 first cut.
-  static const keyModelLegacy = 'gemini_model';
 
   /// Optional process env / --dart-define override (never logged).
   final String envApiKey;
@@ -123,34 +124,21 @@ class PrefsGeminiSettingsStore implements GeminiSettingsStore {
     }
     final apiKey = envApiKey.trim().isNotEmpty ? envApiKey.trim() : stored;
 
-    final classifyStored = prefs.getString(keyClassifyModel);
-    final diagramStored = prefs.getString(keyDiagramModel);
-    final legacyModel = prefs.getString(keyModelLegacy);
-
-    // Migrate old single model once: non-retired id seeds both overrides.
-    var classify = classifyStored;
-    var diagram = diagramStored;
-    if ((classify == null || classify.isEmpty) &&
-        (diagram == null || diagram.isEmpty) &&
-        legacyModel != null &&
-        legacyModel.trim().isNotEmpty &&
-        !GeminiSettings.retiredModels.contains(legacyModel.trim())) {
-      classify = legacyModel;
-      diagram = legacyModel;
-    }
+    final single = prefs.getString(keyModel);
+    final classify = prefs.getString(keyClassifyModel);
+    final diagram = prefs.getString(keyDiagramModel);
+    // Prefer explicit shared key; else either split key (same default anyway).
+    final raw = (single != null && single.trim().isNotEmpty)
+        ? single
+        : (classify != null && classify.trim().isNotEmpty)
+            ? classify
+            : diagram;
 
     return GeminiSettings(
       apiKey: apiKey,
       consentGiven: prefs.getBool(keyConsent) ?? false,
       useLive: prefs.getBool(keyUseLive) ?? false,
-      classifyModel: GeminiSettings.resolveModel(
-        classify,
-        GeminiSettings.defaultClassifyModel,
-      ),
-      diagramModel: GeminiSettings.resolveModel(
-        diagram,
-        GeminiSettings.defaultDiagramModel,
-      ),
+      model: GeminiSettings.resolveModel(raw),
     );
   }
 
@@ -166,22 +154,11 @@ class PrefsGeminiSettingsStore implements GeminiSettingsStore {
     await prefs.remove(keyApiKey);
     await prefs.setBool(keyConsent, settings.consentGiven);
     await prefs.setBool(keyUseLive, settings.useLive);
-    await prefs.setString(
-      keyClassifyModel,
-      GeminiSettings.resolveModel(
-        settings.classifyModel,
-        GeminiSettings.defaultClassifyModel,
-      ),
-    );
-    await prefs.setString(
-      keyDiagramModel,
-      GeminiSettings.resolveModel(
-        settings.diagramModel,
-        GeminiSettings.defaultDiagramModel,
-      ),
-    );
-    // Drop retired legacy single-model key so it cannot resurrect.
-    await prefs.remove(keyModelLegacy);
+    final model = GeminiSettings.resolveModel(settings.model);
+    await prefs.setString(keyModel, model);
+    // Keep split keys in sync for any stale readers; both = shared model.
+    await prefs.setString(keyClassifyModel, model);
+    await prefs.setString(keyDiagramModel, model);
   }
 }
 

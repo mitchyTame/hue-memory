@@ -1302,9 +1302,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               await widget.onGeminiSettingsChanged();
               setState(() => _geminiDraft = settings);
             },
-            onVerifyKey: (key, classifyModel) => GeminiClient(
+            onVerifyKey: (key, model) => GeminiClient(
               apiKey: key,
-              classifyModel: classifyModel,
+              model: model,
             ).verifyConnection(),
           );
         case _SettingsPane.symbols:

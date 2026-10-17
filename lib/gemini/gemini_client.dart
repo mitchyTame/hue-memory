@@ -56,19 +56,23 @@ enum CaptureClass {
 
 /// Minimal Generative Language API client (AI Studio `AIza…` keys).
 ///
-/// Classify uses [classifyModel] (lite); diagram uses [diagramModel].
+/// [model] is shared for classify, diagram, and Test Gemini.
 /// Never logs the API key.
 class GeminiClient {
   GeminiClient({
     required this.apiKey,
-    this.classifyModel = GeminiSettings.defaultClassifyModel,
-    this.diagramModel = GeminiSettings.defaultDiagramModel,
+    this.model = GeminiSettings.defaultModel,
+    String? classifyModel,
+    String? diagramModel,
     http.Client? httpClient,
     this.baseUrl = 'https://generativelanguage.googleapis.com',
-  }) : _http = httpClient ?? http.Client(),
-       _ownsHttp = httpClient == null;
+  })  : classifyModel = classifyModel ?? model,
+        diagramModel = diagramModel ?? model,
+        _http = httpClient ?? http.Client(),
+        _ownsHttp = httpClient == null;
 
   final String apiKey;
+  final String model;
   final String classifyModel;
   final String diagramModel;
   final String baseUrl;
@@ -80,15 +84,14 @@ class GeminiClient {
   }
 
   Uri _generateUri(String modelId) {
-    final m = modelId.trim().isEmpty
-        ? GeminiSettings.defaultClassifyModel
-        : modelId;
+    final m =
+        modelId.trim().isEmpty ? GeminiSettings.defaultModel : modelId;
     return Uri.parse(
       '$baseUrl/v1beta/models/$m:generateContent',
     ).replace(queryParameters: {'key': apiKey.trim()});
   }
 
-  /// Tiny text call — pass/fail for Settings → Test Gemini (lite classify).
+  /// Tiny text call — pass/fail for Settings → Test Gemini.
   Future<GeminiConnectionResult> verifyConnection() async {
     final key = apiKey.trim();
     if (key.isEmpty) {
@@ -97,9 +100,9 @@ class GeminiClient {
         message: 'API key is empty',
       );
     }
-    final probeModel = classifyModel.trim().isEmpty
-        ? GeminiSettings.defaultClassifyModel
-        : classifyModel.trim();
+    final probeModel = model.trim().isEmpty
+        ? GeminiSettings.defaultModel
+        : model.trim();
     try {
       final text = await _generateText(
         modelId: probeModel,
@@ -294,15 +297,13 @@ class GeminiClient {
     switch (status) {
       case 400:
         return 'Gemini rejected the request (HTTP 400) — check model id '
-            '(classify: ${GeminiSettings.defaultClassifyModel}, '
-            'diagram: ${GeminiSettings.defaultDiagramModel})';
+            '(default: ${GeminiSettings.defaultModel})';
       case 401:
       case 403:
         return 'Gemini rejected the API key (HTTP $status)';
       case 404:
         return 'Gemini model not found (HTTP 404) — try '
-            '${GeminiSettings.defaultClassifyModel} or '
-            '${GeminiSettings.defaultDiagramModel}';
+            '${GeminiSettings.defaultModel} or ${GeminiSettings.flash36Model}';
       case 429:
         return 'Gemini rate limit — try again shortly (HTTP 429)';
       case >= 500:
