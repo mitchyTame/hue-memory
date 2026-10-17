@@ -7,6 +7,7 @@ import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
 import '../theme/memory_hues.dart';
 import '../writers/link_writer.dart';
+import 'capture_region_overlay.dart';
 
 typedef ConfirmCommitCallback = Future<void> Function({
   required String symbolId,
@@ -199,16 +200,21 @@ class _ConfirmShellState extends State<ConfirmShell> {
                     maxScale: 4,
                     child: LayoutBuilder(
                       builder: (context, photoConstraints) {
-                        // No text overlays on the capture — labels live in the
-                        // sheet list (remove / rename) only.
+                        // Mindmap labels stay in the sheet list only.
+                        // L-corner feedback is a transparent UI overlay — never
+                        // burned into the vault photo.
                         return Opacity(
                           opacity: _isCanvas && _inkGhost ? 0.42 : 1,
-                          child: Image.memory(
-                            widget.capture.imageBytes,
-                            fit: BoxFit.contain,
-                            gaplessPlayback: true,
-                            width: photoConstraints.maxWidth,
-                            height: photoConstraints.maxHeight,
+                          child: CaptureRegionOverlay(
+                            imageBytes: widget.capture.imageBytes,
+                            feedback: widget.capture.regionFeedback,
+                            child: Image.memory(
+                              widget.capture.imageBytes,
+                              fit: BoxFit.contain,
+                              gaplessPlayback: true,
+                              width: photoConstraints.maxWidth,
+                              height: photoConstraints.maxHeight,
+                            ),
                           ),
                         );
                       },

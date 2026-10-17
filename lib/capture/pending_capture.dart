@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import '../ocr/ocr_client.dart';
 import '../writers/link_writer.dart';
+import 'region_feedback.dart';
 
 /// In-flight capture waiting on the confirm UI.
 class PendingCapture {
@@ -16,6 +17,7 @@ class PendingCapture {
     String? symbolId,
     List<LinkPick>? links,
     this.draftTitleSuggestion = '',
+    this.regionFeedback = CaptureRegionFeedback.none,
   })  : // Manual title required before save — never auto-commit a default.
         title = title ?? '',
         noteBody = noteBody ?? _joinedRegions(meaning),
@@ -30,6 +32,9 @@ class PendingCapture {
 
   /// Optional OCR/vision draft shown as a hint — not the save name.
   final String draftTitleSuggestion;
+
+  /// L-corner detection for confirm overlay only (never written to vault image).
+  final CaptureRegionFeedback regionFeedback;
 
   String title;
   String noteBody;

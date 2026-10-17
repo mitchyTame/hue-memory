@@ -14,6 +14,7 @@ import 'camera/symbol_box.dart';
 import 'capture/last_commit_summary.dart';
 import 'capture/page_id.dart';
 import 'capture/pending_capture.dart';
+import 'capture/region_feedback.dart';
 import 'gemini/capture_coordinator.dart';
 import 'gemini/gemini_client.dart';
 import 'gemini/gemini_settings.dart';
@@ -642,12 +643,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           });
         }
         // L-corner regions (not routing): crop OCR to the chosen note box.
-        final ocrBytes = await _ocrBytesForCapture(
+        final prep = await _prepareOcrCapture(
           shot.imageBytes,
           forceDiagram: shot.symbolId == 'visual',
         );
         final coordinated = await _coordinator.run(
-          imageBytes: ocrBytes,
+          imageBytes: prep.bytes,
           extensionHint: shot.imageExtension,
           forcedSymbolId: shot.symbolId.isNotEmpty ? shot.symbolId : null,
         );
@@ -675,6 +676,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           symbolId: routed.symbol.id,
           links: const [],
           draftTitleSuggestion: coordinated.draftTitleSuggestion,
+          regionFeedback: prep.feedback,
         );
         if (!mounted) return;
         setState(() {
@@ -766,27 +768,44 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   /// Detect L-corner page regions; if multiple, Mitch picks which to OCR.
   ///
-  /// Returns cropped PNG bytes for OCR, or the original when no region / whole page.
-  /// Vault still stores the full [imageBytes] capture.
-  Future<Uint8List> _ocrBytesForCapture(
+  /// Missing L-corners is normal — OCR the whole page (red confirm indicator).
+  /// Vault still stores the full [imageBytes] capture (overlays are UI-only).
+  Future<({Uint8List bytes, CaptureRegionFeedback feedback})>
+      _prepareOcrCapture(
     Uint8List imageBytes, {
     required bool forceDiagram,
   }) async {
-    if (forceDiagram) return imageBytes;
+    if (forceDiagram) {
+      return (bytes: imageBytes, feedback: CaptureRegionFeedback.diagramSkip);
+    }
     List<PageRegion> regions;
     try {
       setState(() => _captureStatus = 'Finding L-corner regions…');
       regions = const LCornerRegionDetector().detect(imageBytes);
     } catch (_) {
-      return imageBytes;
+      return (
+        bytes: imageBytes,
+        feedback: const CaptureRegionFeedback(),
+      );
     }
-    if (regions.isEmpty) return imageBytes;
+    if (regions.isEmpty) {
+      // Optional marks — no L-corners is fine; OCR whole page.
+      return (
+        bytes: imageBytes,
+        feedback: const CaptureRegionFeedback(),
+      );
+    }
 
     PageRegion? chosen;
     if (regions.length == 1) {
       chosen = regions.first;
     } else {
-      if (!mounted) return imageBytes;
+      if (!mounted) {
+        return (
+          bytes: imageBytes,
+          feedback: CaptureRegionFeedback(detected: regions),
+        );
+      }
       setState(() => _captureStatus = 'Choose note region…');
       chosen = await Navigator.of(context).push<PageRegion?>(
         MaterialPageRoute(
@@ -797,15 +816,33 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           ),
         ),
       );
-      if (!mounted) return imageBytes;
-      if (chosen == null) return imageBytes; // Whole page
+      if (!mounted) {
+        return (
+          bytes: imageBytes,
+          feedback: CaptureRegionFeedback(detected: regions),
+        );
+      }
+      // null = Whole page (still show green detected boxes on confirm).
+    }
+
+    if (chosen == null) {
+      return (
+        bytes: imageBytes,
+        feedback: CaptureRegionFeedback(detected: regions),
+      );
     }
 
     final cropped = const ImageCrop().cropNorm(
       imageBytes,
       bbox: chosen.bbox,
     );
-    return cropped ?? imageBytes;
+    return (
+      bytes: cropped ?? imageBytes,
+      feedback: CaptureRegionFeedback(
+        detected: regions,
+        ocrRegion: chosen,
+      ),
+    );
   }
 
   /// Retry through [CaptureCoordinator] (same path as live capture).
@@ -816,12 +853,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     try {
       final bytes = await widget.captureQueue.readImage(job.id);
       final forced = job.forcedSymbolId;
-      final ocrBytes = await _ocrBytesForCapture(
+      final prep = await _prepareOcrCapture(
         bytes,
         forceDiagram: forced == 'visual',
       );
       final coordinated = await _coordinator.run(
-        imageBytes: ocrBytes,
+        imageBytes: prep.bytes,
         extensionHint: job.imageExtension,
         forcedSymbolId: forced,
       );
@@ -845,6 +882,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         symbolId: routed.symbol.id,
         links: const [],
         draftTitleSuggestion: coordinated.draftTitleSuggestion,
+        regionFeedback: prep.feedback,
       );
       await widget.captureQueue.markDone(job.id);
       final jobs = await widget.captureQueue.list();
