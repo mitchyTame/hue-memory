@@ -26,6 +26,12 @@ android {
         release {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Flutter enables minify for release; keep SAF/file_picker via
+            // android/app/proguard-rules.pro (auto-picked up by FlutterPlugin).
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
