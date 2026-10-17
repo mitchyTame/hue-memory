@@ -4,17 +4,29 @@ import '../settings/secret_store.dart';
 
 /// Gemini (AI Studio) settings — classify + diagram Flash models.
 ///
-/// Default model is Flash-class only (no Pro). Key stored like Mistral.
+/// Defaults are Flash-class only (no Pro). Key stored like Mistral.
 class GeminiSettings {
   const GeminiSettings({
     this.apiKey = '',
     this.consentGiven = false,
     this.useLive = false,
-    this.model = GeminiSettings.defaultModel,
+    this.classifyModel = GeminiSettings.defaultClassifyModel,
+    this.diagramModel = GeminiSettings.defaultDiagramModel,
   });
 
-  /// Stable Flash model accepted by AI Studio `AIza…` keys.
-  static const String defaultModel = 'gemini-2.0-flash';
+  /// Cheap Flash-lite for coordinator classify (+ Test Gemini).
+  static const String defaultClassifyModel = 'gemini-3.5-flash-lite';
+
+  /// Flash for diagram → Obsidian Canvas structure.
+  static const String defaultDiagramModel = 'gemini-3.6-flash';
+
+  /// Retired AI Studio ids — never recommend; treat legacy prefs as unset.
+  static const Set<String> retiredModels = {
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+  };
 
   final String apiKey;
   final bool consentGiven;
@@ -22,24 +34,47 @@ class GeminiSettings {
   /// When true (and consent + key), run Gemini classify / diagram.
   final bool useLive;
 
-  /// Flash-class model id (classify + diagram share this).
-  final String model;
+  /// Router / classify model id (overrideable in Settings).
+  final String classifyModel;
+
+  /// Diagram / Canvas structure model id (overrideable in Settings).
+  final String diagramModel;
 
   bool get shouldUseLive =>
       useLive && consentGiven && apiKey.trim().isNotEmpty;
+
+  /// Short label for Settings hub.
+  String get modelsLabel =>
+      '${_short(classifyModel)} / ${_short(diagramModel)}';
+
+  static String _short(String id) {
+    final t = id.trim();
+    if (t == defaultClassifyModel) return '3.5-lite';
+    if (t == defaultDiagramModel) return '3.6-flash';
+    return t;
+  }
 
   GeminiSettings copyWith({
     String? apiKey,
     bool? consentGiven,
     bool? useLive,
-    String? model,
+    String? classifyModel,
+    String? diagramModel,
   }) {
     return GeminiSettings(
       apiKey: apiKey ?? this.apiKey,
       consentGiven: consentGiven ?? this.consentGiven,
       useLive: useLive ?? this.useLive,
-      model: model ?? this.model,
+      classifyModel: classifyModel ?? this.classifyModel,
+      diagramModel: diagramModel ?? this.diagramModel,
     );
+  }
+
+  /// Normalize a stored model id — empty / retired → [fallback].
+  static String resolveModel(String? raw, String fallback) {
+    final t = raw?.trim() ?? '';
+    if (t.isEmpty || retiredModels.contains(t)) return fallback;
+    return t;
   }
 }
 
@@ -59,7 +94,11 @@ class PrefsGeminiSettingsStore implements GeminiSettingsStore {
   static const keyApiKey = 'gemini_api_key';
   static const keyConsent = 'gemini_consent';
   static const keyUseLive = 'gemini_use_live';
-  static const keyModel = 'gemini_model';
+  static const keyClassifyModel = 'gemini_classify_model';
+  static const keyDiagramModel = 'gemini_diagram_model';
+
+  /// Legacy single-model key from personal-v2 first cut.
+  static const keyModelLegacy = 'gemini_model';
 
   /// Optional process env / --dart-define override (never logged).
   final String envApiKey;
@@ -83,14 +122,35 @@ class PrefsGeminiSettingsStore implements GeminiSettingsStore {
       }
     }
     final apiKey = envApiKey.trim().isNotEmpty ? envApiKey.trim() : stored;
-    final model = prefs.getString(keyModel)?.trim();
+
+    final classifyStored = prefs.getString(keyClassifyModel);
+    final diagramStored = prefs.getString(keyDiagramModel);
+    final legacyModel = prefs.getString(keyModelLegacy);
+
+    // Migrate old single model once: non-retired id seeds both overrides.
+    var classify = classifyStored;
+    var diagram = diagramStored;
+    if ((classify == null || classify.isEmpty) &&
+        (diagram == null || diagram.isEmpty) &&
+        legacyModel != null &&
+        legacyModel.trim().isNotEmpty &&
+        !GeminiSettings.retiredModels.contains(legacyModel.trim())) {
+      classify = legacyModel;
+      diagram = legacyModel;
+    }
+
     return GeminiSettings(
       apiKey: apiKey,
       consentGiven: prefs.getBool(keyConsent) ?? false,
       useLive: prefs.getBool(keyUseLive) ?? false,
-      model: (model == null || model.isEmpty)
-          ? GeminiSettings.defaultModel
-          : model,
+      classifyModel: GeminiSettings.resolveModel(
+        classify,
+        GeminiSettings.defaultClassifyModel,
+      ),
+      diagramModel: GeminiSettings.resolveModel(
+        diagram,
+        GeminiSettings.defaultDiagramModel,
+      ),
     );
   }
 
@@ -107,11 +167,21 @@ class PrefsGeminiSettingsStore implements GeminiSettingsStore {
     await prefs.setBool(keyConsent, settings.consentGiven);
     await prefs.setBool(keyUseLive, settings.useLive);
     await prefs.setString(
-      keyModel,
-      settings.model.trim().isEmpty
-          ? GeminiSettings.defaultModel
-          : settings.model.trim(),
+      keyClassifyModel,
+      GeminiSettings.resolveModel(
+        settings.classifyModel,
+        GeminiSettings.defaultClassifyModel,
+      ),
     );
+    await prefs.setString(
+      keyDiagramModel,
+      GeminiSettings.resolveModel(
+        settings.diagramModel,
+        GeminiSettings.defaultDiagramModel,
+      ),
+    );
+    // Drop retired legacy single-model key so it cannot resurrect.
+    await prefs.remove(keyModelLegacy);
   }
 }
 

@@ -56,19 +56,21 @@ enum CaptureClass {
 
 /// Minimal Generative Language API client (AI Studio `AIza…` keys).
 ///
-/// Uses Flash-class models only ([GeminiSettings.defaultModel]).
+/// Classify uses [classifyModel] (lite); diagram uses [diagramModel].
 /// Never logs the API key.
 class GeminiClient {
   GeminiClient({
     required this.apiKey,
-    this.model = GeminiSettings.defaultModel,
+    this.classifyModel = GeminiSettings.defaultClassifyModel,
+    this.diagramModel = GeminiSettings.defaultDiagramModel,
     http.Client? httpClient,
     this.baseUrl = 'https://generativelanguage.googleapis.com',
   }) : _http = httpClient ?? http.Client(),
        _ownsHttp = httpClient == null;
 
   final String apiKey;
-  final String model;
+  final String classifyModel;
+  final String diagramModel;
   final String baseUrl;
   final http.Client _http;
   final bool _ownsHttp;
@@ -78,13 +80,15 @@ class GeminiClient {
   }
 
   Uri _generateUri(String modelId) {
-    final m = modelId.trim().isEmpty ? GeminiSettings.defaultModel : modelId;
+    final m = modelId.trim().isEmpty
+        ? GeminiSettings.defaultClassifyModel
+        : modelId;
     return Uri.parse(
       '$baseUrl/v1beta/models/$m:generateContent',
     ).replace(queryParameters: {'key': apiKey.trim()});
   }
 
-  /// Tiny text call — pass/fail for Settings → Test Gemini.
+  /// Tiny text call — pass/fail for Settings → Test Gemini (lite classify).
   Future<GeminiConnectionResult> verifyConnection() async {
     final key = apiKey.trim();
     if (key.isEmpty) {
@@ -93,8 +97,12 @@ class GeminiClient {
         message: 'API key is empty',
       );
     }
+    final probeModel = classifyModel.trim().isEmpty
+        ? GeminiSettings.defaultClassifyModel
+        : classifyModel.trim();
     try {
       final text = await _generateText(
+        modelId: probeModel,
         contents: [
           {
             'role': 'user',
@@ -109,7 +117,7 @@ class GeminiClient {
       return GeminiConnectionResult(
         ok: ok,
         message: ok
-            ? 'Connected — Flash model $model responds'
+            ? 'Connected — $probeModel responds'
             : 'Unexpected reply from Gemini',
       );
     } on GeminiException catch (e) {
@@ -138,6 +146,7 @@ class GeminiClient {
         'photo_only — drawing/photo with no extractable note structure\n'
         'No prose.';
     final text = await _generateText(
+      modelId: classifyModel,
       contents: [
         {
           'role': 'user',
@@ -178,6 +187,7 @@ class GeminiClient {
         'Text ≤80 chars per node. Coordinates are Canvas pixels (may be '
         'negative). Prefer a clear hub near 0,0 with satellites around it.';
     return _generateText(
+      modelId: diagramModel,
       contents: [
         {
           'role': 'user',
@@ -197,6 +207,7 @@ class GeminiClient {
   }
 
   Future<String> _generateText({
+    required String modelId,
     required List<Map<String, Object?>> contents,
     int maxOutputTokens = 256,
   }) async {
@@ -208,7 +219,7 @@ class GeminiClient {
         userMessage: 'Gemini API key is empty — add it in Settings → Gemini',
       );
     }
-    final uri = _generateUri(model);
+    final uri = _generateUri(modelId);
     final body = jsonEncode({
       'contents': contents,
       'generationConfig': {
@@ -283,13 +294,15 @@ class GeminiClient {
     switch (status) {
       case 400:
         return 'Gemini rejected the request (HTTP 400) — check model id '
-            '(Flash: ${GeminiSettings.defaultModel})';
+            '(classify: ${GeminiSettings.defaultClassifyModel}, '
+            'diagram: ${GeminiSettings.defaultDiagramModel})';
       case 401:
       case 403:
         return 'Gemini rejected the API key (HTTP $status)';
       case 404:
         return 'Gemini model not found (HTTP 404) — try '
-            '${GeminiSettings.defaultModel} or gemini-2.5-flash';
+            '${GeminiSettings.defaultClassifyModel} or '
+            '${GeminiSettings.defaultDiagramModel}';
       case 429:
         return 'Gemini rate limit — try again shortly (HTTP 429)';
       case >= 500:

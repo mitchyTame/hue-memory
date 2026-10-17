@@ -44,7 +44,11 @@ class CaptureCoordinator {
     ObsidianCanvasFromGemini canvasParser = const ObsidianCanvasFromGemini(),
     this.prepareImage,
   })  : _geminiFactory = geminiFactory ??
-            ((s) => GeminiClient(apiKey: s.apiKey, model: s.model)),
+            ((s) => GeminiClient(
+                  apiKey: s.apiKey,
+                  classifyModel: s.classifyModel,
+                  diagramModel: s.diagramModel,
+                )),
         _canvasParser = canvasParser;
 
   final GeminiSettingsStore geminiSettings;
@@ -207,7 +211,8 @@ class CaptureCoordinator {
           'route': 'diagram',
           'coordinator': 'v2',
           'gemini_used': true,
-          'gemini_model': geminiCfg.model,
+          'gemini_classify_model': geminiCfg.classifyModel,
+          'gemini_diagram_model': geminiCfg.diagramModel,
           'forced_symbol': forced,
           'canvas_nodes': [
             for (final n in draft.textNodes) n.toJson(),

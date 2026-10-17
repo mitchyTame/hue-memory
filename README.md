@@ -104,9 +104,9 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 
 ### Gemini Flash (personal v2)
 
-Coordinator classifies pages with **Gemini Flash** (`gemini-2.0-flash` default; no Pro). Diagrams → Flash structure → Obsidian `.canvas` (center ink-ghost photo + connected satellites). Text → Mistral OCR → `.md`. Camera: drag/resize the **glyph box**; chip **△** forces the diagram path (never OCR-first).
+Coordinator classifies with **`gemini-3.5-flash-lite`**; diagrams use **`gemini-3.6-flash`** → Obsidian `.canvas` (center ink-ghost photo + connected satellites). Text → Mistral OCR → `.md`. Camera: drag/resize the **glyph box**; chip **△** forces the diagram path (never OCR-first). No Pro; 2.0/2.5 Flash ids are retired.
 
-Enable: **Settings → Gemini** — paste an AI Studio key (`AIza…`), consent, turn on live, **Test Gemini**. Or `GEMINI_API_KEY` env. Key stays in the secure store (never logged).
+Enable: **Settings → Gemini** — paste an AI Studio key (`AIza…`), consent, turn on live, **Test Gemini** (hits classify lite). Model ids are editable. Or `GEMINI_API_KEY` env. Key stays in the secure store (never logged).
 
 Smoke: shoot a mindmap with △ → type a **required title** → edit node labels → Save → open `mindmaps/….canvas` in Obsidian.
 

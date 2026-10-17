@@ -4,7 +4,7 @@ import '../gemini/gemini_client.dart';
 import '../gemini/gemini_settings.dart';
 import '../theme/memory_hues.dart';
 
-/// Gemini Flash settings — AI Studio key, consent, live toggle, Test Gemini.
+/// Gemini Flash settings — AI Studio key, classify/diagram models, Test Gemini.
 class GeminiSettingsShell extends StatefulWidget {
   const GeminiSettingsShell({
     super.key,
@@ -17,9 +17,11 @@ class GeminiSettingsShell extends StatefulWidget {
   final GeminiSettings initial;
   final Future<void> Function(GeminiSettings settings) onSave;
 
-  /// Tiny Flash text/vision probe. Returns pass/fail message.
-  final Future<GeminiConnectionResult> Function(String apiKey, String model)?
-      onVerifyKey;
+  /// Tiny Flash text probe (uses classify / lite model). Pass/fail message.
+  final Future<GeminiConnectionResult> Function(
+    String apiKey,
+    String classifyModel,
+  )? onVerifyKey;
   final VoidCallback? onBack;
 
   @override
@@ -28,37 +30,51 @@ class GeminiSettingsShell extends StatefulWidget {
 
 class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
   late final TextEditingController _keyController;
+  late final TextEditingController _classifyController;
+  late final TextEditingController _diagramController;
   late bool _consent;
   late bool _useLive;
-  late String _model;
   bool _saving = false;
   bool _testing = false;
   bool _obscure = true;
   String? _status;
   bool _statusOk = false;
 
-  static const _flashModels = <String>[
-    GeminiSettings.defaultModel,
-    'gemini-2.5-flash',
-    'gemini-2.0-flash-lite',
-  ];
-
   @override
   void initState() {
     super.initState();
     _keyController = TextEditingController(text: widget.initial.apiKey);
+    _classifyController = TextEditingController(
+      text: widget.initial.classifyModel.trim().isEmpty
+          ? GeminiSettings.defaultClassifyModel
+          : widget.initial.classifyModel.trim(),
+    );
+    _diagramController = TextEditingController(
+      text: widget.initial.diagramModel.trim().isEmpty
+          ? GeminiSettings.defaultDiagramModel
+          : widget.initial.diagramModel.trim(),
+    );
     _consent = widget.initial.consentGiven;
     _useLive = widget.initial.useLive;
-    _model = widget.initial.model.trim().isEmpty
-        ? GeminiSettings.defaultModel
-        : widget.initial.model.trim();
   }
 
   @override
   void dispose() {
     _keyController.dispose();
+    _classifyController.dispose();
+    _diagramController.dispose();
     super.dispose();
   }
+
+  String get _classifyId => GeminiSettings.resolveModel(
+        _classifyController.text,
+        GeminiSettings.defaultClassifyModel,
+      );
+
+  String get _diagramId => GeminiSettings.resolveModel(
+        _diagramController.text,
+        GeminiSettings.defaultDiagramModel,
+      );
 
   Future<GeminiConnectionResult?> _runVerify() async {
     final verify = widget.onVerifyKey;
@@ -72,11 +88,11 @@ class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
     }
     setState(() {
       _testing = true;
-      _status = 'Testing Gemini Flash…';
+      _status = 'Testing ${_classifyId}…';
       _statusOk = false;
     });
     try {
-      final result = await verify(key, _model);
+      final result = await verify(key, _classifyId);
       if (!mounted) return result;
       setState(() {
         _testing = false;
@@ -101,7 +117,8 @@ class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
       apiKey: _keyController.text.trim(),
       consentGiven: _consent,
       useLive: _useLive,
-      model: _model,
+      classifyModel: _classifyId,
+      diagramModel: _diagramId,
     );
 
     if (next.shouldUseLive && widget.onVerifyKey != null) {
@@ -126,7 +143,8 @@ class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
       SnackBar(
         content: Text(
           next.shouldUseLive
-              ? 'Live Gemini Flash enabled ($_model)'
+              ? 'Live Gemini on — classify ${next.classifyModel}, '
+                  'diagram ${next.diagramModel}'
               : 'Gemini off — classify/diagram skipped',
         ),
         backgroundColor: MemoryHues.accent,
@@ -134,14 +152,17 @@ class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
     );
   }
 
+  void _resetDefaults() {
+    setState(() {
+      _classifyController.text = GeminiSettings.defaultClassifyModel;
+      _diagramController.text = GeminiSettings.defaultDiagramModel;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final busy = _saving || _testing;
-    final modelItems = {
-      ..._flashModels,
-      if (!_flashModels.contains(_model)) _model,
-    }.toList();
 
     return Scaffold(
       backgroundColor: MemoryHues.paper,
@@ -156,16 +177,17 @@ class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
           Text(
-            'Coordinator uses Flash vision to classify pages '
-            '(text / diagram / photo). Diagrams go to Gemini Flash structure → '
-            '.canvas (never OCR-first for △). Text pages still use Mistral OCR.',
+            'Coordinator classifies with Flash-lite; diagrams use Flash '
+            'structure → .canvas (never OCR-first for △). Text pages still '
+            'use Mistral OCR.',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 12),
           Text(
-            'Paste an AI Studio key (starts with AIza…). Default model is '
-            '${GeminiSettings.defaultModel} (Flash only — no Pro). '
-            'If classify fails with 404, try gemini-2.5-flash.',
+            'Paste an AI Studio key (starts with AIza…). Defaults: classify '
+            '${GeminiSettings.defaultClassifyModel}, diagram '
+            '${GeminiSettings.defaultDiagramModel}. Flash only — no Pro. '
+            'You can type another model id in the fields below.',
             style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 20),
@@ -187,24 +209,32 @@ class _GeminiSettingsShellState extends State<GeminiSettingsShell> {
             style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 16),
-          DropdownButtonFormField<String>(
-            // ignore: deprecated_member_use — value is fine on this Flutter.
-            value: modelItems.contains(_model) ? _model : modelItems.first,
+          TextField(
+            controller: _classifyController,
+            enabled: !busy,
             decoration: const InputDecoration(
-              labelText: 'Flash model',
+              labelText: 'Classify / router model',
+              helperText: 'Default: gemini-3.5-flash-lite (also used for Test)',
               border: OutlineInputBorder(),
             ),
-            items: [
-              for (final m in modelItems)
-                DropdownMenuItem(value: m, child: Text(m)),
-            ],
-            onChanged: busy
-                ? null
-                : (v) {
-                    if (v != null) setState(() => _model = v);
-                  },
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _diagramController,
+            enabled: !busy,
+            decoration: const InputDecoration(
+              labelText: 'Diagram / Canvas model',
+              helperText: 'Default: gemini-3.6-flash',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: busy ? null : _resetDefaults,
+              child: const Text('Reset to defaults'),
+            ),
+          ),
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
             value: _consent,

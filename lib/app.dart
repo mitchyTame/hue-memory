@@ -267,7 +267,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     if (!mounted) return;
     setState(() {
       _geminiModeLabel = cfg.shouldUseLive
-          ? 'Gemini: ${cfg.model} (live)'
+          ? 'Gemini: ${cfg.modelsLabel} (live)'
           : 'Gemini: off';
     });
   }
@@ -1302,9 +1302,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               await widget.onGeminiSettingsChanged();
               setState(() => _geminiDraft = settings);
             },
-            onVerifyKey: (key, model) => GeminiClient(
+            onVerifyKey: (key, classifyModel) => GeminiClient(
               apiKey: key,
-              model: model,
+              classifyModel: classifyModel,
             ).verifyConnection(),
           );
         case _SettingsPane.symbols:
