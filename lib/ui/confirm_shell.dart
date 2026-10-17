@@ -172,9 +172,22 @@ class _ConfirmShellState extends State<ConfirmShell> {
     });
   }
 
+  bool get _titleOk =>
+      _isDaily || _titleController.text.trim().isNotEmpty;
+
   Future<void> _commit() async {
     final callback = widget.onCommit;
     if (callback == null || widget.committing) return;
+    final title = _titleController.text.trim();
+    if (!_isDaily && title.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Type a title / filename before saving'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+      return;
+    }
     // Pull latest text from controllers for canvas nodes.
     if (_isCanvas) {
       for (var i = 0; i < _regions.length && i < _nodeControllers.length; i++) {
@@ -192,9 +205,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
     }
     await callback(
       symbolId: _selectedId,
-      title: _titleController.text.trim().isEmpty
-          ? 'Untitled page'
-          : _titleController.text.trim(),
+      title: _isDaily ? (title.isEmpty ? 'daily' : title) : title,
       noteBody: _bodyController.text,
       links: _links,
       inkGhost: _isCanvas ? _inkGhost : true,
@@ -281,11 +292,29 @@ class _ConfirmShellState extends State<ConfirmShell> {
                               Text(
                                 _isCanvas
                                     ? 'Vision is a draft — wrong words are common. '
-                                        'Tap a marker, edit the text below, add or '
-                                        'remove nodes, then Save.'
-                                    : 'Check the title and note, then save.',
+                                        'Type a title, edit labels, then Save.'
+                                    : 'Type a title, check the note, then save.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: _titleController,
+                                enabled: !widget.committing && !_isDaily,
+                                style: textTheme.titleMedium,
+                                onChanged: (_) => setState(() {}),
+                                decoration: InputDecoration(
+                                  labelText: 'Title / filename (required)',
+                                  hintText: widget
+                                          .capture.draftTitleSuggestion
+                                          .isEmpty
+                                      ? null
+                                      : 'Draft: ${widget.capture.draftTitleSuggestion}',
+                                  border: const OutlineInputBorder(),
+                                  errorText: _titleOk || widget.committing
+                                      ? null
+                                      : 'Required before save',
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -391,19 +420,6 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   ),
                                 ),
                               ],
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: TextField(
-                                  controller: _titleController,
-                                  enabled:
-                                      !widget.committing && !_isDaily,
-                                  style: textTheme.titleMedium,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Title',
-                                    border: OutlineInputBorder(),
-                                  ),
-                                ),
-                              ),
                               if (!_isCanvas)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 12),
@@ -454,8 +470,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                 ),
                               const Spacer(),
                               FilledButton(
-                                onPressed:
-                                    widget.committing ? null : _commit,
+                                onPressed: widget.committing || !_titleOk
+                                    ? null
+                                    : _commit,
                                 child: widget.committing
                                     ? const SizedBox(
                                         width: 18,

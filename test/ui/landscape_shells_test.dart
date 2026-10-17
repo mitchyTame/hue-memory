@@ -58,7 +58,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 50));
     expect(tester.takeException(), isNull);
-    expect(find.text('Frame the page'), findsOneWidget);
+    expect(find.textContaining('Frame the page'), findsOneWidget);
   });
 
   testWidgets('ConfirmShell fits tight landscape without overflow', (tester) async {

@@ -1,18 +1,27 @@
 import 'package:flutter/material.dart';
 
+import '../symbols/default_packs.dart';
+import '../symbols/symbol_models.dart';
 import '../theme/memory_hues.dart';
 import 'camera_capture.dart';
 import 'camera_session.dart';
+import 'symbol_box.dart';
 
-/// Full-bleed live viewfinder — Memory hues dark paper plane + teal shutter.
+/// Full-bleed live viewfinder — movable symbol box + chips + teal shutter.
 class LiveCameraShell extends StatefulWidget {
   const LiveCameraShell({
     super.key,
     this.sessionFactory,
+    this.pack = DefaultPacks.zettelkastenInk,
+    this.initialSymbolId = '',
+    this.initialSymbolBox = SymbolBoxRect.defaultMeta,
   });
 
   /// Defaults to [PluginCameraSession]. Inject [FakeCameraSession] in tests.
   final CameraSessionFactory? sessionFactory;
+  final SymbolPack pack;
+  final String initialSymbolId;
+  final SymbolBoxRect initialSymbolBox;
 
   @override
   State<LiveCameraShell> createState() => _LiveCameraShellState();
@@ -22,10 +31,14 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
   CameraSession? _session;
   Object? _error;
   bool _snapping = false;
+  late String _symbolId;
+  late SymbolBoxRect _box;
 
   @override
   void initState() {
     super.initState();
+    _symbolId = widget.initialSymbolId;
+    _box = widget.initialSymbolBox.clamped();
     _open();
   }
 
@@ -59,7 +72,15 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     try {
       final shot = await session.takePicture();
       if (!mounted) return;
-      Navigator.of(context).pop<CaptureResult>(shot);
+      Navigator.of(context).pop<CaptureResult>(
+        CaptureResult(
+          imageBytes: shot.imageBytes,
+          capturedAt: shot.capturedAt,
+          imageExtension: shot.imageExtension,
+          symbolId: _symbolId,
+          symbolBox: _box.clamped(),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _snapping = false);
@@ -81,14 +102,13 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     final textTheme = Theme.of(context).textTheme;
     final session = _session;
     final error = _error;
+    final symbols = widget.pack.symbols;
 
     return Scaffold(
       backgroundColor: MemoryHues.ink,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            // Landscape phones often leave ~360–400px after SafeArea;
-            // fixed 72 + 16+28 padding was overflowing by ~39px.
             final short = constraints.maxHeight < 420;
             final shutterSize = short ? 56.0 : 72.0;
             final bottomPad = short ? 8.0 : 16.0;
@@ -110,7 +130,7 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                       ),
                       Expanded(
                         child: Text(
-                          'Frame the page',
+                          'Frame the page · drag box over ink glyph',
                           textAlign: TextAlign.center,
                           style: textTheme.labelLarge?.copyWith(
                             color: MemoryHues.paperElevated,
@@ -121,33 +141,87 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                     ],
                   ),
                 ),
-                Expanded(
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (error != null)
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              'Camera unavailable:\n$error',
-                              textAlign: TextAlign.center,
-                              style: textTheme.bodyMedium?.copyWith(
-                                color: MemoryHues.paperElevated,
-                              ),
+                if (symbols.isNotEmpty)
+                  SizedBox(
+                    height: 40,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: symbols.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      itemBuilder: (context, index) {
+                        final s = symbols[index];
+                        final selected = s.id == _symbolId;
+                        return ChoiceChip(
+                          label: Text(
+                            s.primaryGlyph,
+                            style: TextStyle(
+                              color: selected
+                                  ? MemoryHues.ink
+                                  : MemoryHues.paperElevated,
                             ),
                           ),
-                        )
-                      else if (session == null || !session.isInitialized)
-                        const Center(
-                          child: CircularProgressIndicator(
-                            color: MemoryHues.accent,
+                          selected: selected,
+                          onSelected: _snapping
+                              ? null
+                              : (_) => setState(() {
+                                    _symbolId = selected ? '' : s.id;
+                                  }),
+                          selectedColor: MemoryHues.accentSoft,
+                          backgroundColor: MemoryHues.ink.withValues(alpha: 0.4),
+                          side: BorderSide(
+                            color: selected
+                                ? MemoryHues.accent
+                                : MemoryHues.paperElevated.withValues(
+                                    alpha: 0.4,
+                                  ),
                           ),
-                        )
-                      else
-                        Positioned.fill(child: session.buildPreview()),
-                      const CustomPaint(painter: _MetaZoneGuidePainter()),
-                    ],
+                          visualDensity: VisualDensity.compact,
+                        );
+                      },
+                    ),
+                  ),
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, previewConstraints) {
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (error != null)
+                            Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  'Camera unavailable:\n$error',
+                                  textAlign: TextAlign.center,
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: MemoryHues.paperElevated,
+                                  ),
+                                ),
+                              ),
+                            )
+                          else if (session == null || !session.isInitialized)
+                            const Center(
+                              child: CircularProgressIndicator(
+                                color: MemoryHues.accent,
+                              ),
+                            )
+                          else
+                            Positioned.fill(child: session.buildPreview()),
+                          if (error == null)
+                            _MovableSymbolBox(
+                              box: _box,
+                              parentSize: Size(
+                                previewConstraints.maxWidth,
+                                previewConstraints.maxHeight,
+                              ),
+                              enabled: !_snapping,
+                              onChanged: (next) =>
+                                  setState(() => _box = next.clamped()),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 Padding(
@@ -197,44 +271,102 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
   }
 }
 
-/// Subtle corner meta-zone hint (top-left ink-icon habit from the brief).
-class _MetaZoneGuidePainter extends CustomPainter {
-  const _MetaZoneGuidePainter();
+/// Drag body to move; drag bottom-right handle to resize.
+class _MovableSymbolBox extends StatelessWidget {
+  const _MovableSymbolBox({
+    required this.box,
+    required this.parentSize,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  final SymbolBoxRect box;
+  final Size parentSize;
+  final bool enabled;
+  final ValueChanged<SymbolBoxRect> onChanged;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = MemoryHues.paperElevated.withValues(alpha: 0.45)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
+  Widget build(BuildContext context) {
+    if (parentSize.width <= 0 || parentSize.height <= 0) {
+      return const SizedBox.shrink();
+    }
+    final left = box.left * parentSize.width;
+    final top = box.top * parentSize.height;
+    final width = box.width * parentSize.width;
+    final height = box.height * parentSize.height;
 
-    const inset = 24.0;
-    const arm = 36.0;
-    // Top-left meta zone box.
-    final left = inset;
-    final top = inset;
-    canvas.drawRect(
-      Rect.fromLTWH(left, top, size.width * 0.22, size.height * 0.12),
-      paint..color = MemoryHues.recall.withValues(alpha: 0.55),
+    return Stack(
+      children: [
+        Positioned(
+          left: left,
+          top: top,
+          width: width,
+          height: height,
+          child: GestureDetector(
+            onPanUpdate: enabled
+                ? (d) {
+                    onChanged(
+                      box.copyWith(
+                        left: box.left + d.delta.dx / parentSize.width,
+                        top: box.top + d.delta.dy / parentSize.height,
+                      ),
+                    );
+                  }
+                : null,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: MemoryHues.recall.withValues(alpha: 0.9),
+                  width: 2,
+                ),
+                color: MemoryHues.recall.withValues(alpha: 0.12),
+              ),
+              child: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Text(
+                    'glyph',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: MemoryHues.paperElevated.withValues(alpha: 0.85),
+                        ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: left + width - 22,
+          top: top + height - 22,
+          width: 28,
+          height: 28,
+          child: GestureDetector(
+            onPanUpdate: enabled
+                ? (d) {
+                    onChanged(
+                      box.copyWith(
+                        width: box.width + d.delta.dx / parentSize.width,
+                        height: box.height + d.delta.dy / parentSize.height,
+                      ),
+                    );
+                  }
+                : null,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: MemoryHues.accent,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: MemoryHues.paperElevated),
+              ),
+              child: const Icon(
+                Icons.open_in_full,
+                size: 16,
+                color: MemoryHues.paperElevated,
+              ),
+            ),
+          ),
+        ),
+      ],
     );
-
-    // Outer page brackets.
-    final right = size.width - inset;
-    final bottom = size.height - inset;
-    final bracket = Paint()
-      ..color = MemoryHues.paperElevated.withValues(alpha: 0.5)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
-    canvas.drawLine(Offset(left, top + arm), Offset(left, top), bracket);
-    canvas.drawLine(Offset(left, top), Offset(left + arm, top), bracket);
-    canvas.drawLine(Offset(right - arm, top), Offset(right, top), bracket);
-    canvas.drawLine(Offset(right, top), Offset(right, top + arm), bracket);
-    canvas.drawLine(Offset(left, bottom - arm), Offset(left, bottom), bracket);
-    canvas.drawLine(Offset(left, bottom), Offset(left + arm, bottom), bracket);
-    canvas.drawLine(Offset(right - arm, bottom), Offset(right, bottom), bracket);
-    canvas.drawLine(Offset(right, bottom), Offset(right, bottom - arm), bracket);
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

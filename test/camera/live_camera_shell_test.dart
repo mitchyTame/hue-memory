@@ -45,7 +45,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(find.text('Frame the page'), findsOneWidget);
+    expect(find.textContaining('Frame the page'), findsOneWidget);
     expect(find.text('Fake preview'), findsOneWidget);
 
     await tester.tap(find.bySemanticsLabel('Shutter'));

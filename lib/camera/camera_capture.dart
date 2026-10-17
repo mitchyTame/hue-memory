@@ -1,16 +1,26 @@
 import 'dart:typed_data';
 
+import 'symbol_box.dart';
+
 /// Result of a page capture (frozen frame bytes).
 class CaptureResult {
   const CaptureResult({
     required this.imageBytes,
     required this.capturedAt,
     this.imageExtension = 'png',
+    this.symbolId = '',
+    this.symbolBox,
   });
 
   final Uint8List imageBytes;
   final DateTime capturedAt;
   final String imageExtension;
+
+  /// Camera symbol chip (empty → coordinator / OCR seeds confirm).
+  final String symbolId;
+
+  /// Movable box over the paper ink glyph (session).
+  final SymbolBoxRect? symbolBox;
 }
 
 /// Camera capture boundary (live viewfinder, gallery pick, or sample asset).

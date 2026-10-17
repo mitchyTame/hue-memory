@@ -2,15 +2,17 @@ import 'package:flutter/material.dart';
 
 import '../theme/memory_hues.dart';
 
-/// Simple settings list — vault + OCR (one job each via drill-in).
+/// Simple settings list — vault + OCR + Gemini (one job each via drill-in).
 class SettingsHubShell extends StatelessWidget {
   const SettingsHubShell({
     super.key,
     required this.vaultLabel,
     required this.ocrModeLabel,
     required this.packLabel,
+    this.geminiModeLabel = 'Gemini: off',
     this.onOpenVault,
     this.onOpenOcr,
+    this.onOpenGemini,
     this.onOpenSymbols,
     this.onOpenPaperKit,
     this.onOpenPromote,
@@ -21,8 +23,10 @@ class SettingsHubShell extends StatelessWidget {
   final String vaultLabel;
   final String ocrModeLabel;
   final String packLabel;
+  final String geminiModeLabel;
   final VoidCallback? onOpenVault;
   final VoidCallback? onOpenOcr;
+  final VoidCallback? onOpenGemini;
   final VoidCallback? onOpenSymbols;
   final VoidCallback? onOpenPaperKit;
   final VoidCallback? onOpenPromote;
@@ -66,6 +70,13 @@ class SettingsHubShell extends StatelessWidget {
             subtitle: Text(ocrModeLabel, style: textTheme.labelMedium),
             trailing: const Icon(Icons.chevron_right),
             onTap: onOpenOcr,
+          ),
+          const Divider(height: 1),
+          ListTile(
+            title: Text('Gemini', style: textTheme.titleLarge),
+            subtitle: Text(geminiModeLabel, style: textTheme.labelMedium),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenGemini,
           ),
           const Divider(height: 1),
           ListTile(

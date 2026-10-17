@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import '../capture/pending_capture.dart';
+import '../gemini/capture_coordinator.dart';
+import '../gemini/obsidian_canvas_from_gemini.dart';
 import '../links/wikilink_suggester.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/symbol_router.dart';
@@ -109,10 +111,13 @@ class CommitPipeline {
     final route = _router.routeById(input.symbolId);
     final rawImagePath = capture.rawImagePath;
 
-    // △ / visual must always produce JSON Canvas — never a markdown note that
-    // embeds the photo (that reads as "image with OCR text" in Obsidian).
-    // Force canvas even if a custom pack mis-labels visual as markdown.
-    final writeCanvas = route.isCanvas || route.symbol.id == 'visual';
+    // △ / visual / photo_only must always produce JSON Canvas — never a
+    // markdown note that embeds the photo (reads as OCR dump in Obsidian).
+    final genre = capture.meaning.pageGenre;
+    final writeCanvas = route.isCanvas ||
+        route.symbol.id == 'visual' ||
+        genre == 'visual' ||
+        genre == 'photo_only';
 
     if (route.isDailyTasks) {
       await _vault.writeBytes(rawImagePath, capture.imageBytes);
@@ -189,12 +194,13 @@ class CommitPipeline {
     );
   }
 
-  /// △ commit: `.canvas` (JSON Canvas 1.0) + unaltered raw photo.
+  /// △ / photo_only commit: `.canvas` (JSON Canvas 1.0) + unaltered raw photo.
   ///
   /// - Primary artifact is `mindmaps/<pageId>-<slug>.canvas` (never `.json.canvas`)
   /// - Ink-ghost: file node → [rawImagePath]; labels are separate text nodes
   /// - Vault image bytes are exactly [PendingCapture.imageBytes] (no burn-in)
   /// - No companion `.md` for the page
+  /// - No `*.json` sidecars
   Future<CommitResult> _commitVisualCanvas({
     required CommitInput input,
     required RouteResult route,
@@ -211,33 +217,85 @@ class CommitPipeline {
     );
     _assertCanvasPath(canvasPath);
 
-    final regionList = input.regions ?? capture.meaning.regions;
-    var textNodes = CanvasWriter.nodesFromRegions(regionList);
-    if (textNodes.isEmpty) {
-      // Still ship a real Canvas with an editable card — never PNG burn-in.
-      final label = input.title.trim().isEmpty ? 'Untitled' : input.title.trim();
-      textNodes = [
-        CanvasNode(
-          id: 'n1',
-          type: 'text',
-          text: label,
-          x: CanvasWriter.defaultImageX + 24,
-          y: CanvasWriter.defaultImageY + 24,
-          width: 220,
-          height: 64,
+    final photoOnly = capture.meaning.pageGenre == 'photo_only' ||
+        capture.meaning.rawJson['ghost_only'] == true;
+
+    late final CanvasDocument doc;
+    if (photoOnly) {
+      doc = _canvas.buildVisualCanvas(
+        sourceImage: rawImagePath,
+        textNodes: const [],
+        edges: const [],
+        inkGhost: input.inkGhost,
+        allowEmptyText: true,
+      );
+      _assertInkGhostDocument(
+        doc,
+        rawImagePath: rawImagePath,
+        allowEmptyText: true,
+      );
+    } else {
+      final regionList = input.regions ?? capture.meaning.regions;
+      // Prefer Gemini Obsidian-shaped nodes/edges when present.
+      final fromGemini = CaptureCoordinator.canvasFromMeaning(
+        MeaningResult(
+          detectedGlyph: capture.meaning.detectedGlyph,
+          regions: regionList,
+          pageGenre: capture.meaning.pageGenre,
+          threadTick: capture.meaning.threadTick,
+          rawJson: capture.meaning.rawJson,
         ),
-      ];
+      );
+
+      List<CanvasNode> textNodes;
+      List<CanvasEdge> edges;
+      if (fromGemini != null) {
+        textNodes = ObsidianCanvasFromGemini.applyLabelEdits(
+          textNodes: fromGemini.nodes,
+          edited: regionList,
+        );
+        edges = ObsidianCanvasFromGemini.ensureConnected(
+          textNodes,
+          fromGemini.edges,
+        );
+        doc = _canvas.buildDiagramCanvas(
+          sourceImage: rawImagePath,
+          textNodes: textNodes,
+          edges: edges,
+          inkGhost: input.inkGhost,
+          hierarchicalTags: _tags.tagLine(
+            _tags.fromCanvasNodes(textNodes, edges: edges),
+          ),
+        );
+      } else {
+        textNodes = CanvasWriter.nodesFromRegions(regionList);
+        if (textNodes.isEmpty) {
+          final label =
+              input.title.trim().isEmpty ? 'Untitled' : input.title.trim();
+          textNodes = [
+            CanvasNode(
+              id: 'n1',
+              type: 'text',
+              text: label,
+              x: CanvasWriter.defaultImageX + 24,
+              y: CanvasWriter.defaultImageY + 24,
+              width: 220,
+              height: 64,
+            ),
+          ];
+        }
+        edges = CanvasWriter.heuristicEdges(textNodes);
+        final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
+        doc = _canvas.buildVisualCanvas(
+          sourceImage: rawImagePath,
+          textNodes: textNodes,
+          edges: edges,
+          inkGhost: input.inkGhost,
+          hierarchicalTags: _tags.tagLine(nested),
+        );
+      }
+      _assertInkGhostDocument(doc, rawImagePath: rawImagePath);
     }
-    final edges = CanvasWriter.heuristicEdges(textNodes);
-    final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
-    final doc = _canvas.buildVisualCanvas(
-      sourceImage: rawImagePath,
-      textNodes: textNodes,
-      edges: edges,
-      inkGhost: input.inkGhost,
-      hierarchicalTags: _tags.tagLine(nested),
-    );
-    _assertInkGhostDocument(doc, rawImagePath: rawImagePath);
 
     // Write canvas first so the vault always gets the real Obsidian artifact
     // even if a later image write fails mid-flight.
@@ -280,6 +338,7 @@ class CommitPipeline {
   static void _assertInkGhostDocument(
     CanvasDocument doc, {
     required String rawImagePath,
+    bool allowEmptyText = false,
   }) {
     final fileNodes = doc.nodes.where((n) => n.type == 'file').toList();
     final textNodes = doc.nodes.where((n) => n.type == 'text').toList();
@@ -291,7 +350,7 @@ class CommitPipeline {
         '△ file node must point at $rawImagePath (got ${fileNodes.first.file})',
       );
     }
-    if (textNodes.isEmpty) {
+    if (!allowEmptyText && textNodes.isEmpty) {
       throw StateError(
         '△ canvas needs at least one editable text node (not burned into PNG)',
       );

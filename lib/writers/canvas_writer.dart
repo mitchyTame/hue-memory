@@ -51,6 +51,8 @@ class CanvasEdge {
     required this.fromNode,
     required this.toNode,
     this.toEnd = 'arrow',
+    this.fromSide,
+    this.toSide,
   });
 
   final String id;
@@ -58,12 +60,21 @@ class CanvasEdge {
   final String toNode;
   final String toEnd;
 
-  Map<String, Object?> toJson() => {
-        'id': id,
-        'fromNode': fromNode,
-        'toNode': toNode,
-        'toEnd': toEnd,
-      };
+  /// Optional Obsidian side: top | right | bottom | left.
+  final String? fromSide;
+  final String? toSide;
+
+  Map<String, Object?> toJson() {
+    final map = <String, Object?>{
+      'id': id,
+      'fromNode': fromNode,
+      'toNode': toNode,
+      'toEnd': toEnd,
+    };
+    if (fromSide != null) map['fromSide'] = fromSide;
+    if (toSide != null) map['toSide'] = toSide;
+    return map;
+  }
 }
 
 class CanvasDocument {
@@ -111,6 +122,7 @@ class CanvasWriter {
     int imageY = defaultImageY,
     bool inkGhost = true,
     String? hierarchicalTags,
+    bool allowEmptyText = false,
   }) {
     final imageNode = CanvasNode(
       id: 'img',
@@ -122,13 +134,15 @@ class CanvasWriter {
       height: imageHeight,
       color: inkGhost ? ghostImageColor : null,
     );
-    final tagsNode = _tagsNode(
-      hierarchicalTags,
-      imageX: imageX,
-      imageY: imageY,
-      imageWidth: imageWidth,
-      imageHeight: imageHeight,
-    );
+    final tagsNode = allowEmptyText
+        ? null
+        : _tagsNode(
+            hierarchicalTags,
+            imageX: imageX,
+            imageY: imageY,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight,
+          );
     final text = tagsNode == null ? textNodes : [...textNodes, tagsNode];
     // Image first = under; ghost off still keeps the photo for dual coding,
     // but appends it after text so cards read as primary in Obsidian.
@@ -136,6 +150,47 @@ class CanvasWriter {
         ? <CanvasNode>[imageNode, ...text]
         : <CanvasNode>[...text, imageNode];
     return CanvasDocument(nodes: nodes, edges: edges);
+  }
+
+  /// Diagram layout: center ink-ghost file node + satellite text nodes.
+  ///
+  /// Places the photo at the centroid of [textNodes] (or 0,0) so Gemini
+  /// absolute Canvas coords stay meaningful.
+  CanvasDocument buildDiagramCanvas({
+    required String sourceImage,
+    required List<CanvasNode> textNodes,
+    List<CanvasEdge> edges = const [],
+    bool inkGhost = true,
+    String? hierarchicalTags,
+    int imageWidth = defaultImageWidth,
+    int imageHeight = defaultImageHeight,
+  }) {
+    var cx = 0;
+    var cy = 0;
+    if (textNodes.isNotEmpty) {
+      var sx = 0;
+      var sy = 0;
+      for (final n in textNodes) {
+        sx += n.x + n.width ~/ 2;
+        sy += n.y + n.height ~/ 2;
+      }
+      cx = sx ~/ textNodes.length;
+      cy = sy ~/ textNodes.length;
+    }
+    final imageX = cx - imageWidth ~/ 2;
+    final imageY = cy - imageHeight ~/ 2;
+    return buildVisualCanvas(
+      sourceImage: sourceImage,
+      textNodes: textNodes,
+      edges: edges,
+      imageWidth: imageWidth,
+      imageHeight: imageHeight,
+      imageX: imageX,
+      imageY: imageY,
+      inkGhost: inkGhost,
+      hierarchicalTags: hierarchicalTags,
+      allowEmptyText: textNodes.isEmpty,
+    );
   }
 
   /// Optional tags card below the image frame (△ has no companion `.md`).

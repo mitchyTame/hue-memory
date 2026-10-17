@@ -1,10 +1,12 @@
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hue_memory/app.dart';
 import 'package:hue_memory/camera/sample_capture.dart';
 import 'package:hue_memory/capture/page_id.dart';
+import 'package:hue_memory/gemini/gemini_settings.dart';
 import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_settings.dart';
 import 'package:hue_memory/settings/vault_settings_store.dart';
@@ -45,6 +47,7 @@ void main() {
         pageIds: PageId(random: _FixedRandom()),
         settings: MemoryVaultSettingsStore(),
         ocrSettings: MemoryOcrSettingsStore(),
+        geminiSettings: MemoryGeminiSettingsStore(),
         packStore: ActivePackStore(prefs: prefs),
         initialPack: DefaultPacks.zettelkastenInk,
       ),
@@ -61,6 +64,10 @@ void main() {
 
     expect(find.text('Confirm'), findsOneWidget);
     expect(ocr.callCount, 1);
+
+    // Title is required before save (personal v2).
+    await tester.enterText(find.byType(TextField).first, 'Attention is a muscle');
+    await tester.pump();
 
     await tester.tap(find.text('Save'));
     await tester.pump();

@@ -59,16 +59,18 @@ class HowToGuideShell extends StatelessWidget {
                             body:
                                 'Draw one symbol in the meta zone — ∼ fleeting, '
                                 '◇ permanent, △ mindmap, · daily tasks. '
-                                'Optional › threads this page to the last one.',
+                                'On the camera, drag the glyph box over that ink '
+                                '(no stickers). Chip △ forces the diagram path.',
                             accent: MemoryHues.ink,
                           ),
                           _StepBlock(
                             index: '02',
                             title: 'Shoot & confirm',
                             body:
-                                'Teal shutter reads the page. Confirm title, '
-                                'body, and links before anything touches the vault. '
-                                '△ opens editable mindmap nodes on the photo.',
+                                'Gemini Flash classifies; text uses Mistral OCR, '
+                                'maps use Gemini → .canvas. Type a required title '
+                                'before Save. △ shows an editable label list '
+                                '(no text burned onto the photo).',
                             accent: MemoryHues.accent,
                           ),
                           _StepBlock(

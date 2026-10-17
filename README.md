@@ -102,9 +102,17 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 | Symbol pack + routing | `lib/symbols/` — YAML packs + Dart fallback |
 | Writers | `lib/writers/` |
 
+### Gemini Flash (personal v2)
+
+Coordinator classifies pages with **Gemini Flash** (`gemini-2.0-flash` default; no Pro). Diagrams → Flash structure → Obsidian `.canvas` (center ink-ghost photo + connected satellites). Text → Mistral OCR → `.md`. Camera: drag/resize the **glyph box**; chip **△** forces the diagram path (never OCR-first).
+
+Enable: **Settings → Gemini** — paste an AI Studio key (`AIza…`), consent, turn on live, **Test Gemini**. Or `GEMINI_API_KEY` env. Key stays in the secure store (never logged).
+
+Smoke: shoot a mindmap with △ → type a **required title** → edit node labels → Save → open `mindmaps/….canvas` in Obsidian.
+
 ### Mistral OCR
 
-After capture → meaning pass. Default **mock**. Enable live: **Settings → OCR** (API key + consent + toggle), or `MISTRAL_API_KEY` env.
+Text pages after classify. Default **mock**. Enable live: **Settings → OCR** (API key + consent + toggle), or `MISTRAL_API_KEY` env.
 
 ### Symbol packs (YAML)
 

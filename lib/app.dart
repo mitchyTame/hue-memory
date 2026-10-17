@@ -9,9 +9,13 @@ import 'camera/camera_capture.dart';
 import 'camera/file_pick_capture.dart';
 import 'camera/live_camera_capture.dart';
 import 'camera/sample_capture.dart';
+import 'camera/symbol_box.dart';
 import 'capture/last_commit_summary.dart';
 import 'capture/page_id.dart';
 import 'capture/pending_capture.dart';
+import 'gemini/capture_coordinator.dart';
+import 'gemini/gemini_client.dart';
+import 'gemini/gemini_settings.dart';
 import 'ocr/configurable_ocr_client.dart';
 import 'ocr/mistral_ocr_client.dart';
 import 'ocr/ocr_client.dart';
@@ -34,6 +38,7 @@ import 'promote/promote_service.dart';
 import 'queue/capture_queue.dart';
 import 'queue/file_capture_queue.dart';
 import 'queue/inbox_only_commit.dart';
+import 'ui/gemini_settings_shell.dart';
 import 'ui/how_to_guide_shell.dart';
 import 'ui/library_editor_shell.dart';
 import 'ui/ocr_settings_shell.dart';
@@ -57,6 +62,7 @@ enum _SettingsPane {
   guide,
   vault,
   ocr,
+  gemini,
   symbols,
   folders,
   paperKit,
@@ -73,6 +79,7 @@ class HueMemoryApp extends StatefulWidget {
     PageId? pageIds,
     VaultSettingsStore? settings,
     OcrSettingsStore? ocrSettings,
+    GeminiSettingsStore? geminiSettings,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
@@ -83,6 +90,7 @@ class HueMemoryApp extends StatefulWidget {
         _pageIds = pageIds,
         _settings = settings,
         _ocrSettings = ocrSettings,
+        _geminiSettings = geminiSettings,
         _packStore = packStore,
         _initialPack = initialPack,
         _captureQueue = captureQueue,
@@ -94,6 +102,7 @@ class HueMemoryApp extends StatefulWidget {
   final PageId? _pageIds;
   final VaultSettingsStore? _settings;
   final OcrSettingsStore? _ocrSettings;
+  final GeminiSettingsStore? _geminiSettings;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
@@ -110,11 +119,19 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       PrefsOcrSettingsStore(
         envApiKey: Platform.environment['MISTRAL_API_KEY'] ?? '',
       );
+  late final GeminiSettingsStore _geminiSettings = widget._geminiSettings ??
+      PrefsGeminiSettingsStore(
+        envApiKey: Platform.environment['GEMINI_API_KEY'] ?? '',
+      );
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  final CaptureSessionPrefs _captureSession = CaptureSessionPrefs();
 
   late final CameraCapture _shutterCamera = widget._camera ??
       (Platform.isAndroid
-          ? LiveCameraCapture(navigatorKey: _navKey)
+          ? LiveCameraCapture(
+              navigatorKey: _navKey,
+              sessionPrefs: _captureSession,
+            )
           : SampleAssetCapture());
   late final FilePickCapture _filePickCamera = const FilePickCapture();
   late final OcrClient _ocr = widget._ocr ??
@@ -130,6 +147,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   VaultFs? _vault;
   String _vaultLabel = 'Loading vault…';
   String _ocrModeLabel = 'OCR: mock';
+  String _geminiModeLabel = 'Gemini: off';
   SymbolPack _activePack = DefaultPacks.zettelkastenInk;
   List<SymbolPack> _availablePacks = const [DefaultPacks.zettelkastenInk];
   bool _ready = false;
@@ -152,12 +170,15 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
 
   Future<void> _bootstrap() async {
     await _refreshOcrLabel();
+    await _refreshGeminiLabel();
     try {
       _availablePacks = await _packStore.availablePacks();
       _activePack = widget._initialPack ?? await _packStore.activePack();
+      _syncCameraPack();
     } catch (_) {
       _activePack = DefaultPacks.zettelkastenInk;
       _availablePacks = const [DefaultPacks.zettelkastenInk];
+      _syncCameraPack();
     }
 
     if (widget._vault != null) {
@@ -241,6 +262,23 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
+  Future<void> _refreshGeminiLabel() async {
+    final cfg = await _geminiSettings.read();
+    if (!mounted) return;
+    setState(() {
+      _geminiModeLabel = cfg.shouldUseLive
+          ? 'Gemini: ${cfg.model} (live)'
+          : 'Gemini: off';
+    });
+  }
+
+  void _syncCameraPack() {
+    final cam = _shutterCamera;
+    if (cam is LiveCameraCapture) {
+      cam.pack = _activePack;
+    }
+  }
+
   /// [rootRef] is a filesystem path or a durable `content://` tree URI.
   Future<void> _setVaultRoot(String rootRef) async {
     final bound = bindVaultRoot(
@@ -280,6 +318,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     final vault = _vault;
     await _packStore.setActivePack(pack, vault: vault);
     setState(() => _activePack = pack);
+    _syncCameraPack();
   }
 
   Future<void> _saveCustomPack(SymbolPack pack) async {
@@ -315,11 +354,13 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               vault: _vault!,
               vaultLabel: _vaultLabel,
               ocrModeLabel: _ocrModeLabel,
+              geminiModeLabel: _geminiModeLabel,
               shutterHint: _shutterHint,
               shutterCamera: _shutterCamera,
               filePickCamera: _filePickCamera,
               ocr: _ocr,
               ocrSettings: _ocrSettings,
+              geminiSettings: _geminiSettings,
               pageIds: _pageIds,
               activePack: _activePack,
               availablePacks: _availablePacks,
@@ -331,6 +372,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
                 await _setVaultRoot(dir.path);
               },
               onOcrSettingsChanged: _refreshOcrLabel,
+              onGeminiSettingsChanged: _refreshGeminiLabel,
               onSelectPack: _selectPack,
               onSaveCustomPack: _saveCustomPack,
               onSavePackEdits: _savePackEdits,
@@ -380,11 +422,13 @@ class _HomeNavigator extends StatefulWidget {
     required this.vault,
     required this.vaultLabel,
     required this.ocrModeLabel,
+    required this.geminiModeLabel,
     required this.shutterHint,
     required this.shutterCamera,
     required this.filePickCamera,
     required this.ocr,
     required this.ocrSettings,
+    required this.geminiSettings,
     required this.pageIds,
     required this.activePack,
     required this.availablePacks,
@@ -393,6 +437,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onVaultRootChanged,
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
+    required this.onGeminiSettingsChanged,
     required this.onSelectPack,
     required this.onSaveCustomPack,
     required this.onSavePackEdits,
@@ -401,11 +446,13 @@ class _HomeNavigator extends StatefulWidget {
   final VaultFs vault;
   final String vaultLabel;
   final String ocrModeLabel;
+  final String geminiModeLabel;
   final String shutterHint;
   final CameraCapture shutterCamera;
   final CameraCapture filePickCamera;
   final OcrClient ocr;
   final OcrSettingsStore ocrSettings;
+  final GeminiSettingsStore geminiSettings;
   final PageId pageIds;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
@@ -414,6 +461,7 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function(String rootRef) onVaultRootChanged;
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
+  final Future<void> Function() onGeminiSettingsChanged;
   final Future<void> Function(SymbolPack pack) onSelectPack;
   final Future<void> Function(SymbolPack pack) onSaveCustomPack;
   final Future<void> Function(SymbolPack pack) onSavePackEdits;
@@ -424,12 +472,20 @@ class _HomeNavigator extends StatefulWidget {
 
 class _HomeNavigatorState extends State<_HomeNavigator> {
   late CommitPipeline _pipeline = _buildPipeline(widget.vault, widget.activePack);
+  late CaptureCoordinator _coordinator = _buildCoordinator();
 
   CommitPipeline _buildPipeline(VaultFs vault, SymbolPack pack) {
     return CommitPipeline(
       vault: vault,
       router: SymbolRouter(pack: pack),
       dailyNoteSettings: dailyNoteSettingsForPack(pack),
+    );
+  }
+
+  CaptureCoordinator _buildCoordinator() {
+    return CaptureCoordinator(
+      geminiSettings: widget.geminiSettings,
+      ocr: widget.ocr,
     );
   }
 
@@ -451,6 +507,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   String? _lastProbePath;
   String? _lastPrintablePath;
   OcrSettings _ocrDraft = const OcrSettings();
+  GeminiSettings _geminiDraft = const GeminiSettings();
   final PaperKitPdf _paperKit = const PaperKitPdf();
   late PromoteService _promote =
       PromoteService.forPack(widget.activePack);
@@ -474,6 +531,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         oldWidget.activePack != widget.activePack) {
       _pipeline = _buildPipeline(widget.vault, widget.activePack);
       _promote = PromoteService.forPack(widget.activePack);
+    }
+    if (oldWidget.ocr != widget.ocr ||
+        oldWidget.geminiSettings != widget.geminiSettings) {
+      _coordinator = _buildCoordinator();
     }
   }
 
@@ -535,18 +596,33 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   String _ocrFailureMessage(Object error) {
     if (error is MistralOcrException) return error.readable;
+    if (error is GeminiException) return error.readable;
     return '$error';
+  }
+
+  String _routeReadyMessage(CoordinatedCapture routed) {
+    switch (routed.classification) {
+      case CaptureClass.diagram:
+        return 'Diagram ready — edit labels, type a title, Save → .canvas';
+      case CaptureClass.photoOnly:
+        return 'Photo-only canvas — type a title, Save';
+      case CaptureClass.textPage:
+        return 'Text ready — type a title, Save → .md';
+    }
   }
 
   Future<void> _beginCapture(CameraCapture source) async {
     if (_busy) return;
     final ocrCfg = await widget.ocrSettings.read();
+    final geminiCfg = await widget.geminiSettings.read();
     if (!mounted) return;
     setState(() {
       _busy = true;
-      _captureStatus = ocrCfg.shouldUseLive
-          ? 'Reading with Mistral…'
-          : 'Reading page…';
+      _captureStatus = geminiCfg.shouldUseLive
+          ? 'Classifying with Gemini Flash…'
+          : ocrCfg.shouldUseLive
+              ? 'Reading with Mistral…'
+              : 'Reading page…';
     });
     if (widget.ocr is ConfigurableOcrClient && !ocrCfg.shouldUseLive) {
       final reason =
@@ -565,13 +641,32 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     try {
       final shot = await source.capturePage();
       try {
-        final meaning = await widget.ocr.extractMeaning(
-          shot.imageBytes,
+        if (shot.symbolId == 'visual' || geminiCfg.shouldUseLive) {
+          setState(() {
+            _captureStatus = shot.symbolId == 'visual'
+                ? 'Gemini Flash diagram…'
+                : 'Routing capture…';
+          });
+        }
+        final coordinated = await _coordinator.run(
+          imageBytes: shot.imageBytes,
           extensionHint: shot.imageExtension,
+          forcedSymbolId: shot.symbolId.isNotEmpty ? shot.symbolId : null,
         );
         final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
-        final routed = SymbolRouter(pack: widget.activePack)
-            .route(meaning.detectedGlyph);
+        final meaning = coordinated.meaning;
+        final router = SymbolRouter(pack: widget.activePack);
+        // Camera chip wins; else △ for diagram; else OCR glyph.
+        final RouteResult routed;
+        if (shot.symbolId.isNotEmpty) {
+          routed = router.routeById(shot.symbolId);
+        } else if (coordinated.isDiagram) {
+          routed = router.routeById('visual');
+        } else if (coordinated.isPhotoOnly) {
+          routed = router.routeById('visual');
+        } else {
+          routed = router.route(meaning.detectedGlyph);
+        }
         final seededLinks = meaning.threadTick
             ? ThreadTick.mergePrevious(
                 previous: _recentPages.isEmpty ? null : _recentPages.first,
@@ -585,8 +680,11 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           imageExtension: shot.imageExtension,
           symbolId: routed.symbol.id,
           links: seededLinks,
+          draftTitleSuggestion: coordinated.draftTitleSuggestion,
         );
-        final suggested = await _suggestWikilinks(pending);
+        final suggested = coordinated.isTextPage
+            ? await _suggestWikilinks(pending)
+            : List<LinkPick>.from(pending.links);
         pending.links = suggested;
         if (!mounted) return;
         setState(() {
@@ -596,15 +694,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              suggested.length > seededLinks.length
-                  ? 'OCR ready · ${suggested.length - seededLinks.length} '
-                      'wikilink suggestion'
-                      '${suggested.length - seededLinks.length == 1 ? '' : 's'}'
-                  : 'OCR ready',
-            ),
+            content: Text(_routeReadyMessage(coordinated)),
             backgroundColor: MemoryHues.accent,
-            duration: const Duration(seconds: 2),
+            duration: const Duration(seconds: 3),
           ),
         );
       } catch (ocrError) {
@@ -1124,6 +1216,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           return SettingsHubShell(
             vaultLabel: widget.vaultLabel,
             ocrModeLabel: widget.ocrModeLabel,
+            geminiModeLabel: widget.geminiModeLabel,
             packLabel: widget.activePack.displayName,
             onBack: () => setState(() => _settingsPane = null),
             onOpenGuide: () =>
@@ -1135,6 +1228,13 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               setState(() {
                 _ocrDraft = ocr;
                 _settingsPane = _SettingsPane.ocr;
+              });
+            },
+            onOpenGemini: () async {
+              final g = await widget.geminiSettings.read();
+              setState(() {
+                _geminiDraft = g;
+                _settingsPane = _SettingsPane.gemini;
               });
             },
             onOpenSymbols: () =>
@@ -1192,6 +1292,20 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             onVerifyKey: widget.ocr is ConfigurableOcrClient
                 ? (widget.ocr as ConfigurableOcrClient).verifyLiveKey
                 : (key) => MistralOcrClient(apiKey: key).verifyConnection(),
+          );
+        case _SettingsPane.gemini:
+          return GeminiSettingsShell(
+            initial: _geminiDraft,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onSave: (settings) async {
+              await widget.geminiSettings.write(settings);
+              await widget.onGeminiSettingsChanged();
+              setState(() => _geminiDraft = settings);
+            },
+            onVerifyKey: (key, model) => GeminiClient(
+              apiKey: key,
+              model: model,
+            ).verifyConnection(),
           );
         case _SettingsPane.symbols:
           return SymbolsSettingsShell(

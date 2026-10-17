@@ -15,7 +15,9 @@ class PendingCapture {
     String? noteBody,
     String? symbolId,
     List<LinkPick>? links,
-  })  : title = title ?? _defaultTitle(meaning),
+    this.draftTitleSuggestion = '',
+  })  : // Manual title required before save — never auto-commit a default.
+        title = title ?? '',
         noteBody = noteBody ?? _joinedRegions(meaning),
         symbolId = symbolId ?? '',
         links = List<LinkPick>.from(links ?? const []);
@@ -25,6 +27,9 @@ class PendingCapture {
   final DateTime capturedAt;
   final String imageExtension;
   final MeaningResult meaning;
+
+  /// Optional OCR/vision draft shown as a hint — not the save name.
+  final String draftTitleSuggestion;
 
   String title;
   String noteBody;
@@ -43,14 +48,6 @@ class PendingCapture {
       .where((t) => t.isNotEmpty)
       .map(_stripBulletPrefix)
       .toList(growable: false);
-
-  static String _defaultTitle(MeaningResult meaning) {
-    final first = meaning.regions
-        .map((r) => r.text.trim())
-        .firstWhere((t) => t.isNotEmpty, orElse: () => 'Untitled page');
-    if (first.length <= 48) return first;
-    return '${first.substring(0, 45)}…';
-  }
 
   static String _joinedRegions(MeaningResult meaning) {
     // Visual / mindmap: short label lines only — never a page prose dump.
