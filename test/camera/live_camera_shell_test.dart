@@ -109,7 +109,7 @@ void main() {
     expect(popped, isNull);
   });
 
-  testWidgets('camera chrome uses multi-stop hue frame (not flat ink)', (
+  testWidgets('camera chrome uses shared ink atmosphere (no carnival bars)', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
