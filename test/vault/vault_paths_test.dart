@@ -6,6 +6,7 @@ void main() {
     expect(normalizeVaultFolder('  fleeting/ '), 'fleeting');
     expect(normalizeVaultFolder('/permanent/'), 'permanent');
     expect(normalizeVaultFolder('hue-memory/fleeting'), 'fleeting');
+    expect(normalizeVaultFolder('symbol-journal/journal'), 'journal');
     expect(normalizeVaultFolder('pack/inbox'), 'inbox');
     expect(normalizeVaultFolder('packs/gtd/inbox'), 'gtd/inbox');
     expect(normalizeVaultFolder('gtd/inbox'), 'gtd/inbox');
@@ -51,6 +52,29 @@ void main() {
     );
     expect(
       () => assertVaultWriteAllowed('fleeting/a.md'),
+      returnsNormally,
+    );
+  });
+
+  test('assertVaultWriteAllowed blocks symbol-journal and pack YAML', () {
+    expect(
+      () => assertVaultWriteAllowed('symbol-journal/packs/active.yaml'),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(
+      () => assertVaultWriteAllowed('symbol-journal/printables/x.pdf'),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(
+      () => assertVaultWriteAllowed('packs/active.yaml'),
+      throwsA(isA<ArgumentError>()),
+    );
+    expect(
+      () => assertVaultWriteAllowed('journal/note.md'),
+      returnsNormally,
+    );
+    expect(
+      () => assertVaultWriteAllowed('captures/raw/p.png'),
       returnsNormally,
     );
   });

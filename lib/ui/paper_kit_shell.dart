@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/memory_hues.dart';
 
-/// Settings → Paper kit — write printable legend / hue-dot PDFs into the vault.
+/// Settings → Paper kit — A6 PDFs in app files (never the Obsidian vault).
 class PaperKitShell extends StatelessWidget {
   const PaperKitShell({
     super.key,
@@ -48,8 +48,8 @@ class PaperKitShell extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            'A6 craft sheets land in symbol-journal/printables/ — '
-            'open or share from your vault folder.',
+            'A6 craft sheets save to app files only — never into your '
+            'Obsidian vault (no symbol-journal/ folder).',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 24),

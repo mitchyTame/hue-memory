@@ -7,7 +7,7 @@ import 'pack_editor.dart';
 import 'pack_yaml.dart';
 import 'symbol_models.dart';
 
-/// Persists which pack is active and mirrors it into the vault.
+/// Persists which pack is active in app prefs (never into the Obsidian vault).
 class ActivePackStore {
   ActivePackStore({
     SharedPreferences? prefs,
@@ -20,8 +20,7 @@ class ActivePackStore {
   static const keyCustomPackYaml = 'custom_symbol_pack_yaml';
   static const keyActivePackYaml = 'active_symbol_pack_yaml';
 
-  /// Legacy vault paths — **no longer written**. Pack config lives in prefs
-  /// only so the Obsidian vault is not polluted with `packs/` folders.
+  /// Legacy paths — must never be written. Kept only so tests can assert absence.
   @Deprecated('Pack config is prefs-only; do not write to vault')
   static const vaultMirrorPath = 'symbol-journal/packs/active.yaml';
   @Deprecated('Pack config is prefs-only; do not write to vault')
@@ -57,7 +56,7 @@ class ActivePackStore {
     return await readCustomPack() ?? DefaultPacks.blankCustom;
   }
 
-  /// Persist custom pack YAML and optionally activate + vault-mirror.
+  /// Persist custom pack YAML in prefs and optionally activate.
   Future<void> saveCustomPack(
     SymbolPack pack, {
     VaultFs? vault,

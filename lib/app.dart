@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -195,9 +196,6 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     }
 
     if (widget._vault != null) {
-      try {
-        await _packStore.mirrorToVault(widget._vault!, _activePack);
-      } catch (_) {}
       setState(() {
         _vault = widget._vault;
         _vaultLabel = _labelFor(widget._vault!);
@@ -224,9 +222,6 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
           bound.persist != saved) {
         await _vaultSettings.writeVaultRoot(bound.persist);
       }
-      try {
-        await _packStore.mirrorToVault(bound.vault, _activePack);
-      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _vault = bound.vault;
@@ -313,14 +308,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       }
     }
     await _vaultSettings.writeVaultRoot(bound.persist);
-    try {
-      await _packStore.mirrorToVault(bound.vault, _activePack);
-    } on FileSystemException catch (e) {
-      throw VaultBindException(vaultPickFailedMessage(e), cause: e);
-    } catch (e) {
-      // Mirror is best-effort after a successful write check.
-      if (e is VaultBindException) rethrow;
-    }
+    // Pack config stays in app prefs — never scaffold symbol-journal/packs/.
     setState(() {
       _vault = bound.vault;
       _vaultLabel = bound.label;
@@ -1187,6 +1175,16 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
+  /// App-private printables only — never `symbol-journal/` inside the vault.
+  Future<String> _writePrintablePdf(String fileName, Uint8List bytes) async {
+    final docs = await getApplicationDocumentsDirectory();
+    final dir = Directory(p.join(docs.path, 'printables'));
+    await dir.create(recursive: true);
+    final file = File(p.join(dir.path, fileName));
+    await file.writeAsBytes(bytes, flush: true);
+    return file.path;
+  }
+
   Future<void> _writeLegendPdf() async {
     setState(() => _settingsBusy = true);
     try {
@@ -1197,9 +1195,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           .replaceAll(':', '')
           .replaceAll('-', '')
           .substring(0, 15);
-      final path =
-          'symbol-journal/printables/$stamp-legend-${widget.activePack.id}.pdf';
-      await widget.vault.writeBytes(path, bytes);
+      final path = await _writePrintablePdf(
+        '$stamp-legend-${widget.activePack.id}.pdf',
+        bytes,
+      );
       if (!mounted) return;
       setState(() {
         _settingsBusy = false;
@@ -1207,7 +1206,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Wrote $path'),
+          content: Text('Saved legend PDF (app files, not vault)'),
           backgroundColor: MemoryHues.accent,
         ),
       );
@@ -1234,8 +1233,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           .replaceAll(':', '')
           .replaceAll('-', '')
           .substring(0, 15);
-      final path = 'symbol-journal/printables/$stamp-hue-dots.pdf';
-      await widget.vault.writeBytes(path, bytes);
+      final path = await _writePrintablePdf(
+        '$stamp-hue-dots.pdf',
+        bytes,
+      );
       if (!mounted) return;
       setState(() {
         _settingsBusy = false;
@@ -1243,7 +1244,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Wrote $path'),
+          content: Text('Saved hue-dot PDF (app files, not vault)'),
           backgroundColor: MemoryHues.accent,
         ),
       );

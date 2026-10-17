@@ -49,6 +49,7 @@ class FakeVaultFs implements VaultFs {
 
   /// Synchronous helper for seeding directories in tests.
   void ensureDirSync(String relativePath) {
+    assertNoVaultScaffoldPath(relativePath);
     final n = _norm(relativePath);
     if (n == '/') {
       _dirs.add('/');

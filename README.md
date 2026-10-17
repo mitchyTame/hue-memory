@@ -116,7 +116,7 @@ Text pages after classify. Default **mock**. Enable live: **Settings → OCR** (
 
 ### Symbol packs (YAML)
 
-Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; a copy is mirrored to `symbol-journal/packs/active.yaml` in the vault. Dart `DefaultPacks` remains a fallback if assets fail.
+Packs live in `assets/packs/*.yaml` (ZK + GTD). **Settings → Symbols** switches the active pack; config stays in **app prefs only** — never `symbol-journal/packs/` in the Obsidian vault. Dart `DefaultPacks` remains a fallback if assets fail.
 
 ### Offline OCR queue
 
@@ -124,7 +124,7 @@ When OCR fails (offline / network), the photo is saved to an app-private queue (
 
 ### Ink library editor
 
-**Settings → Symbols → Edit ink library** — browse all 18 ink-v1 glyphs (CustomPainter), add/remove on the Blank custom pack (inbox required), save to prefs + vault `symbol-journal/packs/custom.yaml`.
+**Settings → Symbols → Edit ink library** — browse all 18 ink-v1 glyphs (CustomPainter), add/remove on the Blank custom pack (inbox required), save to app prefs only.
 
 ### Ink-ghost Canvas
 
@@ -132,7 +132,7 @@ When OCR fails (offline / network), the photo is saved to an app-private queue (
 
 ### Paper kit (printables)
 
-**Settings → Paper kit** writes A6 PDFs into `symbol-journal/printables/`:
+**Settings → Paper kit** writes A6 PDFs into **app files** (not the vault):
 
 - Ink legend for the active pack
 - Hue-dot sticker sheet (twin 2-char codes, Memory hues)

@@ -132,6 +132,7 @@ class SafVaultFs implements VaultFs {
 
   @override
   Future<void> ensureDir(String relativePath) async {
+    assertNoVaultScaffoldPath(relativePath);
     final parts = _segments(relativePath);
     if (parts.isEmpty) return;
     await _docs.mkdirp(treeUri, parts);

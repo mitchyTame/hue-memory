@@ -75,6 +75,7 @@ class LocalVaultFs implements VaultFs {
 
   @override
   Future<void> ensureDir(String relativePath) async {
+    assertNoVaultScaffoldPath(relativePath);
     final dir = _dir(relativePath);
     if (!await dir.exists()) {
       await dir.create(recursive: true);
