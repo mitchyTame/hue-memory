@@ -104,7 +104,7 @@ UI tokens: `lib/theme/memory_hues.dart` + `AppTheme`.
 
 ### Gemini Flash (personal v2)
 
-Coordinator classifies and builds diagrams with **`gemini-3.5-flash-lite`** by default → Obsidian `.canvas` (center ink-ghost photo + connected satellites). Switch to **`gemini-3.6-flash`** in Settings when you want. Text → Mistral OCR → `.md`. Camera: drag/resize the **glyph box**; chip **△** forces the diagram path (never OCR-first). No Pro; 2.0/2.5 Flash ids are retired.
+Coordinator classifies and builds diagrams with **`gemini-3.5-flash-lite`** by default → Obsidian `.canvas` (center ink-ghost photo + connected satellites). Switch to **`gemini-3.6-flash`** in Settings when you want. Uses the official **`google_generative_ai`** Dart package (AI Studio keys), same lesson as Mistral/`mistralai_dart`. Text → Mistral OCR → `.md`. Camera: drag/resize the **glyph box**; chip **△** forces the diagram path (never OCR-first). No Pro; 2.0/2.5 Flash ids are retired.
 
 Enable: **Settings → Gemini** — paste an AI Studio key (`AIza…`), pick model, consent, turn on live, **Test Gemini**. Or `GEMINI_API_KEY` env. Key stays in the secure store (never logged).
 

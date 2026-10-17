@@ -1,6 +1,6 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 
 import '../writers/mindmap_propose.dart';
@@ -54,10 +54,18 @@ enum CaptureClass {
   }
 }
 
-/// Minimal Generative Language API client (AI Studio `AIza…` keys).
+/// Builds a [GenerativeModel] for a model id (tests may inject).
+typedef GeminiModelFactory = GenerativeModel Function({
+  required String model,
+  required String apiKey,
+  GenerationConfig? generationConfig,
+  http.Client? httpClient,
+});
+
+/// Gemini client via [google_generative_ai] (AI Studio `AIza…` keys).
 ///
 /// [model] is shared for classify, diagram, and Test Gemini.
-/// Never logs the API key.
+/// Never logs the API key. No hand-rolled generateContent JSON.
 class GeminiClient {
   GeminiClient({
     required this.apiKey,
@@ -65,30 +73,48 @@ class GeminiClient {
     String? classifyModel,
     String? diagramModel,
     http.Client? httpClient,
-    this.baseUrl = 'https://generativelanguage.googleapis.com',
+    GeminiModelFactory? modelFactory,
   })  : classifyModel = classifyModel ?? model,
         diagramModel = diagramModel ?? model,
-        _http = httpClient ?? http.Client(),
-        _ownsHttp = httpClient == null;
+        _http = httpClient,
+        _modelFactory = modelFactory ?? _defaultModelFactory;
 
   final String apiKey;
   final String model;
   final String classifyModel;
   final String diagramModel;
-  final String baseUrl;
-  final http.Client _http;
-  final bool _ownsHttp;
+  final http.Client? _http;
+  final GeminiModelFactory _modelFactory;
 
-  void close() {
-    if (_ownsHttp) _http.close();
+  static GenerativeModel _defaultModelFactory({
+    required String model,
+    required String apiKey,
+    GenerationConfig? generationConfig,
+    http.Client? httpClient,
+  }) {
+    return GenerativeModel(
+      model: model,
+      apiKey: apiKey,
+      generationConfig: generationConfig,
+      httpClient: httpClient,
+    );
   }
 
-  Uri _generateUri(String modelId) {
-    final m =
-        modelId.trim().isEmpty ? GeminiSettings.defaultModel : modelId;
-    return Uri.parse(
-      '$baseUrl/v1beta/models/$m:generateContent',
-    ).replace(queryParameters: {'key': apiKey.trim()});
+  void close() {
+    // Package creates per-model clients; nothing to dispose here.
+  }
+
+  GenerativeModel _modelFor(String modelId, {int? maxOutputTokens}) {
+    final id = modelId.trim().isEmpty ? GeminiSettings.defaultModel : modelId;
+    return _modelFactory(
+      model: id,
+      apiKey: apiKey.trim(),
+      generationConfig: GenerationConfig(
+        temperature: 0.2,
+        maxOutputTokens: maxOutputTokens,
+      ),
+      httpClient: _http,
+    );
   }
 
   /// Tiny text call — pass/fail for Settings → Test Gemini.
@@ -100,20 +126,12 @@ class GeminiClient {
         message: 'API key is empty',
       );
     }
-    final probeModel = model.trim().isEmpty
-        ? GeminiSettings.defaultModel
-        : model.trim();
+    final probeModel =
+        model.trim().isEmpty ? GeminiSettings.defaultModel : model.trim();
     try {
-      final text = await _generateText(
+      final text = await _generate(
         modelId: probeModel,
-        contents: [
-          {
-            'role': 'user',
-            'parts': [
-              {'text': 'Reply with exactly: ok'},
-            ],
-          },
-        ],
+        contents: [Content.text('Reply with exactly: ok')],
         maxOutputTokens: 8,
       );
       final ok = text.toLowerCase().contains('ok');
@@ -132,7 +150,7 @@ class GeminiClient {
     } catch (e) {
       return GeminiConnectionResult(
         ok: false,
-        message: _networkMessage(e),
+        message: _mapError(e),
       );
     }
   }
@@ -142,27 +160,19 @@ class GeminiClient {
     required Uint8List imageBytes,
     required String mimeType,
   }) async {
-    final prompt =
+    const prompt =
         'Classify this paper photo. Reply with ONE token only:\n'
         'text_page — linear handwriting / notes\n'
         'diagram — mind map, boxed branches, visual map\n'
         'photo_only — drawing/photo with no extractable note structure\n'
         'No prose.';
-    final text = await _generateText(
+    final text = await _generate(
       modelId: classifyModel,
       contents: [
-        {
-          'role': 'user',
-          'parts': [
-            {'text': prompt},
-            {
-              'inline_data': {
-                'mime_type': mimeType,
-                'data': base64Encode(imageBytes),
-              },
-            },
-          ],
-        },
+        Content.multi([
+          TextPart(prompt),
+          DataPart(mimeType, imageBytes),
+        ]),
       ],
       maxOutputTokens: 16,
     );
@@ -176,7 +186,7 @@ class GeminiClient {
     required Uint8List imageBytes,
     required String mimeType,
   }) async {
-    const system =
+    const prompt =
         'You read a hand-drawn mindmap PHOTO and return ONE JSON object only — '
         'no markdown fences, no prose. '
         'Schema matches Obsidian JSON Canvas: '
@@ -188,30 +198,23 @@ class GeminiClient {
         'Edges should connect ideas (hierarchical OK). '
         'Do NOT invent a photo/file node — the app injects the page photo. '
         'Text ≤80 chars per node. Coordinates are Canvas pixels (may be '
-        'negative). Prefer a clear hub near 0,0 with satellites around it.';
-    return _generateText(
+        'negative). Prefer a clear hub near 0,0 with satellites around it.\n\n'
+        'Return nodes/edges JSON only.';
+    return _generate(
       modelId: diagramModel,
       contents: [
-        {
-          'role': 'user',
-          'parts': [
-            {'text': '$system\n\nReturn nodes/edges JSON only.'},
-            {
-              'inline_data': {
-                'mime_type': mimeType,
-                'data': base64Encode(imageBytes),
-              },
-            },
-          ],
-        },
+        Content.multi([
+          TextPart(prompt),
+          DataPart(mimeType, imageBytes),
+        ]),
       ],
       maxOutputTokens: 4096,
     );
   }
 
-  Future<String> _generateText({
+  Future<String> _generate({
     required String modelId,
-    required List<Map<String, Object?>> contents,
+    required Iterable<Content> contents,
     int maxOutputTokens = 256,
   }) async {
     final key = apiKey.trim();
@@ -222,99 +225,69 @@ class GeminiClient {
         userMessage: 'Gemini API key is empty — add it in Settings → Gemini',
       );
     }
-    final uri = _generateUri(modelId);
-    final body = jsonEncode({
-      'contents': contents,
-      'generationConfig': {
-        'temperature': 0.2,
-        'maxOutputTokens': maxOutputTokens,
-      },
-    });
-    late final http.Response res;
     try {
-      res = await _http
-          .post(
-            uri,
-            headers: const {
-              'Content-Type': 'application/json',
-              // Never put the key in logs; it is only in the query string.
-            },
-            body: body,
-          )
-          .timeout(const Duration(seconds: 90));
+      final generative = _modelFor(modelId, maxOutputTokens: maxOutputTokens);
+      final response = await generative.generateContent(contents);
+      final text = response.text?.trim() ?? '';
+      if (text.isEmpty) {
+        throw const GeminiException(
+          statusCode: 200,
+          body: 'empty text',
+          userMessage: 'Gemini returned an empty response',
+        );
+      }
+      return text;
+    } on GeminiException {
+      rethrow;
+    } on InvalidApiKey catch (e) {
+      throw GeminiException(
+        statusCode: 401,
+        body: e.message,
+        userMessage: 'Gemini rejected the API key',
+      );
+    } on UnsupportedUserLocation {
+      throw const GeminiException(
+        statusCode: 403,
+        body: 'unsupported location',
+        userMessage: 'Gemini is not available in this location',
+      );
+    } on ServerException catch (e) {
+      throw GeminiException(
+        statusCode: 500,
+        body: e.message,
+        userMessage: _serverUserMessage(e.message),
+      );
+    } on GenerativeAIException catch (e) {
+      throw GeminiException(
+        statusCode: 0,
+        body: e.message,
+        userMessage: _mapError(e),
+      );
     } catch (e) {
       throw GeminiException(
         statusCode: 0,
         body: '$e',
-        userMessage: _networkMessage(e),
-      );
-    }
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw GeminiException(
-        statusCode: res.statusCode,
-        body: res.body,
-        userMessage: _httpUserMessage(res.statusCode, res.body),
-      );
-    }
-    return _extractText(res.body);
-  }
-
-  static String _extractText(String body) {
-    try {
-      final decoded = jsonDecode(body);
-      if (decoded is! Map) {
-        throw const FormatException('not a map');
-      }
-      final candidates = decoded['candidates'];
-      if (candidates is! List || candidates.isEmpty) {
-        throw const FormatException('no candidates');
-      }
-      final first = candidates.first;
-      if (first is! Map) throw const FormatException('bad candidate');
-      final content = first['content'];
-      if (content is! Map) throw const FormatException('no content');
-      final parts = content['parts'];
-      if (parts is! List || parts.isEmpty) {
-        throw const FormatException('no parts');
-      }
-      final buf = StringBuffer();
-      for (final p in parts) {
-        if (p is Map && p['text'] is String) {
-          buf.write(p['text'] as String);
-        }
-      }
-      return buf.toString().trim();
-    } catch (e) {
-      throw GeminiException(
-        statusCode: 200,
-        body: body.length > 400 ? '${body.substring(0, 400)}…' : body,
-        userMessage: 'Gemini returned an unreadable response',
+        userMessage: _mapError(e),
       );
     }
   }
 
-  static String _httpUserMessage(int status, String body) {
-    switch (status) {
-      case 400:
-        return 'Gemini rejected the request (HTTP 400) — check model id '
-            '(default: ${GeminiSettings.defaultModel})';
-      case 401:
-      case 403:
-        return 'Gemini rejected the API key (HTTP $status)';
-      case 404:
-        return 'Gemini model not found (HTTP 404) — try '
-            '${GeminiSettings.defaultModel} or ${GeminiSettings.flash36Model}';
-      case 429:
-        return 'Gemini rate limit — try again shortly (HTTP 429)';
-      case >= 500:
-        return 'Gemini server error (HTTP $status)';
-      default:
-        final snippet = body.length > 120 ? '${body.substring(0, 120)}…' : body;
-        return 'Gemini failed (HTTP $status): $snippet';
+  static String _serverUserMessage(String message) {
+    final lower = message.toLowerCase();
+    if (lower.contains('not found') || lower.contains('404')) {
+      return 'Gemini model not found — try ${GeminiSettings.defaultModel} '
+          'or ${GeminiSettings.flash36Model}';
     }
+    if (lower.contains('rate') || lower.contains('429')) {
+      return 'Gemini rate limit — try again shortly';
+    }
+    if (lower.contains('api key') || lower.contains('permission')) {
+      return 'Gemini rejected the API key';
+    }
+    return 'Gemini server error: $message';
   }
 
-  static String _networkMessage(Object e) {
+  static String _mapError(Object e) {
     final s = '$e';
     if (s.contains('SocketException') ||
         s.contains('Failed host lookup') ||
@@ -324,7 +297,8 @@ class GeminiClient {
     if (s.contains('TimeoutException') || s.contains('timed out')) {
       return 'Gemini timed out — check connection and retry';
     }
-    return 'Network error talking to Gemini: $s';
+    if (e is GenerativeAIException) return e.message;
+    return 'Gemini error: $s';
   }
 
   /// Strip ```json fences then return first balanced `{…}`.

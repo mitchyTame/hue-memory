@@ -47,6 +47,7 @@ dependencies:
   pdf: ^3.13.1
   flutter_secure_storage: ^10.3.4
   mistralai_dart: ^8.1.0
+  google_generative_ai: ^0.4.7
 
 dev_dependencies:
   flutter_test:
