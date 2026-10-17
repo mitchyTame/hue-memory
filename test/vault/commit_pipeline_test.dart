@@ -326,6 +326,10 @@ void main() {
     expect(CommitPipeline.fileStemFromTitle('Hello/World'), 'Hello-World');
     expect(CommitPipeline.fileStemFromTitle('note.md'), 'note');
     expect(CommitPipeline.fileStemFromTitle('   '), 'Untitled');
+    expect(
+      CommitPipeline.fileStemFromTitle('Topic["image}]'),
+      'Topic',
+    );
   });
 
   test('refuses overwrite when filename already exists', () async {

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import '../capture/pending_capture.dart';
+import '../capture/title_suggestion.dart';
 import '../gemini/capture_coordinator.dart';
 import '../gemini/obsidian_canvas_from_gemini.dart';
 import '../ocr/ocr_client.dart';
@@ -375,15 +376,26 @@ class CommitPipeline {
 
   /// Basename stem from Mitch's typed title — casing/spaces kept; no pageId.
   ///
-  /// Strips a trailing `.md` / `.canvas` if typed; replaces path-illegal chars.
+  /// Strips image/OCR scrap if it leaked into the field; never appends region
+  /// or crop metadata. Trailing `.md` / `.canvas` removed; path-illegal chars
+  /// replaced.
   static String fileStemFromTitle(String title) {
-    var s = title.trim();
+    var s = TitleSuggestion.stripImageArtifacts(title).trim();
     if (s.isEmpty) return 'Untitled';
     s = s.replaceFirst(RegExp(r'\.(md|canvas)$', caseSensitive: false), '');
     s = s.trim();
+    // Drop leftover brackets / quotes from broken image scraps.
+    s = s.replaceAll(RegExp(r'[\[\]{}]+'), ' ');
     s = s.replaceAll(RegExp(r'[\\/:*?"<>|\n\r\t]+'), '-');
     s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
-    s = s.replaceAll(RegExp(r'^[.\s]+|[.\s]+$'), '');
+    s = s.replaceAll(RegExp(r'^[.\s\-]+|[.\s\-]+$'), '');
+    // Trailing media token left after scrap removal.
+    s = s.replaceAll(
+      RegExp(r'(^|[\s\-]+)image$', caseSensitive: false),
+      '',
+    );
+    s = s.replaceAll(RegExp(r'\s+'), ' ').trim();
+    s = s.replaceAll(RegExp(r'^[\-\s]+|[\-\s]+$'), '');
     if (s.isEmpty) return 'Untitled';
     return s.length <= 120 ? s : s.substring(0, 120).trim();
   }

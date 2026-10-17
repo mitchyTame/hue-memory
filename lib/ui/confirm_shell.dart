@@ -141,6 +141,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   Future<void> _commit() async {
     final callback = widget.onCommit;
     if (callback == null || widget.committing) return;
+    // Typed field only — never append OCR body, region ids, or draft hint.
     final title = _titleController.text.trim();
     if (!_isDaily && title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import '../capture/title_suggestion.dart';
 import '../ocr/ocr_client.dart';
 import '../writers/canvas_writer.dart';
 import 'gemini_client.dart';
@@ -124,9 +125,9 @@ class ObsidianCanvasFromGemini {
         ),
     ];
 
-    final title = (textNodes.first.text ?? '').trim();
-    final suggested =
-        title.length <= 48 ? title : '${title.substring(0, 45)}…';
+    // Hint only — confirm still requires Mitch's typed title. Sanitize so
+    // image/markdown scraps never become a filename suggestion.
+    final suggested = TitleSuggestion.sanitize(textNodes.first.text ?? '');
 
     return GeminiCanvasDraft(
       textNodes: textNodes,

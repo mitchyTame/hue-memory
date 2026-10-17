@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../capture/title_suggestion.dart';
 import '../ocr/mistral_ocr_client.dart';
 import '../ocr/ocr_client.dart';
 import '../ocr/ocr_image_prepare.dart';
@@ -129,9 +130,14 @@ class CaptureCoordinator {
         'coordinator': 'v2',
       },
     );
+    final full = normalized.rawJson['full_markdown'];
+    final suggestion = full is String
+        ? TitleSuggestion.fromOcrMarkdown(full)
+        : '';
     return CoordinatedCapture(
       classification: CaptureClass.textPage,
       meaning: normalized,
+      draftTitleSuggestion: suggestion,
     );
   }
 
@@ -222,7 +228,7 @@ class CaptureCoordinator {
         meaning: meaning,
         canvasTextNodes: draft.textNodes,
         canvasEdges: draft.edges,
-        draftTitleSuggestion: draft.suggestedTitle,
+        draftTitleSuggestion: TitleSuggestion.sanitize(draft.suggestedTitle),
       );
     } finally {
       client.close();
