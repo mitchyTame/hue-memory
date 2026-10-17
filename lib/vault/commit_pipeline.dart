@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import '../capture/pending_capture.dart';
 import '../links/wikilink_suggester.dart';
 import '../ocr/ocr_client.dart';
@@ -107,9 +109,13 @@ class CommitPipeline {
     final route = _router.routeById(input.symbolId);
     final rawImagePath = capture.rawImagePath;
 
-    await _vault.writeBytes(rawImagePath, capture.imageBytes);
+    // △ / visual must always produce JSON Canvas — never a markdown note that
+    // embeds the photo (that reads as "image with OCR text" in Obsidian).
+    // Force canvas even if a custom pack mis-labels visual as markdown.
+    final writeCanvas = route.isCanvas || route.symbol.id == 'visual';
 
     if (route.isDailyTasks) {
+      await _vault.writeBytes(rawImagePath, capture.imageBytes);
       final dailyPath = _dailyPaths.resolve(
         _dailySettings,
         date: capture.capturedAt,
@@ -133,33 +139,16 @@ class CommitPipeline {
       );
     }
 
-    if (route.isCanvas) {
-      final slug = slugify(input.title);
-      final canvasPath = joinVaultRelative(
-        _router.noteRelativeDir(route),
-        '${capture.pageId}-$slug.canvas',
-      );
-      final regionList = input.regions ?? capture.meaning.regions;
-      final textNodes = CanvasWriter.nodesFromRegions(regionList);
-      final edges = CanvasWriter.heuristicEdges(textNodes);
-      final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
-      final doc = _canvas.buildVisualCanvas(
-        sourceImage: rawImagePath,
-        textNodes: textNodes,
-        edges: edges,
-        inkGhost: input.inkGhost,
-        hierarchicalTags: _tags.tagLine(nested),
-      );
-      await _vault.writeText(canvasPath, _canvas.writeJson(doc));
-      return CommitResult(
-        pageId: capture.pageId,
+    if (writeCanvas) {
+      return _commitVisualCanvas(
+        input: input,
+        route: route,
         rawImagePath: rawImagePath,
-        symbolId: route.symbol.id,
-        canvasPath: canvasPath,
       );
     }
 
-    // markdown / inbox
+    // markdown / inbox — never taken for visual / △
+    await _vault.writeBytes(rawImagePath, capture.imageBytes);
     final slug = slugify(input.title);
     final notePath = joinVaultRelative(
       _router.noteRelativeDir(route),
@@ -198,6 +187,124 @@ class CommitPipeline {
       symbolId: route.symbol.id,
       notePath: notePath,
     );
+  }
+
+  /// △ commit: `.canvas` (JSON Canvas 1.0) + unaltered raw photo.
+  ///
+  /// - Primary artifact is `mindmaps/<pageId>-<slug>.canvas` (never `.json.canvas`)
+  /// - Ink-ghost: file node → [rawImagePath]; labels are separate text nodes
+  /// - Vault image bytes are exactly [PendingCapture.imageBytes] (no burn-in)
+  /// - No companion `.md` for the page
+  Future<CommitResult> _commitVisualCanvas({
+    required CommitInput input,
+    required RouteResult route,
+    required String rawImagePath,
+  }) async {
+    final capture = input.capture;
+    final folder = route.folder?.trim().isNotEmpty == true
+        ? route.folder!
+        : 'mindmaps';
+    final slug = slugify(input.title);
+    final canvasPath = joinVaultRelative(
+      normalizeVaultFolder(folder) ?? 'mindmaps',
+      '${capture.pageId}-$slug.canvas',
+    );
+    _assertCanvasPath(canvasPath);
+
+    final regionList = input.regions ?? capture.meaning.regions;
+    var textNodes = CanvasWriter.nodesFromRegions(regionList);
+    if (textNodes.isEmpty) {
+      // Still ship a real Canvas with an editable card — never PNG burn-in.
+      final label = input.title.trim().isEmpty ? 'Untitled' : input.title.trim();
+      textNodes = [
+        CanvasNode(
+          id: 'n1',
+          type: 'text',
+          text: label,
+          x: CanvasWriter.defaultImageX + 24,
+          y: CanvasWriter.defaultImageY + 24,
+          width: 220,
+          height: 64,
+        ),
+      ];
+    }
+    final edges = CanvasWriter.heuristicEdges(textNodes);
+    final nested = _tags.fromCanvasNodes(textNodes, edges: edges);
+    final doc = _canvas.buildVisualCanvas(
+      sourceImage: rawImagePath,
+      textNodes: textNodes,
+      edges: edges,
+      inkGhost: input.inkGhost,
+      hierarchicalTags: _tags.tagLine(nested),
+    );
+    _assertInkGhostDocument(doc, rawImagePath: rawImagePath);
+
+    // Write canvas first so the vault always gets the real Obsidian artifact
+    // even if a later image write fails mid-flight.
+    final canvasJson = _canvas.writeJson(doc);
+    await _vault.writeText(canvasPath, canvasJson);
+
+    // Unaltered capture — confirm UI overlays never reach disk.
+    final original = Uint8List.fromList(capture.imageBytes);
+    await _vault.writeBytes(rawImagePath, original);
+    final written = await _vault.readBytes(rawImagePath);
+    if (!_bytesEqual(written, original)) {
+      throw StateError(
+        'Vault image was altered on write — △ requires a clean capture under '
+        '$rawImagePath (no burned-in text)',
+      );
+    }
+
+    return CommitResult(
+      pageId: capture.pageId,
+      rawImagePath: rawImagePath,
+      symbolId: route.symbol.id,
+      canvasPath: canvasPath,
+      // notePath intentionally null — △ never writes companion .md
+    );
+  }
+
+  static void _assertCanvasPath(String canvasPath) {
+    final base = canvasPath.split('/').last.toLowerCase();
+    if (!base.endsWith('.canvas') ||
+        base.endsWith('.json.canvas') ||
+        base.endsWith('.canvas.json') ||
+        base.contains('.json.')) {
+      throw ArgumentError(
+        '△ canvas path must end with .canvas only (got $canvasPath)',
+      );
+    }
+    assertVaultWriteAllowed(canvasPath);
+  }
+
+  static void _assertInkGhostDocument(
+    CanvasDocument doc, {
+    required String rawImagePath,
+  }) {
+    final fileNodes = doc.nodes.where((n) => n.type == 'file').toList();
+    final textNodes = doc.nodes.where((n) => n.type == 'text').toList();
+    if (fileNodes.isEmpty) {
+      throw StateError('△ canvas missing ink-ghost file node');
+    }
+    if (fileNodes.first.file != rawImagePath) {
+      throw StateError(
+        '△ file node must point at $rawImagePath (got ${fileNodes.first.file})',
+      );
+    }
+    if (textNodes.isEmpty) {
+      throw StateError(
+        '△ canvas needs at least one editable text node (not burned into PNG)',
+      );
+    }
+  }
+
+  static bool _bytesEqual(Uint8List a, Uint8List b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   static String slugify(String title) {

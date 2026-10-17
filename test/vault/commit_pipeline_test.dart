@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hue_memory/capture/pending_capture.dart';
 import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_client.dart';
+import 'package:hue_memory/symbols/symbol_models.dart';
+import 'package:hue_memory/symbols/symbol_router.dart';
 import 'package:hue_memory/vault/commit_pipeline.dart';
 import 'package:hue_memory/vault/daily_note_path.dart';
 import 'package:hue_memory/vault/fake_vault_fs.dart';
@@ -129,6 +131,131 @@ void main() {
     expect(nodes.length, greaterThan(1));
     expect(
       vault.filePaths.any((p) => p.endsWith('.json')),
+      isFalse,
+    );
+  });
+
+  test('△ commit writes .canvas + clean image + text nodes — never .md or burn-in',
+      () async {
+    final png = _tinyPng();
+    // Mutate a copy after capture so we can prove vault got the original bytes.
+    final capture = PendingCapture(
+      pageId: '20261017-v1s1',
+      imageBytes: Uint8List.fromList(png),
+      capturedAt: DateTime.utc(2026, 10, 17, 1, 0),
+      meaning: MeaningResult(
+        detectedGlyph: '△',
+        pageGenre: 'visual',
+        regions: const [
+          OcrRegion(
+            id: 'n1',
+            text: 'Chunking',
+            confidence: 0.95,
+            bbox: [0.12, 0.18, 0.4, 0.12],
+          ),
+          OcrRegion(
+            id: 'n2',
+            text: 'Working memory',
+            confidence: 0.9,
+            bbox: [0.45, 0.4, 0.4, 0.12],
+          ),
+        ],
+      ),
+    );
+
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'visual',
+        title: 'Memory map',
+        noteBody: 'This body must NOT become a markdown note',
+      ),
+    );
+
+    // Exact Obsidian artifact paths
+    expect(result.canvasPath, 'mindmaps/20261017-v1s1-memory-map.canvas');
+    expect(result.canvasPath!.endsWith('.canvas'), isTrue);
+    expect(result.canvasPath!.contains('.json'), isFalse);
+    expect(result.notePath, isNull);
+    expect(result.rawImagePath, 'captures/raw/20261017-v1s1.png');
+    expect(result.primaryPath, result.canvasPath);
+
+    // No companion markdown / json.canvas anywhere for this page
+    final pageFiles = vault.filePaths
+        .where((p) => p.contains('20261017-v1s1'))
+        .map((p) => p.replaceFirst(RegExp(r'^/'), ''))
+        .toList()
+      ..sort();
+    expect(
+      pageFiles,
+      [
+        'captures/raw/20261017-v1s1.png',
+        'mindmaps/20261017-v1s1-memory-map.canvas',
+      ],
+    );
+    expect(vault.filePaths.any((p) => p.endsWith('.md')), isFalse);
+    expect(vault.filePaths.any((p) => p.contains('.json')), isFalse);
+
+    // Clean image: byte-identical to capture (no overlay burned into pixels)
+    final vaultPng = await vault.readBytes(result.rawImagePath);
+    expect(vaultPng, png);
+
+    // JSON Canvas 1.0: ink-ghost file node + separate editable text nodes
+    final doc =
+        jsonDecode(await vault.readText(result.canvasPath!)) as Map<String, dynamic>;
+    expect(doc.containsKey('nodes'), isTrue);
+    expect(doc.containsKey('edges'), isTrue);
+    final nodes = (doc['nodes'] as List).cast<Map>();
+    final fileNode = nodes.firstWhere((n) => n['type'] == 'file');
+    expect(fileNode['file'], 'captures/raw/20261017-v1s1.png');
+    final texts = nodes.where((n) => n['type'] == 'text').toList();
+    expect(texts.length, greaterThanOrEqualTo(2));
+    expect(texts.map((n) => n['text']), containsAll(['Chunking', 'Working memory']));
+    // Labels live in JSON nodes — not burned into PNG pixels
+    final pngAsLatin = String.fromCharCodes(vaultPng);
+    expect(pngAsLatin.contains('Chunking'), isFalse);
+    expect(pngAsLatin.contains('Working memory'), isFalse);
+  });
+
+  test('visual symbol forces .canvas even if pack output were markdown', () async {
+    // Simulate a misconfigured pack that marks visual as markdown — pipeline
+    // must still write .canvas, never an image-embedding .md.
+    final badPack = SymbolPack(
+      id: 'bad',
+      libraryRef: 'ink-v1',
+      label: 'Bad',
+      symbols: const [
+        PackSymbol(
+          id: 'visual',
+          draw: 'triangle',
+          glyphs: ['△'],
+          folder: 'mindmaps',
+          output: SymbolOutput.markdown,
+        ),
+      ],
+    );
+    final badPipeline = CommitPipeline(
+      vault: vault,
+      router: SymbolRouter(pack: badPack),
+    );
+    final capture = _capture(
+      glyph: '△',
+      regions: MockOcrClient.defaultVisualRegions,
+      pageId: '20261017-force',
+    );
+    final result = await badPipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'visual',
+        title: 'Forced canvas',
+        noteBody: 'should not become md',
+      ),
+    );
+    expect(result.canvasPath, 'mindmaps/20261017-force-forced-canvas.canvas');
+    expect(result.notePath, isNull);
+    expect(await vault.exists(result.canvasPath!), isTrue);
+    expect(
+      vault.filePaths.any((p) => p.endsWith('.md')),
       isFalse,
     );
   });

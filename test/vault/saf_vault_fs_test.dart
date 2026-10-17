@@ -56,6 +56,27 @@ void main() {
     expect(names.any((n) => n.contains('.json')), isFalse);
   });
 
+  test('SAF refuses write when provider renames .canvas to .canvas.json', () async {
+    final renaming = _RenamingSafDocuments(docs, rename: (name) {
+      if (name.endsWith('.canvas')) return '$name.json';
+      return name;
+    });
+    final badVault = SafVaultFs(treeUri: docs.rootUri, documents: renaming);
+    expect(
+      () => badVault.writeText(
+        'mindmaps/topic.canvas',
+        '{"nodes":[],"edges":[]}',
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (e) => e.message,
+          'message',
+          contains('SAF renamed'),
+        ),
+      ),
+    );
+  });
+
   test('writeText / readText / exists / list round-trip', () async {
     await vault.writeText('fleeting/note.md', '# hello\n');
     expect(await vault.exists('fleeting/note.md'), isTrue);
@@ -111,4 +132,71 @@ void main() {
     final bytes = await vault.readBytes('permanent/ü.md');
     expect(utf8.decode(bytes), 'café');
   });
+}
+
+/// Test double: returns a renamed display name from [writeFileBytes].
+class _RenamingSafDocuments implements SafDocuments {
+  _RenamingSafDocuments(this._inner, {required this.rename});
+
+  final SafDocuments _inner;
+  final String Function(String name) rename;
+
+  @override
+  Future<SafDocumentFile?> child(String dirUri, List<String> names) =>
+      _inner.child(dirUri, names);
+
+  @override
+  Future<bool> exists(String uri) => _inner.exists(uri);
+
+  @override
+  Future<List<SafDocumentFile>> list(String dirUri) => _inner.list(dirUri);
+
+  @override
+  Future<SafDocumentFile> mkdirp(String dirUri, List<String> names) =>
+      _inner.mkdirp(dirUri, names);
+
+  @override
+  Future<SafDocumentFile?> pickDirectory({
+    String? initialUri,
+    bool writePermission = true,
+    bool persistablePermission = true,
+  }) =>
+      _inner.pickDirectory(
+        initialUri: initialUri,
+        writePermission: writePermission,
+        persistablePermission: persistablePermission,
+      );
+
+  @override
+  Future<List<SafPersistedPermission>> persistedPermissions() =>
+      _inner.persistedPermissions();
+
+  @override
+  Future<Uint8List> readFileBytes(String uri) => _inner.readFileBytes(uri);
+
+  @override
+  Future<SafDocumentFile> writeFileBytes(
+    String dirUri,
+    String name,
+    String mime,
+    Uint8List data, {
+    bool overwrite = false,
+  }) async {
+    final created = await _inner.writeFileBytes(
+      dirUri,
+      name,
+      mime,
+      data,
+      overwrite: overwrite,
+    );
+    final renamed = rename(name);
+    if (renamed == name) return created;
+    return SafDocumentFile(
+      uri: created.uri,
+      name: renamed,
+      isDir: false,
+      length: created.length,
+      lastModified: created.lastModified,
+    );
+  }
 }

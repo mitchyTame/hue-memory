@@ -181,13 +181,40 @@ class SafVaultFs implements VaultFs {
     }
     final name = parts.last;
     final parentUri = await _ensureParentDir(relativePath);
-    await _docs.writeFileBytes(
+    final created = await _docs.writeFileBytes(
       parentUri,
       name,
       mimeForVaultPath(relativePath),
       bytes,
       overwrite: true,
     );
+    // Android DocumentsProvider may append a MIME-preferred extension
+    // (e.g. application/json → *.canvas.json). Obsidian needs the literal
+    // `.canvas` basename — refuse silently-wrong names.
+    _assertSafDisplayName(requested: name, created: created.name);
+  }
+
+  static void _assertSafDisplayName({
+    required String requested,
+    required String created,
+  }) {
+    if (created == requested) return;
+    final reqLower = requested.toLowerCase();
+    final createdLower = created.toLowerCase();
+    if (reqLower.endsWith('.canvas') &&
+        (createdLower.endsWith('.json.canvas') ||
+            createdLower.endsWith('.canvas.json') ||
+            createdLower.contains('.json.'))) {
+      throw StateError(
+        'SAF renamed .canvas to $created (MIME must keep literal .canvas). '
+        'Refusing write — Obsidian would not open a Canvas.',
+      );
+    }
+    if (created != requested) {
+      throw StateError(
+        'SAF renamed vault file "$requested" → "$created" — refusing write',
+      );
+    }
   }
 
   @override
