@@ -81,7 +81,7 @@ class PluginCameraSession implements CameraSession {
   Widget buildPreview() {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
-      return const ColoredBox(color: MemoryHues.hueInkWarm);
+      return const ColoredBox(color: MemoryHues.field);
     }
     return CameraPreview(controller);
   }
@@ -147,7 +147,7 @@ class FakeCameraSession implements CameraSession {
     // Prefer the capture bytes when they decode; never paint flat navy that
     // reads as “single blue” and hides the shell’s hue frame.
     return ColoredBox(
-      color: MemoryHues.hueInkWarm,
+      color: MemoryHues.field,
       child: Image.memory(
         imageBytes,
         fit: BoxFit.cover,

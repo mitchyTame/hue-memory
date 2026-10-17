@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
-/// Memory hues design tokens (§3.5). Light-first; no purple Material seed.
+/// Memory hues design tokens (§3.5). Light-first surfaces; dark capture field.
+///
+/// Capture home + camera share [atmosphere] — calm ink with a soft teal drift.
+/// No carnival amber/coral ribbons; accents stay muted ([accent], [recall]).
 abstract final class MemoryHues {
   static const Color paper = Color(0xFFF1F0EC);
   static const Color paperElevated = Color(0xFFFAFAF7);
@@ -16,13 +19,26 @@ abstract final class MemoryHues {
   static const Color overlayScrim = Color(0x6B1B2A4A); // ~42% navy
   static const Color focusRing = accent;
 
-  /// Camera chrome — saturated enough to read as multi-hue at a glance
-  /// (not a dark navy slab). Warm ink / teal / amber / coral.
-  static const Color hueTealDeep = Color(0xFF1A5C56);
-  static const Color hueTealMid = Color(0xFF2A6B66);
-  static const Color hueInkWarm = Color(0xFF2C3A52);
-  static const Color hueAmberDeep = Color(0xFF8A5A18);
-  static const Color hueAmberMid = Color(0xFFC4923A);
-  static const Color hueCoralDeep = Color(0xFF8B4540);
-  static const Color hueCoralMid = Color(0xFFC4785C);
+  // ── Shared capture / camera atmosphere (low-contrast ink family) ─────────
+  static const Color fieldDeep = Color(0xFF121A28);
+  static const Color field = ink; // #1B2A4A
+  static const Color fieldTeal = Color(0xFF1A3040);
+  static const Color fieldLift = Color(0xFF24344A);
+
+  /// Gentle multi-stop wash for home + camera letterbox. Same family throughout.
+  static const LinearGradient atmosphere = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [
+      fieldDeep,
+      field,
+      fieldTeal,
+      fieldLift,
+    ],
+    stops: [0.0, 0.38, 0.72, 1.0],
+  );
+
+  static const BoxDecoration atmosphereDecoration = BoxDecoration(
+    gradient: atmosphere,
+  );
 }

@@ -36,7 +36,7 @@ class LiveCameraCapture implements CameraCapture {
         // through the camera scaffold.
         fullscreenDialog: true,
         builder: (_) => Material(
-          color: MemoryHues.hueInkWarm,
+          color: MemoryHues.fieldDeep,
           child: LiveCameraShell(
             sessionFactory: sessionFactory,
             pack: pack,

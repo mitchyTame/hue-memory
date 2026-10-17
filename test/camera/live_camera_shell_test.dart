@@ -130,8 +130,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
-    // Must not be transparent paper/navy leak-through.
-    expect(scaffold.backgroundColor, MemoryHues.hueInkWarm);
+    expect(scaffold.backgroundColor, MemoryHues.fieldDeep);
 
     final gradients = tester
         .widgetList<DecoratedBox>(find.byType(DecoratedBox))
@@ -143,13 +142,19 @@ void main() {
 
     expect(gradients, isNotEmpty);
     final allColors = gradients.expand((g) => g.colors).toSet();
-    expect(allColors, contains(MemoryHues.hueTealDeep));
-    expect(allColors, contains(MemoryHues.hueAmberMid));
-    expect(allColors, contains(MemoryHues.hueCoralMid));
-    expect(allColors, contains(MemoryHues.hueInkWarm));
-    // Opaque multi-stop frame bands (not a single navy fill).
-    final multiStop = gradients.any((g) => g.colors.length >= 3);
-    expect(multiStop, isTrue);
+    // Shared atmosphere — ink family only (no mustard/copper carnival).
+    expect(allColors, contains(MemoryHues.fieldDeep));
+    expect(allColors, contains(MemoryHues.fieldTeal));
+    expect(allColors, contains(MemoryHues.fieldLift));
+    expect(allColors, isNot(contains(const Color(0xFFC4923A))));
+    expect(allColors, isNot(contains(const Color(0xFFC4785C))));
+    final atmosphere = gradients.any(
+      (g) =>
+          g.colors.length >= 3 &&
+          g.colors.contains(MemoryHues.fieldDeep) &&
+          g.colors.contains(MemoryHues.fieldTeal),
+    );
+    expect(atmosphere, isTrue);
   });
 
   testWidgets('landscape shutter rail is on-screen and tappable', (tester) async {

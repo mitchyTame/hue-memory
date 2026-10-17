@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
+import '../theme/hue_atmosphere.dart';
 import '../theme/memory_hues.dart';
 import 'camera_capture.dart';
 import 'camera_session.dart';
@@ -115,224 +116,132 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: MemoryHues.hueTealDeep,
-        systemNavigationBarColor: MemoryHues.hueCoralDeep,
+        statusBarColor: MemoryHues.fieldDeep,
+        systemNavigationBarColor: MemoryHues.fieldDeep,
       ),
       child: Scaffold(
-        // Opaque hue fallback so Material/route surface never flashes paper
-        // or navy through a transparent scaffold.
-        backgroundColor: MemoryHues.hueInkWarm,
+        backgroundColor: MemoryHues.fieldDeep,
         body: LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
             final maxH = constraints.maxHeight;
             final ar = session?.previewAspectRatio ?? 3 / 4;
 
-            // Forced outer frame — preview may never eat these bands.
-            // This is what makes “hue” obvious even when the sensor fills the phone.
-            final frameTop = (landscape ? 36.0 : 52.0) + media.padding.top;
-            final frameBottom = (landscape ? 36.0 : 72.0) + media.padding.bottom;
-            final frameSide = landscape
-                ? (maxW * 0.08).clamp(28.0, 72.0)
-                : (maxW * 0.04).clamp(12.0, 28.0);
-
-            final availW = (maxW - frameSide * 2).clamp(1.0, maxW);
-            final availH =
-                (maxH - frameTop - frameBottom).clamp(1.0, maxH);
-
-            // Letterbox sensor frame inside the reserved aperture only.
-            var previewW = availW;
+            // Natural letterbox inside the shared atmosphere field.
+            var previewW = maxW;
             var previewH = previewW / ar;
-            if (previewH > availH) {
-              previewH = availH;
+            if (previewH > maxH) {
+              previewH = maxH;
               previewW = previewH * ar;
             }
 
             final shutterSize = landscape
                 ? (maxH < 360 ? 56.0 : 64.0)
                 : (maxH < 640 ? 64.0 : 72.0);
+            // Soft scrims for control readability — same ink family, not ribbons.
+            final railH = landscape
+                ? (maxH * 0.12).clamp(28.0, 48.0)
+                : (maxH * 0.1).clamp(40.0, 72.0);
 
             return Stack(
               fit: StackFit.expand,
               children: [
-                // Full-bleed multi-hue ground (teal → ink → amber → coral).
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        MemoryHues.hueTealDeep,
-                        MemoryHues.hueTealMid,
-                        MemoryHues.hueInkWarm,
-                        MemoryHues.hueAmberDeep,
-                        MemoryHues.hueCoralDeep,
+                const HueAtmosphere(),
+                Center(
+                  child: SizedBox(
+                    width: previewW,
+                    height: previewH,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      clipBehavior: Clip.hardEdge,
+                      children: [
+                        if (error != null)
+                          ColoredBox(
+                            color: MemoryHues.field,
+                            child: Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Text(
+                                  'Camera unavailable\n$error',
+                                  textAlign: TextAlign.center,
+                                  style: textTheme.bodyMedium?.copyWith(
+                                    color: MemoryHues.paperElevated,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        else if (session == null || !session.isInitialized)
+                          const ColoredBox(
+                            color: MemoryHues.field,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: MemoryHues.accentSoft,
+                                strokeWidth: 2.5,
+                              ),
+                            ),
+                          )
+                        else
+                          session.buildPreview(),
+                        if (error == null)
+                          _MovableSymbolBox(
+                            box: _box,
+                            parentSize: Size(previewW, previewH),
+                            enabled: !_snapping,
+                            compact: landscape,
+                            onChanged: (next) =>
+                                setState(() => _box = next.clamped()),
+                          ),
                       ],
-                      stops: [0.0, 0.22, 0.48, 0.74, 1.0],
-                    ),
-                  ),
-                ),
-                // Cross-wash so corners disagree in hue (teal vs amber).
-                const IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topRight,
-                        end: Alignment.bottomLeft,
-                        colors: [
-                          MemoryHues.hueTealMid,
-                          Color(0x002C3A52),
-                          MemoryHues.hueAmberMid,
-                        ],
-                        stops: [0.0, 0.5, 1.0],
-                      ),
                     ),
                   ),
                 ),
 
-                // Opaque top frame band (teal → mid teal) — never transparent.
+                // Soft top wash (ink → clear) — same family as home.
                 IgnorePointer(
                   child: Align(
                     alignment: Alignment.topCenter,
                     child: Container(
-                      height: frameTop,
+                      height: railH + media.padding.top,
                       width: double.infinity,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
                           colors: [
-                            MemoryHues.hueTealDeep,
-                            MemoryHues.hueTealMid,
-                            MemoryHues.hueInkWarm,
+                            MemoryHues.fieldDeep,
+                            MemoryHues.fieldDeep.withValues(alpha: 0.55),
+                            MemoryHues.fieldDeep.withValues(alpha: 0),
                           ],
+                          stops: const [0.0, 0.55, 1.0],
                         ),
                       ),
                     ),
                   ),
                 ),
-                // Opaque bottom frame band (amber → coral).
+                // Soft bottom wash — ink/teal, never mustard→copper.
                 IgnorePointer(
                   child: Align(
                     alignment: Alignment.bottomCenter,
                     child: Container(
-                      height: frameBottom,
+                      height: railH + media.padding.bottom,
                       width: double.infinity,
-                      decoration: const BoxDecoration(
+                      decoration: BoxDecoration(
                         gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
                           colors: [
-                            MemoryHues.hueAmberDeep,
-                            MemoryHues.hueAmberMid,
-                            MemoryHues.hueCoralMid,
-                            MemoryHues.hueCoralDeep,
+                            MemoryHues.fieldTeal,
+                            MemoryHues.field.withValues(alpha: 0.65),
+                            MemoryHues.field.withValues(alpha: 0),
                           ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                // Opaque side frame bands (always — portrait gets slim rails too).
-                IgnorePointer(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      width: frameSide,
-                      height: double.infinity,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            MemoryHues.hueTealDeep,
-                            MemoryHues.hueInkWarm,
-                            MemoryHues.hueAmberDeep,
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                IgnorePointer(
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Container(
-                      width: frameSide,
-                      height: double.infinity,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            MemoryHues.hueTealMid,
-                            MemoryHues.hueAmberMid,
-                            MemoryHues.hueCoralDeep,
-                          ],
+                          stops: const [0.0, 0.5, 1.0],
                         ),
                       ),
                     ),
                   ),
                 ),
 
-                // Preview aperture — inset so the hue frame stays visible.
-                Positioned(
-                  left: frameSide,
-                  right: frameSide,
-                  top: frameTop,
-                  bottom: frameBottom,
-                  child: Center(
-                    child: SizedBox(
-                      width: previewW,
-                      height: previewH,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        clipBehavior: Clip.hardEdge,
-                        children: [
-                          if (error != null)
-                            ColoredBox(
-                              color: MemoryHues.hueInkWarm,
-                              child: Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Text(
-                                    'Camera unavailable\n$error',
-                                    textAlign: TextAlign.center,
-                                    style: textTheme.bodyMedium?.copyWith(
-                                      color: MemoryHues.paperElevated,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            )
-                          else if (session == null || !session.isInitialized)
-                            const ColoredBox(
-                              color: MemoryHues.hueInkWarm,
-                              child: Center(
-                                child: CircularProgressIndicator(
-                                  color: MemoryHues.accentSoft,
-                                  strokeWidth: 2.5,
-                                ),
-                              ),
-                            )
-                          else
-                            session.buildPreview(),
-                          if (error == null)
-                            _MovableSymbolBox(
-                              box: _box,
-                              parentSize: Size(previewW, previewH),
-                              enabled: !_snapping,
-                              compact: landscape,
-                              onChanged: (next) =>
-                                  setState(() => _box = next.clamped()),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-
-                // Chrome overlays — never siblings that shrink the preview.
                 SafeArea(
                   child: Stack(
                     fit: StackFit.expand,
@@ -353,8 +262,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                                 onPressed: _snapping ? null : _cancel,
                                 style: IconButton.styleFrom(
                                   foregroundColor: MemoryHues.paperElevated,
-                                  backgroundColor: MemoryHues.hueTealDeep
-                                      .withValues(alpha: 0.85),
+                                  backgroundColor: MemoryHues.fieldLift
+                                      .withValues(alpha: 0.72),
                                 ),
                                 icon: const Icon(Icons.close),
                               ),
@@ -368,14 +277,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                                   overflow: TextOverflow.ellipsis,
                                   style: textTheme.labelMedium?.copyWith(
                                     color: MemoryHues.paperElevated
-                                        .withValues(alpha: 0.95),
+                                        .withValues(alpha: 0.9),
                                     letterSpacing: 0.2,
-                                    shadows: const [
-                                      Shadow(
-                                        color: Color(0x88000000),
-                                        blurRadius: 6,
-                                      ),
-                                    ],
                                   ),
                                 ),
                               ),
@@ -405,8 +308,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                             : Alignment.bottomCenter,
                         child: Padding(
                           padding: EdgeInsets.only(
-                            right: landscape ? 8 : 0,
-                            bottom: landscape ? 0 : 10,
+                            right: landscape ? 12 : 0,
+                            bottom: landscape ? 0 : 8,
                           ),
                           child: _ShutterButton(
                             size: shutterSize,
@@ -457,14 +360,14 @@ class _SymbolChipStrip extends StatelessWidget {
             message: s.id,
             child: Material(
               color: selected
-                  ? MemoryHues.accent
-                  : MemoryHues.hueAmberDeep.withValues(alpha: 0.78),
+                  ? MemoryHues.accent.withValues(alpha: 0.92)
+                  : MemoryHues.fieldLift.withValues(alpha: 0.82),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
                 side: BorderSide(
                   color: selected
-                      ? MemoryHues.accentSoft
-                      : MemoryHues.recall.withValues(alpha: 0.55),
+                      ? MemoryHues.accentSoft.withValues(alpha: 0.7)
+                      : MemoryHues.paperElevated.withValues(alpha: 0.22),
                 ),
               ),
               child: InkWell(
@@ -606,10 +509,10 @@ class _MovableSymbolBox extends StatelessWidget {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 border: Border.all(
-                  color: MemoryHues.recall.withValues(alpha: 0.95),
-                  width: 2,
+                  color: MemoryHues.recall.withValues(alpha: 0.75),
+                  width: 1.5,
                 ),
-                color: MemoryHues.recall.withValues(alpha: 0.14),
+                color: MemoryHues.recall.withValues(alpha: 0.1),
               ),
               child: Align(
                 alignment: Alignment.topLeft,
