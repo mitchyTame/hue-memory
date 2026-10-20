@@ -152,7 +152,7 @@ class FakeCameraSession implements CameraSession {
         imageBytes,
         fit: BoxFit.cover,
         gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => const Center(
+        errorBuilder: (_, _, _) => const Center(
           child: Text(
             'Fake preview',
             style: TextStyle(color: MemoryHues.paperElevated),
