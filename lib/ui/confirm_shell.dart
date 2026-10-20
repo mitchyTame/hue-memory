@@ -282,7 +282,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                 child: ListView.separated(
                                   scrollDirection: Axis.horizontal,
                                   itemCount: symbols.length,
-                                  separatorBuilder: (_, __) =>
+                                  separatorBuilder: (_, _) =>
                                       const SizedBox(width: 8),
                                   itemBuilder: (context, index) {
                                     final s = symbols[index];
