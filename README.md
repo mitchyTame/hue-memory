@@ -1,10 +1,20 @@
+<p align="center">
+  <img src="assets/branding/app_icon.png" alt="hue-memory" width="128" />
+</p>
+
 # hue-memory
 
-Paper → confirm → Obsidian vault files. Flutter, Android-first.
+**Paper → Obsidian PKM**, built for Android.
 
-**One-liner:** Mark the page → shoot it → confirm meaning → files appear in your phone’s Obsidian vault.
+Photograph handwritten notes and mindmaps. Gemini routes each page (text vs diagram), then OCR lands as markdown or Canvas JSON in your Obsidian vault. Mark the page → shoot → confirm meaning → files appear next to the rest of your notes.
 
-Licensed under the [MIT License](LICENSE). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md) — fork, branch, `flutter test`, then open a PR to `main`.
+**Main flows**
+
+- **Text pages** → Mistral OCR → `.md` in the vault (symbol-routed folders)
+- **Diagrams / mindmaps** → Gemini → Obsidian `.canvas` (ink-ghost photo + satellites)
+- **Confirm** before commit — edit title/body, link recent pages, then write
+
+Flutter, Android-first. Licensed under the [MIT License](LICENSE). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md) — fork, branch, `flutter test`, then open a PR to `main`.
 
 ## Paths
 
