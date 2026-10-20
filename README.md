@@ -4,6 +4,8 @@ Paper → confirm → Obsidian vault files. Flutter, Android-first.
 
 **One-liner:** Mark the page → shoot it → confirm meaning → files appear in your phone’s Obsidian vault.
 
+Licensed under the [MIT License](LICENSE). To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md) — fork, branch, `flutter test`, then open a PR to `main`.
+
 ## Paths
 
 | Where | Path |
