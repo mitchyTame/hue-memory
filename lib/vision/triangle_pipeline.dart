@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:mistralai_dart/mistralai_dart.dart';
 
-import '../ocr/mistral_sdk.dart';
 import '../ocr/ocr_client.dart';
 import '../writers/canvas_writer.dart';
 import '../writers/mindmap_propose.dart';
@@ -30,7 +29,6 @@ class TrianglePipelineResult {
 /// [kDefaultVisionModel] (`mistral-large-2512`) for edge guesses only.
 class TrianglePipeline {
   TrianglePipeline({
-    required MistralSdk sdk,
     this.ocrModel = 'mistral-ocr-latest',
     this.visionModel = 'mistral-large-2512',
     this.deskew = const ImageDeskew(),
@@ -38,9 +36,8 @@ class TrianglePipeline {
     this.cropper = const ImageCrop(),
     this.maxMicroCrops = 8,
     this.guessEdges = true,
-  }) : _sdk = sdk;
+  });
 
-  final MistralSdk _sdk;
   final String ocrModel;
   final String visionModel;
   final ImageDeskew deskew;
