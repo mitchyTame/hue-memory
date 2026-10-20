@@ -11,3 +11,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # google_fonts 9 requires package:material_ui ThemeData/TextTheme.
+    # Ignore majors until hue-memory migrates off flutter/material.
+    ignore:
+      - dependency-name: google_fonts
+        update-types: ["version-update:semver-major"]
