@@ -1,0 +1,49 @@
+# Free CVE coverage via OSV.dev (google/osv-scanner-action).
+#
+# Scans root pubspec.lock only (not --recursive / --all-packages) to keep
+# signal high for this single Flutter app. Default fail-on-vuln=true:
+# PR job fails only on *new* vulns vs the base branch; scheduled/push job
+# fails on any known vuln in the lockfile.
+#
+# SARIF upload needs Code scanning enabled (Settings → Code security).
+name: OSV-Scanner
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Mondays 12:30 UTC
+    - cron: "30 12 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  scan-pr:
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=pubspec.lock
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+  scan-scheduled:
+    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.7.0
+    with:
+      scan-args: |-
+        --lockfile=pubspec.lock
+    permissions:
+      actions: read
+      contents: read
+      security-events: write

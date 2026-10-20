@@ -1,0 +1,13 @@
+# Weekly version bumps for Actions + Dart/Flutter pub packages.
+# Security alerts/PRs also need Dependabot alerts enabled in repo Settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: pub
+    directory: /
+    schedule:
+      interval: weekly
