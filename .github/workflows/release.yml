@@ -1,0 +1,132 @@
+# Manual APK release for hue-memory.
+#
+# Note: the APK may be debug-signed until a release keystore exists
+# (see android/app/build.gradle.kts — release uses signingConfigs.debug).
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Semver without v prefix (e.g. 1.2.0). Leave empty to auto-bump patch from latest tag.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve version
+        id: ver
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION}" ]; then
+            VER="${INPUT_VERSION#v}"
+          else
+            LATEST=$(git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0 2>/dev/null || true)
+            if [ -z "${LATEST}" ]; then
+              VER="0.1.0"
+            else
+              BASE="${LATEST#v}"
+              IFS=. read -r MAJOR MINOR PATCH <<< "${BASE}"
+              VER="${MAJOR}.${MINOR}.$((PATCH + 1))"
+            fi
+          fi
+          TAG="v${VER}"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved release version: ${TAG}"
+
+      - name: Update pubspec.yaml version
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Keep or bump build number (+N); default to +1 when absent.
+          if grep -qE '^version:\s*[0-9]+\.[0-9]+\.[0-9]+\+[0-9]+' pubspec.yaml; then
+            BUILD=$(sed -nE 's/^version:\s*[0-9]+\.[0-9]+\.[0-9]+\+([0-9]+).*/\1/p' pubspec.yaml)
+            BUILD=$((BUILD + 1))
+          else
+            BUILD=1
+          fi
+          sed -i -E "s/^version:\s*.*/version: ${VER}+${BUILD}/" pubspec.yaml
+          grep -E '^version:' pubspec.yaml
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release
+
+      - name: Stage APK assets
+        env:
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          SRC="build/app/outputs/flutter-apk/app-release.apk"
+          test -f "$SRC"
+          cp "$SRC" "hue-memory-${VER}.apk"
+          cp "$SRC" "hue-memory.apk"
+          ls -lh "hue-memory-${VER}.apk" "hue-memory.apk"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VER: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$TAG" -m "Release ${TAG}"
+            git push origin "$TAG"
+          fi
+
+          NOTES="hue-memory ${TAG}
+
+          Android APK (may be debug-signed until a release keystore is configured).
+
+          - Versioned: \`hue-memory-${VER}.apk\`
+          - Latest stable URL: https://github.com/${{ github.repository }}/releases/latest/download/hue-memory.apk"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "hue-memory-${VER}.apk" \
+              "hue-memory.apk" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              "hue-memory-${VER}.apk" \
+              "hue-memory.apk" \
+              --title "hue-memory ${TAG}" \
+              --notes "$NOTES"
+          fi
