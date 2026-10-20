@@ -151,6 +151,29 @@ Meta-zone chevron (or confirm **Thread › from last**) pre-checks the previous 
 
 Stored via platform **secure store** (migrates any legacy SharedPreferences copy on read).
 
+## Release (APK) + GitHub Pages
+
+### Run a release
+
+1. Open **Actions → Release → Run workflow** (manual only; not on push).
+2. Leave **version** empty to auto-bump **patch** from the latest `vX.Y.Z` tag (first release → `v0.1.0`), or enter e.g. `1.2.0`.
+3. Run from `main` after merge. The job builds a release APK, creates tag `vX.Y.Z` if needed, and uploads:
+   - `hue-memory-X.Y.Z.apk` (versioned)
+   - `hue-memory.apk` (stable name for the latest download URL)
+4. APK may be **debug-signed** until a release keystore is configured (`android/app/build.gradle.kts`).
+
+**Latest APK URL:**  
+https://github.com/mitchyTame/hue-memory/releases/latest/download/hue-memory.apk
+
+### Enable GitHub Pages (marketing site)
+
+Site source: `docs/` (`index.html` + `styles.css`).
+
+1. Repo **Settings → Pages**
+2. **Build and deployment → Source:** Deploy from a branch
+3. **Branch:** `main` / folder **`/docs`** → Save
+4. Site URL (after first deploy): `https://mitchytame.github.io/hue-memory/`
+
 ## Tests
 
 ```bash

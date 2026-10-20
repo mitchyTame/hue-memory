@@ -33,14 +33,11 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  # Cap below 9: google_fonts 9 returns material_ui TextTheme, which is a
-  # different type from package:flutter/material TextTheme used by AppTheme.
-  # Adopt 9 only with a full material_ui migration (not a Dependabot bump).
-  google_fonts: '>=8.1.0 <9.0.0'
+  cupertino_icons: ^2.0.0
+  google_fonts: ^8.1.0
   path: ^1.9.1
   intl: ^0.20.3
-  path_provider: ^2.1.5
+  path_provider: ^2.1.6
   shared_preferences: ^2.5.6
   file_picker: ^13.1.0
   http: ^1.6.0
@@ -48,7 +45,7 @@ dependencies:
   camera: ^0.12.1
   yaml: ^3.1.4
   pdf: ^3.13.1
-  flutter_secure_storage: ^10.3.4
+  flutter_secure_storage: ^11.2.0
   mistralai_dart: ^8.1.0
   google_generative_ai: ^0.4.7
   image: ^4.12.0
@@ -62,7 +59,7 @@ dev_dependencies:
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
-  flutter_lints: ^5.0.0
+  flutter_lints: ^6.0.0
   fake_async: ^1.3.3
   flutter_launcher_icons: ^0.14.4
 

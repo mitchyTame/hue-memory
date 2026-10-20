@@ -161,7 +161,7 @@ class _PromoteShellState extends State<PromoteShell> {
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                     itemCount: widget.candidates.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (context, i) {
                       final c = widget.candidates[i];
                       final on = selected?.path == c.path;

@@ -105,7 +105,7 @@ class MockOcrClient implements OcrClient {
         'mock': true,
         'bytes': imageBytes.length,
         'thread_tick': threadTick,
-        if (imageMimeType != null) 'mime': imageMimeType,
+        'mime': ?imageMimeType,
       },
     );
   }
