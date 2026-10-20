@@ -45,7 +45,7 @@ dependencies:
   camera: ^0.12.1
   yaml: ^3.1.4
   pdf: ^3.13.1
-  flutter_secure_storage: ^10.3.4
+  flutter_secure_storage: ^11.2.0
   mistralai_dart: ^8.1.0
   google_generative_ai: ^0.4.7
   image: ^4.12.0
