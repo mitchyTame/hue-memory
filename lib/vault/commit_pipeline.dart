@@ -144,8 +144,8 @@ class CommitPipeline {
       );
       final existing =
           await _vault.exists(dailyPath) ? await _vault.readText(dailyPath) : null;
-      // Prefer structured markdown (OCR / confirm). Explicit [taskLines] still
-      // wins over capture defaults for legacy callers / tests.
+      // Same OCR body path as other symbols — writer owns structure.
+      // Prefer explicit dailyMarkdown / taskLines for tests; else noteBody.
       final explicitMd = input.dailyMarkdown?.trim();
       final bodyMd = input.noteBody.trim();
       final String? markdown;
@@ -165,11 +165,9 @@ class CommitPipeline {
       }
       final body = _dailyAppender.apply(
         existingBody: existing,
-        pageId: capture.pageId,
         markdown: markdown,
         tasks: tasks,
         date: capture.capturedAt,
-        sectionHeading: route.section ?? '## Tasks',
       );
       await _vault.writeText(dailyPath, body);
       return CommitResult(

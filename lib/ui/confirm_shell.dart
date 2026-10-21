@@ -251,7 +251,10 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                 _isCanvas
                                     ? 'Vision is a draft — edit labels in the list '
                                         '(not on the photo). Title becomes the filename.'
-                                    : 'Title becomes the filename. Check the note, then save.',
+                                    : _isDaily
+                                        ? 'Date titles the daily file. OCR text is saved as written — '
+                                            'title is used if you switch to another symbol.'
+                                        : 'Title becomes the filename. OCR text is saved as written.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,
                                 ),
@@ -259,11 +262,13 @@ class _ConfirmShellState extends State<ConfirmShell> {
                               const SizedBox(height: 12),
                               TextField(
                                 controller: _titleController,
-                                enabled: !widget.committing && !_isDaily,
+                                enabled: !widget.committing,
                                 style: textTheme.titleMedium,
                                 onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
-                                  labelText: 'Title / filename (required)',
+                                  labelText: _isDaily
+                                      ? 'Title / filename (for other symbols)'
+                                      : 'Title / filename (required)',
                                   hintText: widget
                                           .capture.draftTitleSuggestion
                                           .isEmpty
@@ -363,14 +368,12 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   child: TextField(
                                     controller: _bodyController,
                                     enabled: !widget.committing,
-                                    minLines: _isDaily ? 2 : 6,
-                                    maxLines: _isDaily ? 12 : null,
+                                    minLines: 6,
+                                    maxLines: null,
                                     style: textTheme.bodyLarge,
-                                    decoration: InputDecoration(
-                                      labelText: _isDaily
-                                          ? 'Tasks (one per line)'
-                                          : 'Note (full OCR text)',
-                                      border: const OutlineInputBorder(),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Note (full OCR text)',
+                                      border: OutlineInputBorder(),
                                       alignLabelWithHint: true,
                                     ),
                                   ),
