@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../theme/hue_atmosphere.dart';
 import '../theme/memory_hues.dart';
 import '../vision/page_region.dart';
 
@@ -257,8 +258,7 @@ class _ManualRegionShellState extends State<ManualRegionShell> {
     final textTheme = Theme.of(context).textTheme;
     final hasRegion = _norm != null;
 
-    return Scaffold(
-      backgroundColor: MemoryHues.fieldDeep,
+    return HueFieldScaffold(
       body: SafeArea(
         child: Column(
           children: [
@@ -333,23 +333,20 @@ class _ManualRegionShellState extends State<ManualRegionShell> {
                 children: [
                   TextButton(
                     onPressed: _useWholePage,
-                    child: Text(
-                      'Use whole page',
-                      style: TextStyle(
-                        color: MemoryHues.paperElevated.withValues(alpha: 0.9),
-                      ),
+                    style: TextButton.styleFrom(
+                      foregroundColor:
+                          MemoryHues.paperElevated.withValues(alpha: 0.9),
                     ),
+                    child: const Text('Use whole page'),
                   ),
                   if (hasRegion) ...[
                     TextButton(
                       onPressed: _clearRegion,
-                      child: Text(
-                        'Clear',
-                        style: TextStyle(
-                          color:
-                              MemoryHues.paperElevated.withValues(alpha: 0.65),
-                        ),
+                      style: TextButton.styleFrom(
+                        foregroundColor:
+                            MemoryHues.paperElevated.withValues(alpha: 0.65),
                       ),
+                      child: const Text('Clear'),
                     ),
                   ],
                   const Spacer(),

@@ -53,6 +53,7 @@ class QueueShell extends StatelessWidget {
                 final job = jobs[i];
                 return Material(
                   color: MemoryHues.paperElevated,
+                  surfaceTintColor: Colors.transparent,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
                     side: const BorderSide(color: MemoryHues.rule),
