@@ -48,6 +48,10 @@ class PendingCapture {
 
   String get ocrDraft => _joinedRegions(meaning);
 
+  /// Fallback lines when commit has no confirm body — raw region text.
+  ///
+  /// Daily append interprets these into structured markdown; they are not
+  /// force-wrapped as checkboxes.
   List<String> get taskLines => meaning.regions
       .map((r) => r.text.trim())
       .where((t) => t.isNotEmpty)

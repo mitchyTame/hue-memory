@@ -1,27 +1,46 @@
 import '../capture/page_id.dart';
+import 'daily_note_markdown.dart';
 
-/// Appends (or replaces) a page_id-scoped task block under a daily-note section.
+/// Appends (or replaces) a page_id-scoped block under a daily-note section.
+///
+/// Content is interpreted into Obsidian-ready markdown (checkboxes only for
+/// real tasks). Symbol-journal HTML markers keep updates idempotent.
 class DailyTasksAppender {
   const DailyTasksAppender();
 
-  /// Returns the full daily-note body after applying [tasks] for [pageId].
+  /// Returns the full daily-note body after applying [markdown] for [pageId].
+  ///
+  /// [markdown] is OCR / confirm body (structured or flat). Prefer this over
+  /// [tasks]. When [tasks] is provided without [markdown], lines are joined
+  /// and interpreted the same way.
   String apply({
     required String? existingBody,
     required String pageId,
-    required List<String> tasks,
+    String? markdown,
+    List<String>? tasks,
     required DateTime date,
     String sectionHeading = '## Tasks',
   }) {
+    assert(
+      markdown != null || tasks != null,
+      'DailyTasksAppender.apply requires markdown or tasks',
+    );
+
     final stem = PageId.shortStem(pageId);
     final startMarker = '<!-- symbol-journal:$stem -->';
     final endMarker = '<!-- /symbol-journal:$stem -->';
 
+    final source = markdown ??
+        tasks!
+            .map((t) => t.trimRight())
+            .where((t) => t.trim().isNotEmpty)
+            .join('\n');
+    final interpreted = DailyNoteMarkdown.interpret(source);
+
     final taskBlock = StringBuffer()
       ..writeln(startMarker);
-    for (final task in tasks) {
-      final text = task.trim();
-      if (text.isEmpty) continue;
-      taskBlock.writeln('- [ ] $text');
+    if (interpreted.isNotEmpty) {
+      taskBlock.writeln(interpreted);
     }
     taskBlock.write(endMarker);
 
@@ -30,7 +49,8 @@ class DailyTasksAppender {
         : existingBody;
 
     // Replace existing block for this page_id if present.
-    final replaced = _replaceBlock(base, startMarker, endMarker, taskBlock.toString());
+    final replaced =
+        _replaceBlock(base, startMarker, endMarker, taskBlock.toString());
     if (replaced != null) return replaced;
 
     return _insertUnderSection(base, sectionHeading, taskBlock.toString());
