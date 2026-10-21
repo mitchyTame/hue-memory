@@ -62,4 +62,31 @@ void main() {
       '3/5/2026',
     );
   });
+
+  group('DailyNoteDate', () {
+    test('formats and parses YYYY-MM-DD', () {
+      expect(DailyNoteDate.formatIso(DateTime(2026, 10, 19)), '2026-10-19');
+      expect(
+        DailyNoteDate.tryParse('2026-10-19'),
+        DateTime(2026, 10, 19),
+      );
+    });
+
+    test('parses soft OCR-style dates', () {
+      expect(
+        DailyNoteDate.tryParse("19 Oct '26"),
+        DateTime(2026, 10, 19),
+      );
+      expect(
+        DailyNoteDate.tryParse('19 Oct 2026'),
+        DateTime(2026, 10, 19),
+      );
+    });
+
+    test('rejects invalid dates', () {
+      expect(DailyNoteDate.tryParse(''), isNull);
+      expect(DailyNoteDate.tryParse('Tasks'), isNull);
+      expect(DailyNoteDate.tryParse('2026-13-01'), isNull);
+    });
+  });
 }

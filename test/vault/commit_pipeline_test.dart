@@ -304,7 +304,7 @@ void main() {
       CommitInput(
         capture: capture,
         symbolId: 'daily-tasks',
-        title: 'Tasks',
+        title: '2026-10-16',
         noteBody: 'ignored when taskLines set',
         taskLines: const [
           '- [ ] Buy ink cartridges',
@@ -320,6 +320,27 @@ void main() {
     expect(body, isNot(contains('## Tasks')));
     expect(body, isNot(contains('symbol-journal')));
     expect(await vault.exists('captures/raw/20261016-p7k2.png'), isTrue);
+  });
+
+  test('daily-tasks title sets target day (not capture day)', () async {
+    final capture = _capture(
+      glyph: '·',
+      regions: MockOcrClient.defaultTaskRegions,
+    );
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'daily-tasks',
+        title: "19 Oct '26",
+        noteBody: 'From yesterday\'s page',
+        dailyMarkdown: 'From yesterday\'s page',
+      ),
+    );
+
+    expect(result.dailyNotePath, 'Organising/Daily/2026-10-19.md');
+    final body = await vault.readText(result.dailyNotePath!);
+    expect(body, startsWith('# 2026-10-19'));
+    expect(body, contains("From yesterday's page"));
   });
 
   test('daily-tasks preserves sections and nested bullets from noteBody', () async {

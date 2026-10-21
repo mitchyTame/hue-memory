@@ -138,9 +138,16 @@ class CommitPipeline {
 
     if (route.isDailyTasks) {
       await _vault.writeBytes(rawImagePath, capture.imageBytes);
+      // Title field sets the daily calendar day (file + # heading).
+      final dailyDate = DailyNoteDate.tryParse(input.title) ??
+          DateTime(
+            capture.capturedAt.toLocal().year,
+            capture.capturedAt.toLocal().month,
+            capture.capturedAt.toLocal().day,
+          );
       final dailyPath = _dailyPaths.resolve(
         _dailySettings,
-        date: capture.capturedAt,
+        date: dailyDate,
       );
       final existing =
           await _vault.exists(dailyPath) ? await _vault.readText(dailyPath) : null;
@@ -167,7 +174,7 @@ class CommitPipeline {
         existingBody: existing,
         markdown: markdown,
         tasks: tasks,
-        date: capture.capturedAt,
+        date: dailyDate,
       );
       await _vault.writeText(dailyPath, body);
       return CommitResult(
