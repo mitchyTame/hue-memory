@@ -1,8 +1,7 @@
-/// Interprets OCR / confirm body into Obsidian-ready daily-note markdown.
+/// Light OCR → acceptable markdown. Does not invent content or sections.
 ///
-/// Checkboxes (`- [ ]` / `- [x]`) are emitted only for real task lines.
-/// Section labels, nested bullets, dates, glyphs, and prose stay as structure —
-/// never force every line into a checkbox.
+/// Normalizes checkbox glyphs / forced wraps; keeps the writer's structure.
+/// Section labels may gain `**Label:**` emphasis; prose and bullets stay as-is.
 class DailyNoteMarkdown {
   const DailyNoteMarkdown._();
 

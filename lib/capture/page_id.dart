@@ -22,7 +22,7 @@ class PageId {
     return '$date-$suffix';
   }
 
-  /// Short stem used in daily-note HTML markers (`p7k2` from `20261016-p7k2`).
+  /// Short stem after the date (`p7k2` from `20261016-p7k2`).
   static String shortStem(String pageId) {
     final dash = pageId.lastIndexOf('-');
     if (dash == -1 || dash == pageId.length - 1) return pageId;

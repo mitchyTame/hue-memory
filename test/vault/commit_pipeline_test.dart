@@ -295,7 +295,7 @@ void main() {
     expect(nodes.first['type'], 'text');
   });
 
-  test('daily-tasks appends structured markdown under ## Tasks', () async {
+  test('daily-tasks appends OCR markdown under date title only', () async {
     final capture = _capture(
       glyph: '·',
       regions: MockOcrClient.defaultTaskRegions,
@@ -315,9 +315,10 @@ void main() {
 
     expect(result.dailyNotePath, 'Organising/Daily/2026-10-16.md');
     final body = await vault.readText(result.dailyNotePath!);
-    expect(body, contains('## Tasks'));
+    expect(body, startsWith('# 2026-10-16'));
     expect(body, contains('- [ ] Buy ink cartridges'));
-    expect(body, contains('<!-- symbol-journal:p7k2 -->'));
+    expect(body, isNot(contains('## Tasks')));
+    expect(body, isNot(contains('symbol-journal')));
     expect(await vault.exists('captures/raw/20261016-p7k2.png'), isTrue);
   });
 
@@ -347,11 +348,14 @@ Log:
     );
 
     final body = await vault.readText(result.dailyNotePath!);
+    expect(body, startsWith('# 2026-10-16'));
     expect(body, contains('**Important:**'));
     expect(body, contains('- Seeing shanolin'));
     expect(body, contains('**Notes:**'));
     expect(body, contains('Worked on setting up the bare bare sewers'));
     expect(body, contains('**Log:**'));
+    expect(body, isNot(contains('## Tasks')));
+    expect(body, isNot(contains('symbol-journal')));
     expect(body, isNot(contains('- [ ] Important')));
     expect(body, isNot(contains('- [ ] - Seeing')));
   });
