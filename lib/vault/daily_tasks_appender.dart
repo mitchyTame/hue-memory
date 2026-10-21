@@ -45,7 +45,7 @@ class DailyTasksAppender {
     base = _stripLegacyMarkers(base);
 
     if (interpreted.isEmpty) {
-      return base.trimRight().endsWith('\n') ? base.trimRight() + '\n' : '$base\n';
+      return '${base.trimRight()}\n';
     }
 
     final trimmed = base.trimRight();
