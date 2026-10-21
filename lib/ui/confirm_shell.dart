@@ -7,6 +7,7 @@ import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
 import '../theme/hue_atmosphere.dart';
 import '../theme/memory_hues.dart';
+import '../vault/daily_note_path.dart';
 import '../writers/link_writer.dart';
 import 'capture_region_overlay.dart';
 
@@ -64,12 +65,55 @@ class _ConfirmShellState extends State<ConfirmShell> {
         ? _router.routeById(widget.capture.symbolId)
         : _router.route(widget.capture.meaning.detectedGlyph);
     _selectedId = routed.symbol.id;
-    _titleController = TextEditingController(text: widget.capture.title);
+    _titleController = TextEditingController(
+      text: _initialTitle(routed.isDailyTasks),
+    );
     _bodyController = TextEditingController(text: widget.capture.noteBody);
     _regions = List<OcrRegion>.from(widget.capture.meaning.regions);
     _nodeControllers = [
       for (final r in _regions) TextEditingController(text: r.text),
     ];
+  }
+
+  String _captureDayIso() =>
+      DailyNoteDate.formatIso(widget.capture.capturedAt.toLocal());
+
+  /// Daily: title is the calendar day. Seed from capture when unset / invalid.
+  String _initialTitle(bool daily) {
+    final existing = widget.capture.title.trim();
+    if (daily) {
+      if (DailyNoteDate.tryParse(existing) != null) return existing;
+      return _captureDayIso();
+    }
+    return existing;
+  }
+
+  void _selectSymbol(String id) {
+    final wasDaily = _isDaily;
+    setState(() {
+      _selectedId = id;
+      if (_isDaily && !wasDaily) {
+        if (DailyNoteDate.tryParse(_titleController.text) == null) {
+          _titleController.text = _captureDayIso();
+        }
+      }
+    });
+  }
+
+  Future<void> _pickDailyDate() async {
+    if (widget.committing || !_isDaily) return;
+    final parsed = DailyNoteDate.tryParse(_titleController.text);
+    final initial = parsed ?? widget.capture.capturedAt.toLocal();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _titleController.text = DailyNoteDate.formatIso(picked);
+    });
   }
 
   @override
@@ -136,15 +180,29 @@ class _ConfirmShellState extends State<ConfirmShell> {
     });
   }
 
-  bool get _titleOk =>
-      _isDaily || _titleController.text.trim().isNotEmpty;
+  bool get _titleOk {
+    final title = _titleController.text.trim();
+    if (_isDaily) return DailyNoteDate.tryParse(title) != null;
+    return title.isNotEmpty;
+  }
 
   Future<void> _commit() async {
     final callback = widget.onCommit;
     if (callback == null || widget.committing) return;
     // Typed field only — never append OCR body, region ids, or draft hint.
     final title = _titleController.text.trim();
-    if (!_isDaily && title.isEmpty) {
+    if (_isDaily) {
+      final day = DailyNoteDate.tryParse(title);
+      if (day == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Set the daily date (YYYY-MM-DD or 19 Oct \'26)'),
+            backgroundColor: MemoryHues.danger,
+          ),
+        );
+        return;
+      }
+    } else if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Type a title / filename before saving'),
@@ -168,9 +226,12 @@ class _ConfirmShellState extends State<ConfirmShell> {
         }
       }
     }
+    final commitTitle = _isDaily
+        ? DailyNoteDate.formatIso(DailyNoteDate.tryParse(title)!)
+        : title;
     await callback(
       symbolId: _selectedId,
-      title: _isDaily ? (title.isEmpty ? 'daily' : title) : title,
+      title: commitTitle,
       noteBody: _bodyController.text,
       links: const [],
       inkGhost: _isCanvas ? _inkGhost : true,
@@ -252,8 +313,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     ? 'Vision is a draft — edit labels in the list '
                                         '(not on the photo). Title becomes the filename.'
                                     : _isDaily
-                                        ? 'Date titles the daily file. OCR text is saved as written — '
-                                            'title is used if you switch to another symbol.'
+                                        ? 'Set the daily date — that titles the file. '
+                                            'OCR text is saved as written.'
                                         : 'Title becomes the filename. OCR text is saved as written.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,
@@ -267,17 +328,27 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                 onChanged: (_) => setState(() {}),
                                 decoration: InputDecoration(
                                   labelText: _isDaily
-                                      ? 'Title / filename (for other symbols)'
+                                      ? 'Daily date (YYYY-MM-DD)'
                                       : 'Title / filename (required)',
-                                  hintText: widget
-                                          .capture.draftTitleSuggestion
-                                          .isEmpty
-                                      ? null
-                                      : 'Draft: ${widget.capture.draftTitleSuggestion}',
+                                  hintText: _isDaily
+                                      ? _captureDayIso()
+                                      : (widget.capture.draftTitleSuggestion
+                                              .isEmpty
+                                          ? null
+                                          : 'Draft: ${widget.capture.draftTitleSuggestion}'),
                                   border: const OutlineInputBorder(),
                                   errorText: _titleOk || widget.committing
                                       ? null
-                                      : 'Required before save',
+                                      : (_isDaily
+                                          ? 'Valid date required'
+                                          : 'Required before save'),
+                                  suffixIcon: _isDaily && !widget.committing
+                                      ? IconButton(
+                                          tooltip: 'Pick date',
+                                          icon: const Icon(Icons.calendar_today),
+                                          onPressed: _pickDailyDate,
+                                        )
+                                      : null,
                                 ),
                               ),
                               const SizedBox(height: 12),
@@ -298,9 +369,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                       selected: selected,
                                       onSelected: widget.committing
                                           ? null
-                                          : (_) => setState(
-                                                () => _selectedId = s.id,
-                                              ),
+                                          : (_) => _selectSymbol(s.id),
                                       selectedColor: MemoryHues.accentSoft,
                                       side: BorderSide(
                                         color: selected
