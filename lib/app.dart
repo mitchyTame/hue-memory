@@ -25,6 +25,7 @@ import 'ocr/ocr_settings.dart';
 import 'settings/vault_settings_store.dart';
 import 'symbols/active_pack_store.dart';
 import 'symbols/default_packs.dart';
+import 'symbols/pack_editor.dart';
 import 'symbols/symbol_models.dart';
 import 'symbols/symbol_router.dart';
 import 'theme/app_theme.dart';
@@ -335,7 +336,11 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   Future<void> _savePackEdits(SymbolPack pack) async {
     final vault = _vault;
     await _packStore.savePackEdits(pack, vault: vault);
-    setState(() => _activePack = pack);
+    final packs = await _packStore.availablePacks();
+    setState(() {
+      _availablePacks = packs;
+      _activePack = pack;
+    });
   }
 
   @override
@@ -376,6 +381,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               onSelectPack: _selectPack,
               onSaveCustomPack: _saveCustomPack,
               onSavePackEdits: _savePackEdits,
+              loadBasePack: _packStore.basePackFor,
             ),
     );
   }
@@ -443,6 +449,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onSelectPack,
     required this.onSaveCustomPack,
     required this.onSavePackEdits,
+    required this.loadBasePack,
   });
 
   final VaultFs vault;
@@ -467,6 +474,7 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function(SymbolPack pack) onSelectPack;
   final Future<void> Function(SymbolPack pack) onSaveCustomPack;
   final Future<void> Function(SymbolPack pack) onSavePackEdits;
+  final Future<SymbolPack> Function(String packId) loadBasePack;
 
   @override
   State<_HomeNavigator> createState() => _HomeNavigatorState();
@@ -495,6 +503,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   bool _busy = false;
   bool _committing = false;
   _SettingsPane? _settingsPane;
+  Future<SymbolPack>? _libraryBaseFuture;
   bool _settingsBusy = false;
   bool _showPromote = false;
   bool _promoteBusy = false;
@@ -1381,8 +1390,11 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             activePackId: widget.activePack.id,
             busy: _settingsBusy,
             onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
-            onOpenLibrary: () =>
-                setState(() => _settingsPane = _SettingsPane.library),
+            onOpenLibrary: () => setState(() {
+                  _libraryBaseFuture =
+                      widget.loadBasePack(widget.activePack.id);
+                  _settingsPane = _SettingsPane.library;
+                }),
             onOpenFolders: () =>
                 setState(() => _settingsPane = _SettingsPane.folders),
             onSelect: (pack) async {
@@ -1409,31 +1421,48 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             },
           );
         case _SettingsPane.library:
-          SymbolPack custom = DefaultPacks.blankCustom;
-          for (final p in widget.availablePacks) {
-            if (p.id == 'blank-custom') {
-              custom = p;
-              break;
-            }
-          }
-          return LibraryEditorShell(
-            pack: custom,
-            busy: _settingsBusy,
-            onBack: () => setState(() => _settingsPane = _SettingsPane.symbols),
-            onSave: (pack) async {
-              final messenger = ScaffoldMessenger.of(context);
-              setState(() => _settingsBusy = true);
-              await widget.onSaveCustomPack(pack);
-              if (!mounted) return;
-              setState(() {
-                _settingsBusy = false;
-                _settingsPane = _SettingsPane.symbols;
-              });
-              messenger.showSnackBar(
-                const SnackBar(
-                  content: Text('Custom pack saved'),
-                  backgroundColor: MemoryHues.accent,
-                ),
+          return FutureBuilder<SymbolPack>(
+            future: _libraryBaseFuture ??=
+                widget.loadBasePack(widget.activePack.id),
+            builder: (context, snap) {
+              if (!snap.hasData) {
+                return const Scaffold(
+                  backgroundColor: MemoryHues.paper,
+                  body: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final base = snap.data!;
+              return LibraryEditorShell(
+                pack: widget.activePack,
+                basePack: base,
+                busy: _settingsBusy,
+                onBack: () =>
+                    setState(() => _settingsPane = _SettingsPane.symbols),
+                onSave: (pack) async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  setState(() => _settingsBusy = true);
+                  // Additive extras on the active pack (prefs-only).
+                  if (pack.id == PackEditor.customPackId) {
+                    await widget.onSaveCustomPack(pack);
+                  } else {
+                    await widget.onSavePackEdits(pack);
+                  }
+                  if (!mounted) return;
+                  setState(() {
+                    _settingsBusy = false;
+                    _settingsPane = _SettingsPane.symbols;
+                  });
+                  _pipeline = _buildPipeline(widget.vault, pack);
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'Saved ${pack.displayName} '
+                        '(${pack.symbols.length} symbols)',
+                      ),
+                      backgroundColor: MemoryHues.accent,
+                    ),
+                  );
+                },
               );
             },
           );

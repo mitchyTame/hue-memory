@@ -42,13 +42,14 @@ class SymbolsSettingsShell extends StatelessWidget {
         children: [
           Text(
             'Active pack maps circled ink icons to vault folders. '
-            'Bundled packs load from assets; Blank custom is edited from the library.',
+            'Extend the active pack from the symbol library — defaults stay, '
+            'extras are additive. Pack config stays in the app (not the vault).',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 12),
           FilledButton.tonal(
             onPressed: busy ? null : onOpenLibrary,
-            child: const Text('Edit ink library / custom pack'),
+            child: const Text('Symbol library — add extras'),
           ),
           const SizedBox(height: 8),
           OutlinedButton(

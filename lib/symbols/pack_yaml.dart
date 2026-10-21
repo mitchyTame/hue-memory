@@ -44,7 +44,53 @@ class PackYaml {
     );
   }
 
-  /// Serialize a pack to YAML text (vault mirror).
+  /// Serialize a list of extra (user-added) symbols — no pack wrapper.
+  String encodeExtras(List<PackSymbol> extras) {
+    if (extras.isEmpty) return 'extras: []\n';
+    final buffer = StringBuffer()..writeln('extras:');
+    for (final s in extras) {
+      buffer
+        ..writeln('  - id: ${s.id}')
+        ..writeln('    draw: ${s.draw}')
+        ..writeln('    glyphs: [${s.glyphs.map(_yamlString).join(', ')}]');
+      if (s.folder != null) {
+        buffer.writeln('    folder: ${s.folder}');
+      }
+      buffer.writeln('    output: ${_outputToYaml(s.output)}');
+      if (s.section != null) {
+        buffer.writeln('    section: ${_yamlString(s.section!)}');
+      }
+      if (s.reviewGate != null) {
+        buffer.writeln('    review_gate: ${s.reviewGate}');
+      }
+    }
+    return buffer.toString();
+  }
+
+  /// Parse [encodeExtras] output (or empty → `[]`).
+  List<PackSymbol> parseExtras(String yamlSource) {
+    final trimmed = yamlSource.trim();
+    if (trimmed.isEmpty) return const [];
+    final doc = loadYaml(trimmed);
+    if (doc is! YamlMap) {
+      throw FormatException('Extras YAML root must be a map');
+    }
+    final raw = doc['extras'];
+    if (raw == null) return const [];
+    if (raw is! YamlList) {
+      throw FormatException('extras must be a list');
+    }
+    final out = <PackSymbol>[];
+    for (final item in raw) {
+      if (item is! YamlMap) {
+        throw FormatException('Each extra must be a map');
+      }
+      out.add(_parseSymbol(item));
+    }
+    return out;
+  }
+
+  /// Serialize a pack to YAML text (prefs mirror — never the vault).
   String encode(SymbolPack pack) {
     final buffer = StringBuffer()
       ..writeln('id: ${pack.id}')
