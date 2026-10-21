@@ -24,6 +24,7 @@ class CommitInput {
     required this.noteBody,
     this.links = const [],
     this.taskLines,
+    this.dailyMarkdown,
     this.inkGhost = true,
     this.regions,
     @Deprecated('Personal v2: Mitch links in Obsidian — ignored on commit')
@@ -38,8 +39,14 @@ class CommitInput {
   /// Unused on commit (kept for API compat). Links are not written to vault.
   final List<LinkPick> links;
 
-  /// Overrides [PendingCapture.taskLines] when non-null (daily-tasks).
+  /// Overrides daily markdown when non-null (daily-tasks).
+  ///
+  /// Prefer [dailyMarkdown] (structured OCR / confirm body). When only
+  /// [taskLines] is set, lines are joined and interpreted the same way.
   final List<String>? taskLines;
+
+  /// Structured daily-note body (OCR / confirm). Preferred over [taskLines].
+  final String? dailyMarkdown;
 
   /// Visual / canvas only — page photo under editable nodes (default on).
   final bool inkGhost;
@@ -137,10 +144,29 @@ class CommitPipeline {
       );
       final existing =
           await _vault.exists(dailyPath) ? await _vault.readText(dailyPath) : null;
-      final tasks = input.taskLines ?? capture.taskLines;
+      // Prefer structured markdown (OCR / confirm). Explicit [taskLines] still
+      // wins over capture defaults for legacy callers / tests.
+      final explicitMd = input.dailyMarkdown?.trim();
+      final bodyMd = input.noteBody.trim();
+      final String? markdown;
+      final List<String>? tasks;
+      if (explicitMd != null && explicitMd.isNotEmpty) {
+        markdown = explicitMd;
+        tasks = null;
+      } else if (input.taskLines != null) {
+        markdown = null;
+        tasks = input.taskLines;
+      } else if (bodyMd.isNotEmpty) {
+        markdown = bodyMd;
+        tasks = null;
+      } else {
+        markdown = null;
+        tasks = capture.taskLines;
+      }
       final body = _dailyAppender.apply(
         existingBody: existing,
         pageId: capture.pageId,
+        markdown: markdown,
         tasks: tasks,
         date: capture.capturedAt,
         sectionHeading: route.section ?? '## Tasks',

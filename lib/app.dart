@@ -960,13 +960,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           links: links,
           inkGhost: inkGhost,
           regions: regions,
-          taskLines: symbolId == 'daily-tasks'
-              ? noteBody
-                  .split('\n')
-                  .map((l) => l.trim())
-                  .where((l) => l.isNotEmpty)
-                  .toList()
-              : null,
+          // Daily · pages: pass confirm body as structured markdown — do not
+          // split every line into a forced checkbox list.
+          dailyMarkdown: symbolId == 'daily-tasks' ? noteBody : null,
         ),
       );
 

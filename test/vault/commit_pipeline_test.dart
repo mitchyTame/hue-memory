@@ -295,7 +295,7 @@ void main() {
     expect(nodes.first['type'], 'text');
   });
 
-  test('daily-tasks appends checkboxes under ## Tasks', () async {
+  test('daily-tasks appends structured markdown under ## Tasks', () async {
     final capture = _capture(
       glyph: '·',
       regions: MockOcrClient.defaultTaskRegions,
@@ -305,8 +305,11 @@ void main() {
         capture: capture,
         symbolId: 'daily-tasks',
         title: 'Tasks',
-        noteBody: 'ignored for path',
-        taskLines: const ['Buy ink cartridges', 'Review fleeting notes'],
+        noteBody: 'ignored when taskLines set',
+        taskLines: const [
+          '- [ ] Buy ink cartridges',
+          '- [ ] Review fleeting notes',
+        ],
       ),
     );
 
@@ -316,6 +319,41 @@ void main() {
     expect(body, contains('- [ ] Buy ink cartridges'));
     expect(body, contains('<!-- symbol-journal:p7k2 -->'));
     expect(await vault.exists('captures/raw/20261016-p7k2.png'), isTrue);
+  });
+
+  test('daily-tasks preserves sections and nested bullets from noteBody', () async {
+    final capture = _capture(
+      glyph: '·',
+      regions: MockOcrClient.defaultTaskRegions,
+    );
+    const noteBody = '''
+19 Oct '26
+Important:
+- Seeing shanolin
+- License Management
+Notes:
+Worked on setting up the bare bare sewers. Did inventory review on all 3 platform sewers.
+Log:
+☉
+''';
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'daily-tasks',
+        title: 'Tasks',
+        noteBody: noteBody,
+        dailyMarkdown: noteBody,
+      ),
+    );
+
+    final body = await vault.readText(result.dailyNotePath!);
+    expect(body, contains('**Important:**'));
+    expect(body, contains('- Seeing shanolin'));
+    expect(body, contains('**Notes:**'));
+    expect(body, contains('Worked on setting up the bare bare sewers'));
+    expect(body, contains('**Log:**'));
+    expect(body, isNot(contains('- [ ] Important')));
+    expect(body, isNot(contains('- [ ] - Seeing')));
   });
 
   test('fileStemFromTitle keeps typed name — no pageId suffix', () {
