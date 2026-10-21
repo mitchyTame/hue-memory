@@ -9,8 +9,8 @@ import '../vision/page_region.dart';
 
 /// Transparent OCR-region overlay on the confirm photo preview.
 ///
-/// Green box = manual crop used for OCR; muted whole-page frame when skipped.
-/// Never baked into vault bytes.
+/// Teal accent box = manual crop used for OCR; muted whole-page frame when
+/// skipped. Never baked into vault bytes.
 class CaptureRegionOverlay extends StatefulWidget {
   const CaptureRegionOverlay({
     super.key,
@@ -121,26 +121,23 @@ class _RegionFeedbackPainter extends CustomPainter {
   final Rect contentRect;
   final CaptureRegionFeedback feedback;
 
-  static const _green = Color(0xFF2E8B57);
-  static const _muted = Color(0xFF5A6B86);
-
   @override
   void paint(Canvas canvas, Size size) {
     final region = feedback.ocrRegion;
     if (region != null) {
-      _paintRegion(canvas, region, color: _green, active: true);
-      _paintBadge(canvas, 'Region OCR', color: _green);
+      _paintRegion(canvas, region, color: MemoryHues.accent, active: true);
+      _paintBadge(canvas, 'Region OCR', color: MemoryHues.accent);
       return;
     }
 
     // Whole page — optional skip, not an error.
     final stroke = Paint()
-      ..color = _muted.withValues(alpha: 0.85)
+      ..color = MemoryHues.inkMuted.withValues(alpha: 0.85)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     final inset = contentRect.deflate(6);
     canvas.drawRect(inset, stroke);
-    _paintBadge(canvas, 'Whole page OCR', color: _muted);
+    _paintBadge(canvas, 'Whole page OCR', color: MemoryHues.inkMuted);
   }
 
   void _paintRegion(

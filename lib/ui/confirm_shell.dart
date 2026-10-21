@@ -5,6 +5,7 @@ import '../ocr/ocr_client.dart';
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
+import '../theme/hue_atmosphere.dart';
 import '../theme/memory_hues.dart';
 import '../writers/link_writer.dart';
 import 'capture_region_overlay.dart';
@@ -183,8 +184,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
     final symbols = widget.pack.symbols;
     final route = _router.routeById(_selectedId);
 
-    return Scaffold(
-      backgroundColor: MemoryHues.ink,
+    return HueFieldScaffold(
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -226,6 +226,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                   flex: sheetFlex,
                   child: Material(
                     color: MemoryHues.paperElevated,
+                    surfaceTintColor: Colors.transparent,
                     borderRadius: const BorderRadius.vertical(
                       top: Radius.circular(16),
                     ),

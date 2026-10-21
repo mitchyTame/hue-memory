@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
@@ -114,40 +113,33 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
 
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: MemoryHues.fieldDeep,
-        systemNavigationBarColor: MemoryHues.fieldDeep,
-      ),
-      child: Scaffold(
-        backgroundColor: MemoryHues.fieldDeep,
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final maxW = constraints.maxWidth;
-            final maxH = constraints.maxHeight;
-            final ar = session?.previewAspectRatio ?? 3 / 4;
+    return HueFieldScaffold(
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final maxW = constraints.maxWidth;
+          final maxH = constraints.maxHeight;
+          final ar = session?.previewAspectRatio ?? 3 / 4;
 
-            // Natural letterbox inside the shared atmosphere field.
-            var previewW = maxW;
-            var previewH = previewW / ar;
-            if (previewH > maxH) {
-              previewH = maxH;
-              previewW = previewH * ar;
-            }
+          // Natural letterbox inside the shared atmosphere field.
+          var previewW = maxW;
+          var previewH = previewW / ar;
+          if (previewH > maxH) {
+            previewH = maxH;
+            previewW = previewH * ar;
+          }
 
-            final shutterSize = landscape
-                ? (maxH < 360 ? 56.0 : 64.0)
-                : (maxH < 640 ? 64.0 : 72.0);
-            // Soft scrims for control readability — same ink family, not ribbons.
-            final railH = landscape
-                ? (maxH * 0.12).clamp(28.0, 48.0)
-                : (maxH * 0.1).clamp(40.0, 72.0);
+          final shutterSize = landscape
+              ? (maxH < 360 ? 56.0 : 64.0)
+              : (maxH < 640 ? 64.0 : 72.0);
+          // Soft scrims for control readability — same ink family, not ribbons.
+          final railH = landscape
+              ? (maxH * 0.12).clamp(28.0, 48.0)
+              : (maxH * 0.1).clamp(40.0, 72.0);
 
-            return Stack(
-              fit: StackFit.expand,
-              children: [
-                const HueAtmosphere(),
-                Center(
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
                   child: SizedBox(
                     width: previewW,
                     height: previewH,
@@ -322,10 +314,9 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                     ],
                   ),
                 ),
-              ],
-            );
-          },
-        ),
+            ],
+          );
+        },
       ),
     );
   }

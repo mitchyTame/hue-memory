@@ -14,14 +14,19 @@ abstract final class AppTheme {
       onSurface: MemoryHues.ink,
       primary: MemoryHues.accent,
       onPrimary: MemoryHues.paperElevated,
+      primaryContainer: MemoryHues.accentSoft,
+      onPrimaryContainer: MemoryHues.ink,
       secondary: MemoryHues.recall,
       onSecondary: MemoryHues.ink,
+      secondaryContainer: MemoryHues.recallSoft,
+      onSecondaryContainer: MemoryHues.ink,
       tertiary: MemoryHues.inkMuted,
       onTertiary: MemoryHues.paperElevated,
       error: MemoryHues.danger,
       onError: MemoryHues.paperElevated,
       outline: MemoryHues.rule,
       surfaceContainerHighest: MemoryHues.paperElevated,
+      surfaceTint: MemoryHues.paper,
     );
 
     final TextTheme plex;
@@ -97,12 +102,16 @@ abstract final class AppTheme {
       colorScheme: colorScheme,
       scaffoldBackgroundColor: MemoryHues.paper,
       textTheme: textTheme,
+      // Kill Material 3 surface-tint so AppBars / sheets stay paper, not blue.
+      applyElevationOverlayColor: false,
       appBarTheme: AppBarTheme(
         backgroundColor: MemoryHues.paper,
         foregroundColor: MemoryHues.ink,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         titleTextStyle: textTheme.headlineMedium?.copyWith(fontSize: 22),
+        iconTheme: const IconThemeData(color: MemoryHues.ink),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
@@ -123,6 +132,80 @@ abstract final class AppTheme {
         thickness: 1,
         space: 1,
       ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: MemoryHues.accent,
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: MemoryHues.accent),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: MemoryHues.accent,
+          side: const BorderSide(color: MemoryHues.rule),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: MemoryHues.paperElevated,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: MemoryHues.rule),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: MemoryHues.rule),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: MemoryHues.accent, width: 1.5),
+        ),
+        labelStyle: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: MemoryHues.paperElevated,
+        surfaceTintColor: Colors.transparent,
+        modalBackgroundColor: MemoryHues.paperElevated,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: MemoryHues.paperElevated,
+        surfaceTintColor: Colors.transparent,
+        titleTextStyle: textTheme.titleLarge,
+        contentTextStyle: textTheme.bodyMedium,
+      ),
+      snackBarTheme: const SnackBarThemeData(
+        backgroundColor: MemoryHues.ink,
+        contentTextStyle: TextStyle(color: MemoryHues.paperElevated),
+        behavior: SnackBarBehavior.floating,
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return MemoryHues.accent;
+          }
+          return MemoryHues.inkMuted;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return MemoryHues.accentSoft;
+          }
+          return MemoryHues.rule;
+        }),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return MemoryHues.accent;
+          }
+          return Colors.transparent;
+        }),
+        checkColor: const WidgetStatePropertyAll(MemoryHues.paperElevated),
+        side: const BorderSide(color: MemoryHues.rule, width: 1.5),
+      ),
+      listTileTheme: const ListTileThemeData(
+        iconColor: MemoryHues.inkMuted,
+        textColor: MemoryHues.ink,
+      ),
+      iconTheme: const IconThemeData(color: MemoryHues.ink),
       extensions: const <ThemeExtension<dynamic>>[
         MemoryHuesExtension(),
       ],
