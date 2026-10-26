@@ -343,6 +343,17 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
+  Future<void> _restoreRemovedDefaults() async {
+    final restored =
+        await _packStore.restoreRemovedDefaults(_activePack.id);
+    final packs = await _packStore.availablePacks();
+    setState(() {
+      _availablePacks = packs;
+      _activePack = restored;
+    });
+    _syncCameraPack();
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -381,6 +392,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               onSelectPack: _selectPack,
               onSaveCustomPack: _saveCustomPack,
               onSavePackEdits: _savePackEdits,
+              onRestoreRemovedDefaults: _restoreRemovedDefaults,
               loadBasePack: _packStore.basePackFor,
             ),
     );
@@ -449,6 +461,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onSelectPack,
     required this.onSaveCustomPack,
     required this.onSavePackEdits,
+    required this.onRestoreRemovedDefaults,
     required this.loadBasePack,
   });
 
@@ -474,6 +487,7 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function(SymbolPack pack) onSelectPack;
   final Future<void> Function(SymbolPack pack) onSaveCustomPack;
   final Future<void> Function(SymbolPack pack) onSavePackEdits;
+  final Future<void> Function() onRestoreRemovedDefaults;
   final Future<SymbolPack> Function(String packId) loadBasePack;
 
   @override
@@ -631,34 +645,33 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     try {
       final shot = await source.capturePage();
       try {
-        if (shot.symbolId == 'visual' || geminiCfg.shouldUseLive) {
+        final router = SymbolRouter(pack: widget.activePack);
+        final chipVisual = router.isVisualSymbol(shot.symbolId);
+        if (chipVisual || geminiCfg.shouldUseLive) {
           setState(() {
-            _captureStatus = shot.symbolId == 'visual'
-                ? 'Gemini Flash diagram…'
-                : 'Routing capture…';
+            _captureStatus =
+                chipVisual ? 'Gemini Flash diagram…' : 'Routing capture…';
           });
         }
         // Optional manual OCR crop (not routing). Skip → whole page.
         final prep = await _prepareOcrCapture(
           shot.imageBytes,
-          forceDiagram: shot.symbolId == 'visual',
+          forceDiagram: chipVisual,
         );
         final coordinated = await _coordinator.run(
           imageBytes: prep.bytes,
           extensionHint: shot.imageExtension,
           forcedSymbolId: shot.symbolId.isNotEmpty ? shot.symbolId : null,
+          forceDiagram: chipVisual,
         );
         final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
         final meaning = coordinated.meaning;
-        final router = SymbolRouter(pack: widget.activePack);
-        // Camera chip wins; else △ for diagram; else OCR glyph.
+        // Camera chip wins; else pack visual/canvas fallback; else OCR glyph.
         final RouteResult routed;
         if (shot.symbolId.isNotEmpty) {
           routed = router.routeById(shot.symbolId);
-        } else if (coordinated.isDiagram) {
-          routed = router.routeById('visual');
-        } else if (coordinated.isPhotoOnly) {
-          routed = router.routeById('visual');
+        } else if (coordinated.isDiagram || coordinated.isPhotoOnly) {
+          routed = router.routeVisualFallback();
         } else {
           routed = router.route(meaning.detectedGlyph);
         }
@@ -809,23 +822,25 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     try {
       final bytes = await widget.captureQueue.readImage(job.id);
       final forced = job.forcedSymbolId;
+      final router = SymbolRouter(pack: widget.activePack);
+      final chipVisual = router.isVisualSymbol(forced);
       final prep = await _prepareOcrCapture(
         bytes,
-        forceDiagram: forced == 'visual',
+        forceDiagram: chipVisual,
       );
       final coordinated = await _coordinator.run(
         imageBytes: prep.bytes,
         extensionHint: job.imageExtension,
         forcedSymbolId: forced,
+        forceDiagram: chipVisual,
       );
       final pageId = widget.pageIds.generate(at: job.capturedAt.toLocal());
       final meaning = coordinated.meaning;
-      final router = SymbolRouter(pack: widget.activePack);
       final RouteResult routed;
       if (forced != null && forced.isNotEmpty) {
         routed = router.routeById(forced);
       } else if (coordinated.isDiagram || coordinated.isPhotoOnly) {
-        routed = router.routeById('visual');
+        routed = router.routeVisualFallback();
       } else {
         routed = router.route(meaning.detectedGlyph);
       }
@@ -1397,6 +1412,19 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
                 }),
             onOpenFolders: () =>
                 setState(() => _settingsPane = _SettingsPane.folders),
+            onRestoreDefaults: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              setState(() => _settingsBusy = true);
+              await widget.onRestoreRemovedDefaults();
+              if (!mounted) return;
+              setState(() => _settingsBusy = false);
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Removed defaults restored'),
+                  backgroundColor: MemoryHues.accent,
+                ),
+              );
+            },
             onSelect: (pack) async {
               setState(() => _settingsBusy = true);
               await widget.onSelectPack(pack);

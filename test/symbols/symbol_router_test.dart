@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hue_memory/symbols/default_packs.dart';
+import 'package:hue_memory/symbols/pack_editor.dart';
 import 'package:hue_memory/symbols/symbol_models.dart';
 import 'package:hue_memory/symbols/symbol_router.dart';
 
@@ -61,5 +62,33 @@ void main() {
 
   test('permanent has own_words review gate', () {
     expect(router.route('◇').symbol.reviewGate, 'own_words');
+  });
+
+  test('isVisualSymbol follows pack capture type (canvas output)', () {
+    expect(router.isVisualSymbol('visual'), isTrue);
+    expect(router.isVisualSymbol('journal'), isFalse);
+    final journalVisual = PackEditor.withCaptureType(
+      DefaultPacks.zettelkastenInk.byId('journal')!,
+      SymbolCaptureType.visual,
+    );
+    final pack = PackEditor.updateSymbol(
+      DefaultPacks.zettelkastenInk,
+      journalVisual,
+    );
+    final typed = SymbolRouter(pack: pack);
+    expect(typed.isVisualSymbol('journal'), isTrue);
+    expect(typed.routeById('journal').isCanvas, isTrue);
+  });
+
+  test('routeVisualFallback uses first canvas symbol when visual removed', () {
+    final base = DefaultPacks.zettelkastenInk;
+    final journalVisual = PackEditor.withCaptureType(
+      base.byId('journal')!,
+      SymbolCaptureType.visual,
+    );
+    var pack = PackEditor.updateSymbol(base, journalVisual);
+    pack = PackEditor.removeSymbol(pack, 'visual');
+    final typed = SymbolRouter(pack: pack);
+    expect(typed.routeVisualFallback().symbol.id, 'journal');
   });
 }
