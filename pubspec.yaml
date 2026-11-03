@@ -42,7 +42,7 @@ dependencies:
   file_picker: ^13.1.0
   http: ^1.6.0
   saf: ^2.1.2
-  camera: ^0.12.1
+  camera: ^0.12.2
   yaml: ^3.1.4
   pdf: ^3.13.1
   flutter_secure_storage: ^11.2.0
