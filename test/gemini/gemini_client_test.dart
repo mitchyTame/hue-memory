@@ -32,4 +32,29 @@ void main() {
     expect(client.diagramModel, GeminiSettings.defaultModel);
     expect(client.model, 'gemini-3.5-flash-lite');
   });
+
+  test('Enhanced Bot Mode prompt bakes all typed prefixes', () {
+    final prompt = GeminiClient.enhancedBotCanvasPrompt;
+    for (final prefix in GeminiClient.enhancedBotTypedPrefixes) {
+      expect(prompt, contains(prefix));
+    }
+    expect(prompt.toLowerCase(), contains('do not invent a photo/file node'));
+    expect(
+      GeminiClient.enhancedBotTypedPrefixes,
+      containsAll([
+        '[META]',
+        '[SUMMARY]',
+        '[EVENT]',
+        '[REMINDER]',
+        '[TASK]',
+        '[NOTE]',
+        '[QUESTION]',
+        '[READING]',
+        '[EMAIL]',
+        '[DONE]',
+        '[DIAGRAM]',
+        '[FLOW]',
+      ]),
+    );
+  });
 }

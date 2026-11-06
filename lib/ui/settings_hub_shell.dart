@@ -4,8 +4,9 @@ import '../theme/memory_hues.dart';
 
 /// Simple settings list — vault + OCR + Gemini (one job each via drill-in).
 ///
-/// When [botAgentEnabled] is true, OCR / Gemini / Symbols / Paper kit /
-/// Promote are hidden so Settings stays scan-to-inbox focused.
+/// When [botAgentEnabled] is true, OCR / Symbols / Paper kit / Promote are
+/// hidden; Vault + Bot agent + Gemini stay so the inbox canvas path can use
+/// a live key.
 class SettingsHubShell extends StatelessWidget {
   const SettingsHubShell({
     super.key,
@@ -61,7 +62,7 @@ class SettingsHubShell extends StatelessWidget {
           ListTile(
             title: Text('How to use', style: textTheme.titleLarge),
             subtitle: Text(
-              botOn ? 'Scan → inbox folder' : 'Paper → confirm → vault',
+              botOn ? 'Scan → inbox .canvas' : 'Paper → confirm → vault',
               style: textTheme.labelMedium,
             ),
             trailing: const Icon(Icons.chevron_right),
@@ -81,6 +82,13 @@ class SettingsHubShell extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: onOpenBotAgent,
           ),
+          const Divider(height: 1),
+          ListTile(
+            title: Text('Gemini', style: textTheme.titleLarge),
+            subtitle: Text(geminiModeLabel, style: textTheme.labelMedium),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: onOpenGemini,
+          ),
           if (!botOn) ...[
             const Divider(height: 1),
             ListTile(
@@ -88,13 +96,6 @@ class SettingsHubShell extends StatelessWidget {
               subtitle: Text(ocrModeLabel, style: textTheme.labelMedium),
               trailing: const Icon(Icons.chevron_right),
               onTap: onOpenOcr,
-            ),
-            const Divider(height: 1),
-            ListTile(
-              title: Text('Gemini', style: textTheme.titleLarge),
-              subtitle: Text(geminiModeLabel, style: textTheme.labelMedium),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: onOpenGemini,
             ),
             const Divider(height: 1),
             ListTile(
