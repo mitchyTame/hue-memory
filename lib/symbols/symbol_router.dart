@@ -81,6 +81,40 @@ class SymbolRouter {
     );
   }
 
+  /// First canvas/visual symbol in the pack, else inbox fallback.
+  ///
+  /// Used when the coordinator classifies a diagram but no chip was forced
+  /// (and the default `visual` id may have been removed).
+  RouteResult routeVisualFallback() {
+    final visual = pack.byId('visual');
+    if (visual != null) {
+      return RouteResult(
+        symbol: visual,
+        output: visual.output,
+        folder: visual.folder,
+        section: visual.section,
+      );
+    }
+    for (final s in pack.symbols) {
+      if (s.isVisualCapture) {
+        return RouteResult(
+          symbol: s,
+          output: s.output,
+          folder: s.folder,
+          section: s.section,
+        );
+      }
+    }
+    return route('○');
+  }
+
+  /// Whether [symbolId] is configured for the visual/diagram pipeline.
+  bool isVisualSymbol(String? symbolId) {
+    if (symbolId == null || symbolId.isEmpty) return false;
+    final s = pack.byId(symbolId);
+    return s?.isVisualCapture ?? false;
+  }
+
   /// Relative note folder under the vault root (caller adds slug + ext).
   ///
   /// Normalized — no leading slash doubling, no accidental `hue-memory/` /

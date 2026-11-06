@@ -50,6 +50,22 @@ void main() {
       expect(result.isTextPage, isTrue);
       expect(ocr.callCount, 1);
     });
+
+    test('forceDiagram from capture type drives diagram even for journal id',
+        () async {
+      final ocr = MockOcrClient(glyph: 'J');
+      final coord = CaptureCoordinator(
+        geminiSettings: MemoryGeminiSettingsStore(),
+        ocr: ocr,
+      );
+      final result = await coord.run(
+        imageBytes: Uint8List.fromList([7]),
+        forcedSymbolId: 'journal',
+        forceDiagram: true,
+      );
+      expect(result.isDiagram, isTrue);
+      expect(ocr.callCount, 0);
+    });
   });
 
   test('CaptureClass.wireName stable for routing debug', () {

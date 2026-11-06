@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../theme/memory_hues.dart';
 
 /// Simple settings list — vault + OCR + Gemini (one job each via drill-in).
+///
+/// When [botAgentEnabled] is true, OCR / Gemini / Symbols / Paper kit /
+/// Promote are hidden so Settings stays scan-to-inbox focused.
 class SettingsHubShell extends StatelessWidget {
   const SettingsHubShell({
     super.key,
@@ -10,6 +13,8 @@ class SettingsHubShell extends StatelessWidget {
     required this.ocrModeLabel,
     required this.packLabel,
     this.geminiModeLabel = 'Gemini: off',
+    this.botAgentEnabled = false,
+    this.botAgentLabel = 'Bot agent: off',
     this.onOpenVault,
     this.onOpenOcr,
     this.onOpenGemini,
@@ -17,6 +22,7 @@ class SettingsHubShell extends StatelessWidget {
     this.onOpenPaperKit,
     this.onOpenPromote,
     this.onOpenGuide,
+    this.onOpenBotAgent,
     this.onBack,
   });
 
@@ -24,6 +30,8 @@ class SettingsHubShell extends StatelessWidget {
   final String ocrModeLabel;
   final String packLabel;
   final String geminiModeLabel;
+  final bool botAgentEnabled;
+  final String botAgentLabel;
   final VoidCallback? onOpenVault;
   final VoidCallback? onOpenOcr;
   final VoidCallback? onOpenGemini;
@@ -31,11 +39,13 @@ class SettingsHubShell extends StatelessWidget {
   final VoidCallback? onOpenPaperKit;
   final VoidCallback? onOpenPromote;
   final VoidCallback? onOpenGuide;
+  final VoidCallback? onOpenBotAgent;
   final VoidCallback? onBack;
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final botOn = botAgentEnabled;
 
     return Scaffold(
       backgroundColor: MemoryHues.paper,
@@ -51,7 +61,7 @@ class SettingsHubShell extends StatelessWidget {
           ListTile(
             title: Text('How to use', style: textTheme.titleLarge),
             subtitle: Text(
-              'Paper → confirm → vault',
+              botOn ? 'Scan → inbox folder' : 'Paper → confirm → vault',
               style: textTheme.labelMedium,
             ),
             trailing: const Icon(Icons.chevron_right),
@@ -66,45 +76,54 @@ class SettingsHubShell extends StatelessWidget {
           ),
           const Divider(height: 1),
           ListTile(
-            title: Text('OCR', style: textTheme.titleLarge),
-            subtitle: Text(ocrModeLabel, style: textTheme.labelMedium),
+            title: Text('Bot agent', style: textTheme.titleLarge),
+            subtitle: Text(botAgentLabel, style: textTheme.labelMedium),
             trailing: const Icon(Icons.chevron_right),
-            onTap: onOpenOcr,
+            onTap: onOpenBotAgent,
           ),
-          const Divider(height: 1),
-          ListTile(
-            title: Text('Gemini', style: textTheme.titleLarge),
-            subtitle: Text(geminiModeLabel, style: textTheme.labelMedium),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: onOpenGemini,
-          ),
-          const Divider(height: 1),
-          ListTile(
-            title: Text('Symbols', style: textTheme.titleLarge),
-            subtitle: Text(packLabel, style: textTheme.labelMedium),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: onOpenSymbols,
-          ),
-          const Divider(height: 1),
-          ListTile(
-            title: Text('Paper kit', style: textTheme.titleLarge),
-            subtitle: Text(
-              'A6 legend + hue-dot stickers',
-              style: textTheme.labelMedium,
+          if (!botOn) ...[
+            const Divider(height: 1),
+            ListTile(
+              title: Text('OCR', style: textTheme.titleLarge),
+              subtitle: Text(ocrModeLabel, style: textTheme.labelMedium),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenOcr,
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: onOpenPaperKit,
-          ),
-          const Divider(height: 1),
-          ListTile(
-            title: Text('Promote ritual', style: textTheme.titleLarge),
-            subtitle: Text(
-              '∼ fleeting → ◇ permanent',
-              style: textTheme.labelMedium,
+            const Divider(height: 1),
+            ListTile(
+              title: Text('Gemini', style: textTheme.titleLarge),
+              subtitle: Text(geminiModeLabel, style: textTheme.labelMedium),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenGemini,
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: onOpenPromote,
-          ),
+            const Divider(height: 1),
+            ListTile(
+              title: Text('Symbols', style: textTheme.titleLarge),
+              subtitle: Text(packLabel, style: textTheme.labelMedium),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenSymbols,
+            ),
+            const Divider(height: 1),
+            ListTile(
+              title: Text('Paper kit', style: textTheme.titleLarge),
+              subtitle: Text(
+                'A6 legend + hue-dot stickers',
+                style: textTheme.labelMedium,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenPaperKit,
+            ),
+            const Divider(height: 1),
+            ListTile(
+              title: Text('Promote ritual', style: textTheme.titleLarge),
+              subtitle: Text(
+                '∼ fleeting → ◇ permanent',
+                style: textTheme.labelMedium,
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenPromote,
+            ),
+          ],
         ],
       ),
     );

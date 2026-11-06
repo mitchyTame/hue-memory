@@ -35,8 +35,9 @@ class CoordinatedCapture {
 
 /// Coordinator → specialists (Gemini Flash classify / diagram, Mistral OCR).
 ///
-/// Symbol override: when [forcedSymbolId] is `visual`, never OCR-first —
-/// always take the diagram path.
+/// Symbol override: when [forceDiagram] is true (or legacy chip id `visual`),
+/// never OCR-first — always take the diagram path. Prefer passing
+/// [forceDiagram] from the pack symbol's capture type.
 class CaptureCoordinator {
   CaptureCoordinator({
     required this.geminiSettings,
@@ -54,18 +55,22 @@ class CaptureCoordinator {
   final ObsidianCanvasFromGemini _canvasParser;
   final MistralOcrImagePreparer? prepareImage;
 
-  /// [forcedSymbolId] from camera chip — `visual` forces diagram (no OCR).
+  /// [forceDiagram] from pack capture type / chip — skips OCR text path.
+  ///
+  /// Legacy: [forcedSymbolId] `visual` still forces diagram when
+  /// [forceDiagram] is omitted.
   Future<CoordinatedCapture> run({
     required Uint8List imageBytes,
     String? imageMimeType,
     String? extensionHint,
     String? forcedSymbolId,
+    bool? forceDiagram,
   }) async {
-    final forceDiagram = forcedSymbolId == 'visual';
+    final force = forceDiagram ?? (forcedSymbolId == 'visual');
     final geminiCfg = await geminiSettings.read();
 
     CaptureClass classification;
-    if (forceDiagram) {
+    if (force) {
       classification = CaptureClass.diagram;
     } else if (geminiCfg.shouldUseLive) {
       final client = _geminiFactory(geminiCfg);
@@ -95,7 +100,7 @@ class CaptureCoordinator {
           imageMimeType: imageMimeType,
           extensionHint: extensionHint,
           geminiCfg: geminiCfg,
-          forced: forceDiagram,
+          forced: force,
         );
       case CaptureClass.photoOnly:
         return _photoOnlyPath();

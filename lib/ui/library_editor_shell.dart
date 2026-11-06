@@ -7,9 +7,9 @@ import '../theme/memory_hues.dart';
 import '../vault/vault_paths.dart';
 import 'ink_glyph_painter.dart';
 
-/// Settings → Symbols → Library — pick glyphs, extend the active pack.
+/// Settings → Symbols → Library — pick glyphs, edit or remove active symbols.
 ///
-/// Defaults stay intact; user extras are additive and editable.
+/// Defaults and extras can be removed; re-add from the library to restore.
 class LibraryEditorShell extends StatefulWidget {
   const LibraryEditorShell({
     super.key,
@@ -83,6 +83,7 @@ class _LibraryEditorShellState extends State<LibraryEditorShell> {
         label: _label.text,
         folder: folderNorm ?? _folder.text.trim(),
         output: _output,
+        base: widget.basePack,
       );
       setState(() {
         _pack = PackEditor.addSymbol(_pack, extra);
@@ -134,17 +135,28 @@ class _LibraryEditorShellState extends State<LibraryEditorShell> {
     if (id == null) return;
     try {
       setState(() {
-        _pack = PackEditor.removeSymbol(
-          _pack,
-          id,
-          base: widget.basePack,
-        );
+        _pack = PackEditor.removeSymbol(_pack, id);
         _editingId = null;
         _message = PackSizeGuide.sizeMessage(_pack.symbols.length);
       });
     } catch (e) {
       setState(() => _message = '$e');
     }
+  }
+
+  void _cycleEditingType() {
+    final id = _editingId;
+    if (id == null) return;
+    final current = _pack.byId(id);
+    if (current == null || current.id == 'inbox') return;
+    final updated = PackEditor.cycleCaptureType(current);
+    setState(() {
+      _pack = PackEditor.updateSymbol(_pack, updated);
+      _output = updated.output;
+      if (updated.folder != null) {
+        _folder.text = updated.folder!;
+      }
+    });
   }
 
   Future<void> _save() async {
@@ -180,9 +192,10 @@ class _LibraryEditorShellState extends State<LibraryEditorShell> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           Text(
-            'Extend ${_pack.displayName} with glyphs from the library. '
-            'Defaults stay; extras get a label and vault folder '
-            '(e.g. Organising/Misc) and show on the camera chip row.',
+            'Extend ${_pack.displayName} from the library. Remove any symbol '
+            '(except inbox) — including defaults — to drop it from camera chips. '
+            'Re-add a removed default from the library to restore it. '
+            'Type (Text / Visual) drives OCR vs Canvas capture.',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           if (_message != null) ...[
@@ -326,6 +339,31 @@ class _LibraryEditorShellState extends State<LibraryEditorShell> {
               onChanged: (_) => _applyEdit(),
             ),
             const SizedBox(height: 8),
+            Row(
+              children: [
+                Text(
+                  'Capture type',
+                  style: textTheme.labelLarge?.copyWith(
+                    color: MemoryHues.inkMuted,
+                  ),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: widget.busy || editing.id == 'inbox'
+                      ? null
+                      : _cycleEditingType,
+                  style: TextButton.styleFrom(
+                    foregroundColor: editing.isVisualCapture
+                        ? MemoryHues.recall
+                        : MemoryHues.accent,
+                  ),
+                  child: Text(
+                    PackEditor.captureTypeLabel(editing.captureType),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             DropdownButtonFormField<SymbolOutput>(
               key: ValueKey('output-$_editingId-$_output'),
               initialValue: _output,
@@ -346,10 +384,14 @@ class _LibraryEditorShellState extends State<LibraryEditorShell> {
                       _applyEdit();
                     },
             ),
-            if (_isExtra(editing.id))
+            if (editing.id != 'inbox')
               TextButton(
                 onPressed: widget.busy ? null : _removeCurrent,
-                child: const Text('Remove from active pack'),
+                child: Text(
+                  _isExtra(editing.id)
+                      ? 'Remove from active pack'
+                      : 'Remove default from pack',
+                ),
               ),
           ],
           const SizedBox(height: 24),

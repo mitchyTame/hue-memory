@@ -12,6 +12,7 @@ class SymbolsSettingsShell extends StatelessWidget {
     required this.onSelect,
     this.onOpenLibrary,
     this.onOpenFolders,
+    this.onRestoreDefaults,
     this.onBack,
     this.busy = false,
   });
@@ -21,6 +22,7 @@ class SymbolsSettingsShell extends StatelessWidget {
   final ValueChanged<SymbolPack> onSelect;
   final VoidCallback? onOpenLibrary;
   final VoidCallback? onOpenFolders;
+  final VoidCallback? onRestoreDefaults;
   final VoidCallback? onBack;
   final bool busy;
 
@@ -41,21 +43,29 @@ class SymbolsSettingsShell extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           Text(
-            'Active pack maps circled ink icons to vault folders. '
-            'Extend the active pack from the symbol library — defaults stay, '
-            'extras are additive. Pack config stays in the app (not the vault).',
+            'Active pack maps circled ink icons to vault folders and capture '
+            'type (Text / Visual). Remove any symbol from folders or the '
+            'library; re-add from the library or restore defaults below. '
+            'Pack config stays in the app (not the vault).',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 12),
           FilledButton.tonal(
             onPressed: busy ? null : onOpenLibrary,
-            child: const Text('Symbol library — add extras'),
+            child: const Text('Symbol library — add or remove'),
           ),
           const SizedBox(height: 8),
           OutlinedButton(
             onPressed: busy ? null : onOpenFolders,
-            child: const Text('Vault folders per symbol'),
+            child: const Text('Folders & capture type'),
           ),
+          if (onRestoreDefaults != null) ...[
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: busy ? null : onRestoreDefaults,
+              child: const Text('Restore removed defaults'),
+            ),
+          ],
           const SizedBox(height: 16),
           for (final pack in packs) ...[
             Material(

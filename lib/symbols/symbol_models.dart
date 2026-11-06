@@ -6,6 +6,17 @@ enum SymbolOutput {
   dailyNoteAppend,
 }
 
+/// Capture pipeline for a symbol — text/OCR vs visual/diagram (Canvas).
+///
+/// Independent of vault folder: journal can be written prose or a mindmap.
+enum SymbolCaptureType {
+  /// Written text / OCR → markdown (or daily-note / inbox outputs).
+  text,
+
+  /// Visual / diagram → Canvas mindmap path.
+  visual,
+}
+
 /// One drawable ink glyph in the library (18 glyphs in full set).
 class DrawGlyph {
   const DrawGlyph({
@@ -46,6 +57,14 @@ class PackSymbol {
   final String? reviewGate;
 
   String get primaryGlyph => glyphs.isNotEmpty ? glyphs.first : '?';
+
+  /// Pipeline kind driven by [output] (`canvas` → visual, else text).
+  SymbolCaptureType get captureType =>
+      output == SymbolOutput.canvas
+          ? SymbolCaptureType.visual
+          : SymbolCaptureType.text;
+
+  bool get isVisualCapture => captureType == SymbolCaptureType.visual;
 }
 
 /// Named symbol pack (e.g. zettelkasten-ink).

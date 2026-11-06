@@ -16,6 +16,7 @@ class LiveCameraShell extends StatefulWidget {
     this.pack = DefaultPacks.zettelkastenInk,
     this.initialSymbolId = '',
     this.initialSymbolBox = SymbolBoxRect.defaultMeta,
+    this.botAgentMode = false,
   });
 
   /// Defaults to [PluginCameraSession]. Inject [FakeCameraSession] in tests.
@@ -23,6 +24,9 @@ class LiveCameraShell extends StatefulWidget {
   final SymbolPack pack;
   final String initialSymbolId;
   final SymbolBoxRect initialSymbolBox;
+
+  /// Hide symbol chips / pack routing — scan-to-inbox only.
+  final bool botAgentMode;
 
   @override
   State<LiveCameraShell> createState() => _LiveCameraShellState();
@@ -109,7 +113,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
     final textTheme = Theme.of(context).textTheme;
     final session = _session;
     final error = _error;
-    final symbols = widget.pack.symbols;
+    final botMode = widget.botAgentMode;
+    final symbols = botMode ? const <PackSymbol>[] : widget.pack.symbols;
     final media = MediaQuery.of(context);
     final landscape = media.size.width > media.size.height;
 
@@ -175,7 +180,7 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                           )
                         else
                           session.buildPreview(),
-                        if (error == null)
+                        if (error == null && !botMode)
                           _MovableSymbolBox(
                             box: _box,
                             parentSize: Size(previewW, previewH),
@@ -261,9 +266,13 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                               ),
                               Expanded(
                                 child: Text(
-                                  landscape
-                                      ? 'Frame page · drag glyph box'
-                                      : 'Frame the page · drag box over ink glyph',
+                                  botMode
+                                      ? (landscape
+                                          ? 'Frame page · scan to inbox'
+                                          : 'Frame the page · scan to inbox')
+                                      : (landscape
+                                          ? 'Frame page · drag glyph box'
+                                          : 'Frame the page · drag box over ink glyph'),
                                   textAlign: TextAlign.center,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,

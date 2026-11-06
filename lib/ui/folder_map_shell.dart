@@ -6,7 +6,7 @@ import '../theme/memory_hues.dart';
 import '../vault/vault_paths.dart';
 import 'ink_glyph_painter.dart';
 
-/// Edit vault folder paths for each symbol in the active pack.
+/// Edit vault folder + capture type for each symbol in the active pack.
 class FolderMapShell extends StatefulWidget {
   const FolderMapShell({
     super.key,
@@ -57,7 +57,6 @@ class _FolderMapShellState extends State<FolderMapShell> {
       final text = _controllers[s.id]?.text.trim() ?? '';
       final normalized = normalizeVaultFolder(text);
       if (s.output == SymbolOutput.dailyNoteAppend) {
-        // Daily notes: folder is where the daily file lives.
         next.add(
           s.copyWith(
             folder: normalized ?? 'Organising/Daily',
@@ -75,11 +74,39 @@ class _FolderMapShellState extends State<FolderMapShell> {
     return _pack.copyWith(symbols: next);
   }
 
+  void _cycleType(PackSymbol symbol) {
+    final updated = PackEditor.cycleCaptureType(symbol);
+    setState(() {
+      _pack = PackEditor.updateSymbol(_pack, updated);
+      final c = _controllers[symbol.id];
+      if (c != null &&
+          updated.folder != null &&
+          (c.text.trim().isEmpty ||
+              symbol.output == SymbolOutput.dailyNoteAppend)) {
+        c.text = updated.folder!;
+      }
+    });
+  }
+
+  void _removeSymbol(PackSymbol symbol) {
+    try {
+      final next = PackEditor.removeSymbol(_pack, symbol.id);
+      _controllers.remove(symbol.id)?.dispose();
+      setState(() => _pack = next);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
   Future<void> _save() async {
     final callback = widget.onSave;
     if (callback == null || widget.busy) return;
     final updated = _applyFolders();
-    // Validate markdown/canvas symbols have folders.
     for (final s in updated.symbols) {
       if (s.output == SymbolOutput.dailyNoteAppend) continue;
       if (s.folder == null || s.folder!.trim().isEmpty) {
@@ -118,10 +145,10 @@ class _FolderMapShellState extends State<FolderMapShell> {
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           Text(
-            'Type a vault-relative folder per symbol — nested paths are fine '
-            '(e.g. Organising/Daily, journal). Defaults: inbox, fleeting, '
-            'literature, permanent, mindmaps, Journal → journal, '
-            'Organising/Daily.',
+            'Folder, capture type (Text ↔ Visual), and remove — per symbol. '
+            'Visual uses the Canvas mindmap path; Text uses OCR / markdown. '
+            'Removed symbols leave camera chips until re-added from the library. '
+            'Pack config stays in the app (not the vault).',
             style: textTheme.bodyMedium?.copyWith(color: MemoryHues.inkMuted),
           ),
           const SizedBox(height: 16),
@@ -142,6 +169,26 @@ class _FolderMapShellState extends State<FolderMapShell> {
                     style: textTheme.titleMedium,
                   ),
                 ),
+                TextButton(
+                  onPressed: widget.busy ? null : () => _cycleType(s),
+                  style: TextButton.styleFrom(
+                    foregroundColor: s.isVisualCapture
+                        ? MemoryHues.recall
+                        : MemoryHues.accent,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(PackEditor.captureTypeLabel(s.captureType)),
+                ),
+                if (s.id != 'inbox')
+                  IconButton(
+                    tooltip: 'Remove from pack',
+                    onPressed: widget.busy ? null : () => _removeSymbol(s),
+                    icon: const Icon(Icons.remove_circle_outline),
+                    color: MemoryHues.danger,
+                    visualDensity: VisualDensity.compact,
+                  ),
               ],
             ),
             const SizedBox(height: 8),
@@ -151,7 +198,9 @@ class _FolderMapShellState extends State<FolderMapShell> {
               decoration: InputDecoration(
                 labelText: s.output == SymbolOutput.dailyNoteAppend
                     ? 'Daily notes folder'
-                    : 'Vault folder',
+                    : s.isVisualCapture
+                        ? 'Canvas folder'
+                        : 'Vault folder',
                 hintText: s.output == SymbolOutput.dailyNoteAppend
                     ? 'Organising/Daily'
                     : 'e.g. fleeting or Organising/monthly',
