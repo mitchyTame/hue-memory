@@ -15,6 +15,7 @@ class LiveCameraCapture implements CameraCapture {
     this.sessionFactory,
     this.pack = DefaultPacks.zettelkastenInk,
     CaptureSessionPrefs? sessionPrefs,
+    this.botAgentMode = false,
   }) : sessionPrefs = sessionPrefs ?? CaptureSessionPrefs();
 
   final GlobalKey<NavigatorState> navigatorKey;
@@ -23,6 +24,9 @@ class LiveCameraCapture implements CameraCapture {
   /// Updated when the active pack changes.
   SymbolPack pack;
   final CaptureSessionPrefs sessionPrefs;
+
+  /// Hide symbol chips / pack routing on the viewfinder.
+  bool botAgentMode;
 
   @override
   Future<CaptureResult> capturePage() async {
@@ -40,17 +44,20 @@ class LiveCameraCapture implements CameraCapture {
           child: LiveCameraShell(
             sessionFactory: sessionFactory,
             pack: pack,
-            initialSymbolId: sessionPrefs.symbolId,
+            initialSymbolId: botAgentMode ? '' : sessionPrefs.symbolId,
             initialSymbolBox: sessionPrefs.symbolBox,
+            botAgentMode: botAgentMode,
           ),
         ),
       ),
     );
     if (result == null) throw CaptureCancelled();
-    // Persist box + chip for the next shot in this session.
-    sessionPrefs.symbolId = result.symbolId;
-    if (result.symbolBox != null) {
-      sessionPrefs.symbolBox = result.symbolBox!;
+    // Persist box + chip for the next shot in this session (full mode only).
+    if (!botAgentMode) {
+      sessionPrefs.symbolId = result.symbolId;
+      if (result.symbolBox != null) {
+        sessionPrefs.symbolBox = result.symbolBox!;
+      }
     }
     return result;
   }
