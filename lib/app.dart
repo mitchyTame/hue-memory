@@ -18,9 +18,11 @@ import 'capture/region_feedback.dart';
 import 'gemini/capture_coordinator.dart';
 import 'gemini/gemini_client.dart';
 import 'gemini/gemini_settings.dart';
+import 'gemini/obsidian_canvas_from_gemini.dart';
 import 'ocr/configurable_ocr_client.dart';
 import 'ocr/mistral_ocr_client.dart';
 import 'ocr/ocr_client.dart';
+import 'ocr/ocr_image_prepare.dart';
 import 'ocr/ocr_settings.dart';
 import 'settings/bot_agent_settings.dart';
 import 'settings/vault_settings_store.dart';
@@ -399,9 +401,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               botAgent: _botAgent,
               botAgentLabel: _botAgentLabel,
               shutterHint: _botAgent.enabled
-                  ? (Platform.isAndroid && widget._camera == null
-                      ? 'Shutter = scan to inbox\nGallery = pick a photo'
-                      : 'Shutter = scan to inbox\nGallery = pick a photo')
+                  ? 'Shutter = inbox canvas\nGallery = pick a photo'
                   : _shutterHint,
               shutterCamera: _shutterCamera,
               filePickCamera: _filePickCamera,
@@ -802,23 +802,55 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
-  /// Bot agent mode: shutter → image file in inbox folder (no OCR / notes).
+  /// Bot agent mode: shutter → raw + Gemini typed canvas in inbox (no confirm).
   Future<void> _beginBotInboxCapture(CameraCapture source) async {
     if (_busy) return;
     final folder = widget.botAgent.normalizedInboxFolder;
+    final geminiCfg = await widget.geminiSettings.read();
+    if (!geminiCfg.shouldUseLive) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Bot canvas needs Gemini live — open Settings → Gemini',
+          ),
+          backgroundColor: MemoryHues.recall,
+          duration: Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
     setState(() {
       _busy = true;
-      _captureStatus = 'Saving to $folder…';
+      _captureStatus = 'Bot canvas via Gemini…';
       _pending = null;
     });
+    GeminiClient? client;
     try {
       final shot = await source.capturePage();
-      final result = await _botInbox.writeImage(
+      final prepared = await prepareImageForMistralOcr(
+        shot.imageBytes,
+        extensionHint: shot.imageExtension,
+        maxSide: kVisionMaxImageSide,
+      );
+      client = GeminiClient(
+        apiKey: geminiCfg.apiKey,
+        model: geminiCfg.model,
+      );
+      final rawJson = await client.enhancedBotCanvasJson(
+        imageBytes: prepared.bytes,
+        mimeType: prepared.mime,
+      );
+      const parser = ObsidianCanvasFromGemini();
+      final draft = parser.parse(rawJson);
+      final result = await _botInbox.writeCanvas(
         vault: widget.vault,
         inboxFolder: folder,
         imageBytes: shot.imageBytes,
         capturedAt: shot.capturedAt,
         imageExtension: shot.imageExtension,
+        textNodes: draft.textNodes,
+        edges: draft.edges,
       );
       if (!mounted) return;
       setState(() {
@@ -834,7 +866,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Landed in ${result.folder}/${result.fileName}'),
+          content: Text('Canvas in ${result.folder}/${result.fileName}'),
           backgroundColor: MemoryHues.accent,
           duration: const Duration(seconds: 3),
         ),
@@ -853,10 +885,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Inbox write failed: $e'),
+          content: Text('Bot canvas failed: ${_captureFailureMessage(e)}'),
           backgroundColor: MemoryHues.danger,
         ),
       );
+    } finally {
+      client?.close();
     }
   }
 
@@ -1660,7 +1694,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       busy: _busy || _promoteBusy || _queueBusy,
       botAgentMode: botOn,
       vaultLabel: botOn
-          ? '${widget.vaultLabel} · inbox ${widget.botAgent.normalizedInboxFolder}'
+          ? '${widget.vaultLabel} · canvas ${widget.botAgent.normalizedInboxFolder}'
           : '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
       lastCommit: _lastCommit,

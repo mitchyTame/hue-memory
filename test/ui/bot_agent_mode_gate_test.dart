@@ -13,7 +13,7 @@ void main() {
   setUp(() => AppTheme.skipGoogleFonts = true);
   tearDown(() => AppTheme.skipGoogleFonts = false);
 
-  testWidgets('settings hub hides OCR Gemini Symbols when bot agent on',
+  testWidgets('settings hub shows Gemini when bot agent on; hides OCR/Symbols',
       (tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -32,12 +32,12 @@ void main() {
     expect(find.text('Vault'), findsOneWidget);
     expect(find.text('Bot agent'), findsOneWidget);
     expect(find.text('How to use'), findsOneWidget);
+    expect(find.text('Gemini'), findsOneWidget);
     expect(find.text('OCR'), findsNothing);
-    expect(find.text('Gemini'), findsNothing);
     expect(find.text('Symbols'), findsNothing);
     expect(find.text('Paper kit'), findsNothing);
     expect(find.text('Promote ritual'), findsNothing);
-    expect(find.text('Scan → inbox folder'), findsOneWidget);
+    expect(find.text('Scan → inbox .canvas'), findsOneWidget);
   });
 
   testWidgets('settings hub shows full options when bot agent off',
@@ -72,7 +72,7 @@ void main() {
         home: const CaptureShell(
           botAgentMode: true,
           queueCount: 3,
-          vaultLabel: 'vault · inbox inbox',
+          vaultLabel: 'vault · canvas inbox',
         ),
       ),
     );
@@ -103,7 +103,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('scan to inbox'), findsOneWidget);
+    expect(find.textContaining('inbox canvas'), findsOneWidget);
     expect(find.text('glyph'), findsNothing);
     // Pack chip glyphs should not appear as selectable chips.
     for (final s in DefaultPacks.zettelkastenInk.symbols.take(3)) {

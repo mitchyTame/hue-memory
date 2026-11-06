@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../settings/bot_agent_settings.dart';
 import '../theme/memory_hues.dart';
 
-/// Bot agent mode — enable scan-to-inbox and set the vault folder path.
+/// Bot agent mode — enable scan-to-inbox canvases and set the vault folder.
 class BotAgentSettingsShell extends StatefulWidget {
   const BotAgentSettingsShell({
     super.key,
@@ -52,7 +52,7 @@ class _BotAgentSettingsShellState extends State<BotAgentSettingsShell> {
         SnackBar(
           content: Text(
             _enabled
-                ? 'Bot agent on — scans go to $folder'
+                ? 'Bot agent on — canvases go to $folder'
                 : 'Bot agent off — full hue-memory restored',
           ),
           backgroundColor: MemoryHues.accent,
@@ -102,7 +102,8 @@ class _BotAgentSettingsShellState extends State<BotAgentSettingsShell> {
             contentPadding: EdgeInsets.zero,
             title: Text('Bot agent mode', style: textTheme.titleLarge),
             subtitle: Text(
-              'Scan photos into an inbox folder. No OCR, Gemini, or notes.',
+              'Scan → Gemini typed canvas in the inbox folder. '
+              'No OCR, symbols, or confirm.',
               style: textTheme.labelMedium,
             ),
             value: _enabled,
@@ -116,8 +117,8 @@ class _BotAgentSettingsShellState extends State<BotAgentSettingsShell> {
           Text('Inbox folder', style: textTheme.titleLarge),
           const SizedBox(height: 6),
           Text(
-            'Nested vault path where scanned images are written '
-            '(e.g. inbox or Bot/Inbox).',
+            'Nested vault path where .canvas files are written '
+            '(e.g. inbox or Bot/Inbox). Needs Gemini live.',
             style: textTheme.labelMedium?.copyWith(
               color: MemoryHues.inkMuted,
             ),
@@ -136,8 +137,8 @@ class _BotAgentSettingsShellState extends State<BotAgentSettingsShell> {
           if (_enabled) ...[
             const SizedBox(height: 16),
             Text(
-              'Capture writes the image only. An external bot organizes '
-              'from this folder.',
+              'Each capture writes YYYY-MM-DD.canvas here, with the photo '
+              'under captures/raw/. Downstream bots read the typed canvas.',
               style: textTheme.bodyMedium?.copyWith(
                 color: MemoryHues.inkMuted,
               ),

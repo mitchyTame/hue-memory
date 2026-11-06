@@ -212,6 +212,79 @@ class GeminiClient {
     );
   }
 
+  /// Typed prefixes baked into Enhanced Bot Mode (Grokbot rules).
+  static const List<String> enhancedBotTypedPrefixes = [
+    '[META]',
+    '[SUMMARY]',
+    '[EVENT]',
+    '[REMINDER]',
+    '[TASK]',
+    '[NOTE]',
+    '[QUESTION]',
+    '[READING]',
+    '[EMAIL]',
+    '[DONE]',
+    '[DIAGRAM]',
+    '[FLOW]',
+  ];
+
+  /// Baked Enhanced Bot Mode prompt — scrap/inbox page → typed Canvas JSON.
+  ///
+  /// Not user-editable. Same JSON Canvas schema as [diagramCanvasJson];
+  /// every text node must start with one typed prefix from
+  /// [enhancedBotTypedPrefixes].
+  static const String enhancedBotCanvasPrompt =
+      'You are Enhanced Bot Mode for a paper → Obsidian inbox capture. '
+      'Read the PHOTO of a scrap page (notes, lists, calendar scribbles, '
+      'diagrams, mixed life-admin). Return ONE JSON object only — no markdown '
+      'fences, no prose.\n\n'
+      'Schema matches Obsidian JSON Canvas: '
+      '{"nodes":[{"id":"…","type":"text","text":"…","x":0,"y":0,'
+      '"width":220,"height":80,"color":"1"}],'
+      '"edges":[{"id":"e1","fromNode":"a","fromSide":"right",'
+      '"toNode":"b","toSide":"left"}]}.\n\n'
+      'TYPED NODES — every text node MUST begin with exactly one prefix:\n'
+      '[META] — page/source metadata (date hints, who, where).\n'
+      '[SUMMARY] — one short overview of the whole scrap.\n'
+      '[EVENT] — calendar/appointment with time/place when present.\n'
+      '[REMINDER] — time-bound nudge that is not a full calendar event.\n'
+      '[TASK] — actionable to-do (imperative).\n'
+      '[NOTE] — durable fact/idea that is not a task.\n'
+      '[QUESTION] — open question to resolve later.\n'
+      '[READING] — book/article/podcast to consume.\n'
+      '[EMAIL] — message to send or reply.\n'
+      '[DONE] — already completed item noted on the page.\n'
+      '[DIAGRAM] — hub label for a drawn diagram / map cluster.\n'
+      '[FLOW] — hub label for a process / sequence of steps.\n\n'
+      'Rules:\n'
+      '- Prefer many small typed cards over one giant dump.\n'
+      '- Include [META] and [SUMMARY] when possible (near top / left).\n'
+      '- Use [DIAGRAM] or [FLOW] as hubs; connect related cards with edges.\n'
+      '- Edges optional but preferred for related items; hierarchical OK.\n'
+      '- Do NOT invent a photo/file node — the app injects the page photo.\n'
+      '- Text ≤120 chars per node after the prefix. Keep the prefix intact.\n'
+      '- Coordinates are Canvas pixels (may be negative).\n'
+      '- Obsidian color presets "1"…"6" optional (1 red, 2 orange, 3 yellow, '
+      '4 green, 5 cyan, 6 purple).\n\n'
+      'Return nodes/edges JSON only.';
+
+  /// Vision → Enhanced Bot Mode typed Canvas JSON (`nodes` / `edges`).
+  Future<String> enhancedBotCanvasJson({
+    required Uint8List imageBytes,
+    required String mimeType,
+  }) async {
+    return _generate(
+      modelId: diagramModel,
+      contents: [
+        Content.multi([
+          TextPart(enhancedBotCanvasPrompt),
+          DataPart(mimeType, imageBytes),
+        ]),
+      ],
+      maxOutputTokens: 4096,
+    );
+  }
+
   Future<String> _generate({
     required String modelId,
     required Iterable<Content> contents,
