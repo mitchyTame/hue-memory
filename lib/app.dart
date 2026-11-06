@@ -22,6 +22,7 @@ import 'ocr/configurable_ocr_client.dart';
 import 'ocr/mistral_ocr_client.dart';
 import 'ocr/ocr_client.dart';
 import 'ocr/ocr_settings.dart';
+import 'settings/bot_agent_settings.dart';
 import 'settings/vault_settings_store.dart';
 import 'symbols/active_pack_store.dart';
 import 'symbols/default_packs.dart';
@@ -30,6 +31,7 @@ import 'symbols/symbol_models.dart';
 import 'symbols/symbol_router.dart';
 import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
+import 'ui/bot_agent_settings_shell.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
 import 'ui/folder_map_shell.dart';
@@ -50,6 +52,7 @@ import 'ui/manual_region_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
+import 'vault/bot_inbox_writer.dart';
 import 'vault/commit_pipeline.dart';
 import 'vault/daily_note_path.dart';
 import 'vault/local_vault_fs.dart';
@@ -65,6 +68,7 @@ enum _SettingsPane {
   hub,
   guide,
   vault,
+  botAgent,
   ocr,
   gemini,
   symbols,
@@ -84,6 +88,7 @@ class HueMemoryApp extends StatefulWidget {
     VaultSettingsStore? settings,
     OcrSettingsStore? ocrSettings,
     GeminiSettingsStore? geminiSettings,
+    BotAgentSettingsStore? botAgentSettings,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
@@ -95,6 +100,7 @@ class HueMemoryApp extends StatefulWidget {
         _settings = settings,
         _ocrSettings = ocrSettings,
         _geminiSettings = geminiSettings,
+        _botAgentSettings = botAgentSettings,
         _packStore = packStore,
         _initialPack = initialPack,
         _captureQueue = captureQueue,
@@ -107,6 +113,7 @@ class HueMemoryApp extends StatefulWidget {
   final VaultSettingsStore? _settings;
   final OcrSettingsStore? _ocrSettings;
   final GeminiSettingsStore? _geminiSettings;
+  final BotAgentSettingsStore? _botAgentSettings;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
@@ -127,6 +134,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       PrefsGeminiSettingsStore(
         envApiKey: Platform.environment['GEMINI_API_KEY'] ?? '',
       );
+  late final BotAgentSettingsStore _botAgentSettings =
+      widget._botAgentSettings ?? PrefsBotAgentSettingsStore();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final CaptureSessionPrefs _captureSession = CaptureSessionPrefs();
 
@@ -162,6 +171,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   String _vaultLabel = 'Loading vault…';
   String _ocrModeLabel = 'OCR: mock';
   String _geminiModeLabel = 'Gemini: off';
+  BotAgentSettings _botAgent = const BotAgentSettings();
+  String _botAgentLabel = 'Bot agent: off';
   SymbolPack _activePack = DefaultPacks.zettelkastenInk;
   List<SymbolPack> _availablePacks = const [DefaultPacks.zettelkastenInk];
   bool _ready = false;
@@ -185,6 +196,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   Future<void> _bootstrap() async {
     await _refreshOcrLabel();
     await _refreshGeminiLabel();
+    await _refreshBotAgent();
     try {
       _availablePacks = await _packStore.availablePacks();
       _activePack = widget._initialPack ?? await _packStore.activePack();
@@ -280,10 +292,23 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     });
   }
 
+  Future<void> _refreshBotAgent() async {
+    final cfg = await _botAgentSettings.read();
+    if (!mounted) return;
+    setState(() {
+      _botAgent = cfg;
+      _botAgentLabel = cfg.enabled
+          ? 'Bot agent: ${cfg.normalizedInboxFolder}'
+          : 'Bot agent: off';
+    });
+    _syncCameraPack();
+  }
+
   void _syncCameraPack() {
     final cam = _shutterCamera;
     if (cam is LiveCameraCapture) {
       cam.pack = _activePack;
+      cam.botAgentMode = _botAgent.enabled;
     }
   }
 
@@ -371,12 +396,19 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               vaultLabel: _vaultLabel,
               ocrModeLabel: _ocrModeLabel,
               geminiModeLabel: _geminiModeLabel,
-              shutterHint: _shutterHint,
+              botAgent: _botAgent,
+              botAgentLabel: _botAgentLabel,
+              shutterHint: _botAgent.enabled
+                  ? (Platform.isAndroid && widget._camera == null
+                      ? 'Shutter = scan to inbox\nGallery = pick a photo'
+                      : 'Shutter = scan to inbox\nGallery = pick a photo')
+                  : _shutterHint,
               shutterCamera: _shutterCamera,
               filePickCamera: _filePickCamera,
               ocr: _ocr,
               ocrSettings: _ocrSettings,
               geminiSettings: _geminiSettings,
+              botAgentSettings: _botAgentSettings,
               pageIds: _pageIds,
               activePack: _activePack,
               availablePacks: _availablePacks,
@@ -389,6 +421,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               },
               onOcrSettingsChanged: _refreshOcrLabel,
               onGeminiSettingsChanged: _refreshGeminiLabel,
+              onBotAgentSettingsChanged: _refreshBotAgent,
               onSelectPack: _selectPack,
               onSaveCustomPack: _saveCustomPack,
               onSavePackEdits: _savePackEdits,
@@ -443,12 +476,15 @@ class _HomeNavigator extends StatefulWidget {
     required this.vaultLabel,
     required this.ocrModeLabel,
     required this.geminiModeLabel,
+    required this.botAgent,
+    required this.botAgentLabel,
     required this.shutterHint,
     required this.shutterCamera,
     required this.filePickCamera,
     required this.ocr,
     required this.ocrSettings,
     required this.geminiSettings,
+    required this.botAgentSettings,
     required this.pageIds,
     required this.activePack,
     required this.availablePacks,
@@ -458,6 +494,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onUseDefaultVault,
     required this.onOcrSettingsChanged,
     required this.onGeminiSettingsChanged,
+    required this.onBotAgentSettingsChanged,
     required this.onSelectPack,
     required this.onSaveCustomPack,
     required this.onSavePackEdits,
@@ -469,12 +506,15 @@ class _HomeNavigator extends StatefulWidget {
   final String vaultLabel;
   final String ocrModeLabel;
   final String geminiModeLabel;
+  final BotAgentSettings botAgent;
+  final String botAgentLabel;
   final String shutterHint;
   final CameraCapture shutterCamera;
   final CameraCapture filePickCamera;
   final OcrClient ocr;
   final OcrSettingsStore ocrSettings;
   final GeminiSettingsStore geminiSettings;
+  final BotAgentSettingsStore botAgentSettings;
   final PageId pageIds;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
@@ -484,6 +524,7 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function() onUseDefaultVault;
   final Future<void> Function() onOcrSettingsChanged;
   final Future<void> Function() onGeminiSettingsChanged;
+  final Future<void> Function() onBotAgentSettingsChanged;
   final Future<void> Function(SymbolPack pack) onSelectPack;
   final Future<void> Function(SymbolPack pack) onSaveCustomPack;
   final Future<void> Function(SymbolPack pack) onSavePackEdits;
@@ -533,7 +574,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   String? _lastPrintablePath;
   OcrSettings _ocrDraft = const OcrSettings();
   GeminiSettings _geminiDraft = const GeminiSettings();
+  BotAgentSettings _botDraft = const BotAgentSettings();
   final PaperKitPdf _paperKit = const PaperKitPdf();
+  late final BotInboxWriter _botInbox =
+      BotInboxWriter(pageIds: widget.pageIds);
   late PromoteService _promote =
       PromoteService.forPack(widget.activePack);
   final List<LinkPick> _recentPages = [
@@ -571,11 +615,15 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   Future<void> _openSettings() async {
     final ocr = await widget.ocrSettings.read();
+    final bot = await widget.botAgentSettings.read();
     setState(() {
       _ocrDraft = ocr;
+      _botDraft = bot;
       _settingsPane = _SettingsPane.hub;
     });
   }
+
+  bool get _botAgentOn => widget.botAgent.enabled;
 
   String _captureFailureMessage(Object error) {
     if (error is MistralOcrException) return error.readable;
@@ -617,6 +665,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   Future<void> _beginCapture(CameraCapture source) async {
     if (_busy) return;
+    if (_botAgentOn) {
+      await _beginBotInboxCapture(source);
+      return;
+    }
     final ocrCfg = await widget.ocrSettings.read();
     final geminiCfg = await widget.geminiSettings.read();
     if (!mounted) return;
@@ -750,7 +802,66 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     }
   }
 
+  /// Bot agent mode: shutter → image file in inbox folder (no OCR / notes).
+  Future<void> _beginBotInboxCapture(CameraCapture source) async {
+    if (_busy) return;
+    final folder = widget.botAgent.normalizedInboxFolder;
+    setState(() {
+      _busy = true;
+      _captureStatus = 'Saving to $folder…';
+      _pending = null;
+    });
+    try {
+      final shot = await source.capturePage();
+      final result = await _botInbox.writeImage(
+        vault: widget.vault,
+        inboxFolder: folder,
+        imageBytes: shot.imageBytes,
+        capturedAt: shot.capturedAt,
+        imageExtension: shot.imageExtension,
+      );
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _captureStatus = null;
+        _lastCommit = LastCommitSummary(
+          fileName: result.fileName,
+          folder: result.folder,
+          at: DateTime.now(),
+          symbolId: 'bot-inbox',
+          glyph: '↓',
+        );
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Landed in ${result.folder}/${result.fileName}'),
+          backgroundColor: MemoryHues.accent,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    } on CaptureCancelled {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _captureStatus = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _captureStatus = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Inbox write failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
   Future<void> _openQueue() async {
+    if (_botAgentOn) return;
     setState(() => _queueBusy = true);
     try {
       final jobs = await widget.captureQueue.list();
@@ -1115,6 +1226,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   }
 
   Future<void> _openPromote() async {
+    if (_botAgentOn) return;
     setState(() => _promoteBusy = true);
     try {
       final list = await _promote.listFleeting(widget.vault);
@@ -1310,11 +1422,20 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             ocrModeLabel: widget.ocrModeLabel,
             geminiModeLabel: widget.geminiModeLabel,
             packLabel: widget.activePack.displayName,
+            botAgentEnabled: widget.botAgent.enabled,
+            botAgentLabel: widget.botAgentLabel,
             onBack: () => setState(() => _settingsPane = null),
             onOpenGuide: () =>
                 setState(() => _settingsPane = _SettingsPane.guide),
             onOpenVault: () =>
                 setState(() => _settingsPane = _SettingsPane.vault),
+            onOpenBotAgent: () async {
+              final bot = await widget.botAgentSettings.read();
+              setState(() {
+                _botDraft = bot;
+                _settingsPane = _SettingsPane.botAgent;
+              });
+            },
             onOpenOcr: () async {
               final ocr = await widget.ocrSettings.read();
               setState(() {
@@ -1341,6 +1462,23 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         case _SettingsPane.guide:
           return HowToGuideShell(
             onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+          );
+        case _SettingsPane.botAgent:
+          return BotAgentSettingsShell(
+            initial: _botDraft,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onSave: (settings) async {
+              await widget.botAgentSettings.write(settings);
+              await widget.onBotAgentSettingsChanged();
+              if (!mounted) return;
+              setState(() {
+                _botDraft = settings;
+                if (settings.enabled) {
+                  _pending = null;
+                }
+                _settingsPane = _SettingsPane.hub;
+              });
+            },
           );
         case _SettingsPane.vault:
           return VaultSettingsShell(
@@ -1517,10 +1655,13 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         onCommit: _commit,
       );
     }
+    final botOn = _botAgentOn;
     return CaptureShell(
       busy: _busy || _promoteBusy || _queueBusy,
-      vaultLabel:
-          '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
+      botAgentMode: botOn,
+      vaultLabel: botOn
+          ? '${widget.vaultLabel} · inbox ${widget.botAgent.normalizedInboxFolder}'
+          : '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
       lastCommit: _lastCommit,
       statusMessage: _captureStatus,

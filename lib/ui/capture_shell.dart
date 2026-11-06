@@ -19,6 +19,7 @@ class CaptureShell extends StatelessWidget {
     this.lastCommit,
     this.statusMessage,
     this.busy = false,
+    this.botAgentMode = false,
     this.shutterHint =
         'Shutter = sample page\nGallery = pick a photo',
   });
@@ -35,6 +36,9 @@ class CaptureShell extends StatelessWidget {
   /// Live OCR / capture status line (loading, success, failure).
   final String? statusMessage;
   final bool busy;
+
+  /// When true, hide promote / queue chrome — scan-to-inbox only.
+  final bool botAgentMode;
   final String shutterHint;
 
   @override
@@ -69,15 +73,16 @@ class CaptureShell extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                      IconButton(
-                        tooltip: 'Promote ritual',
-                        onPressed: busy ? null : onOpenPromote,
-                        icon: Icon(
-                          Icons.auto_awesome_outlined,
-                          color: MemoryHues.recall.withValues(alpha: 0.9),
-                          size: 22,
+                      if (!botAgentMode)
+                        IconButton(
+                          tooltip: 'Promote ritual',
+                          onPressed: busy ? null : onOpenPromote,
+                          icon: Icon(
+                            Icons.auto_awesome_outlined,
+                            color: MemoryHues.recall.withValues(alpha: 0.9),
+                            size: 22,
+                          ),
                         ),
-                      ),
                       IconButton(
                         tooltip: 'Vault settings',
                         onPressed: busy ? null : onOpenSettings,
@@ -197,44 +202,47 @@ class CaptureShell extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 28),
-                      Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          IconButton(
-                            tooltip: 'Capture queue',
-                            onPressed: busy ? null : onOpenQueue,
-                            icon: Icon(
-                              Icons.inbox_outlined,
-                              color: queueCount > 0
-                                  ? MemoryHues.recall.withValues(alpha: 0.95)
-                                  : MemoryHues.paperElevated,
-                              size: 28,
+                      if (botAgentMode)
+                        const SizedBox(width: 48)
+                      else
+                        Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            IconButton(
+                              tooltip: 'Capture queue',
+                              onPressed: busy ? null : onOpenQueue,
+                              icon: Icon(
+                                Icons.inbox_outlined,
+                                color: queueCount > 0
+                                    ? MemoryHues.recall.withValues(alpha: 0.95)
+                                    : MemoryHues.paperElevated,
+                                size: 28,
+                              ),
                             ),
-                          ),
-                          if (queueCount > 0)
-                            Positioned(
-                              right: 6,
-                              top: 6,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 5,
-                                  vertical: 1,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: MemoryHues.recall,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '$queueCount',
-                                  style: textTheme.labelSmall?.copyWith(
-                                    color: MemoryHues.fieldDeep,
-                                    fontSize: 10,
+                            if (queueCount > 0)
+                              Positioned(
+                                right: 6,
+                                top: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 5,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: MemoryHues.recall,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '$queueCount',
+                                    style: textTheme.labelSmall?.copyWith(
+                                      color: MemoryHues.fieldDeep,
+                                      fontSize: 10,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
