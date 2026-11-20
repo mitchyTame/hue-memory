@@ -118,4 +118,62 @@ void main() {
     );
     expect(result.hasWork, isFalse);
   });
+
+  test('links from a task become nested subtasks (parentNodeId)', () {
+    final result = parser.parse(
+      regions: nodes({
+        'hub': '2026-11-20',
+        'high': 'High',
+        'hue': 'Hue',
+        'a': 'Wire subtasks',
+        'b': 'Link shared nodes',
+      }),
+      edges: links([
+        ('hub', 'high'),
+        ('high', 'hue'),
+        ('hue', 'a'),
+        ('hue', 'b'),
+      ]),
+    );
+
+    expect(result.sync.creates, hasLength(3));
+    final root = result.sync.creates.first;
+    expect(root.content, 'Hue');
+    expect(root.nodeId, 'hue');
+    expect(root.parentNodeId, isNull);
+    expect(root.dueDate, isNotNull);
+
+    final subs = result.sync.creates.skip(1).toList();
+    expect(subs.every((c) => c.parentNodeId == 'hue'), isTrue);
+    expect(subs.map((c) => c.content).toList(), [
+      'Wire subtasks',
+      'Link shared nodes',
+    ]);
+  });
+
+  test('multiple links to the same node keep one create + extra parents', () {
+    final result = parser.parse(
+      regions: nodes({
+        'hub': '2026-11-20',
+        'high': 'High',
+        'shop': 'shopping',
+        'a': 'Parent A',
+        'b': 'Parent B',
+        'shared': 'Shared follow-up',
+      }),
+      edges: links([
+        ('hub', 'high'),
+        ('hub', 'shop'),
+        ('high', 'a'),
+        ('shop', 'b'),
+        ('a', 'shared'),
+        ('b', 'shared'),
+      ]),
+    );
+
+    final shared = result.sync.creates.where((c) => c.nodeId == 'shared');
+    expect(shared, hasLength(1));
+    expect(shared.single.parentNodeId, 'a');
+    expect(shared.single.extraParentNodeIds, ['b']);
+  });
 }

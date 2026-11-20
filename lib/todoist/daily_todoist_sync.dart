@@ -96,14 +96,41 @@ class DailyTodoistSync {
       await _client.ensureLabels(labelNames);
     }
 
+    // nodeId → Todoist task id (parents before children in [creates]).
+    final todoistIdByNode = <String, String>{};
     var created = 0;
     for (final item in parsed.creates) {
-      await _client.createInboxTask(
+      final parentId = item.parentNodeId == null
+          ? null
+          : todoistIdByNode[item.parentNodeId!];
+      final task = await _client.createInboxTask(
         content: item.content,
-        labels: [item.label],
+        labels: item.parentNodeId == null ? [item.label] : const [],
         priority: item.priority,
+        parentId: parentId,
+        dueDate: item.dueDate,
       );
+      if (item.nodeId != null && item.nodeId!.isNotEmpty) {
+        todoistIdByNode[item.nodeId!] = task.id;
+      }
       created++;
+    }
+
+    // Extra mindmap parents that also linked to a shared child: annotate
+    // those parents with a Todoist task URL (one parent_id only in API).
+    for (final item in parsed.creates) {
+      if (item.nodeId == null || item.extraParentNodeIds.isEmpty) continue;
+      final childId = todoistIdByNode[item.nodeId!];
+      if (childId == null) continue;
+      final link = 'https://app.todoist.com/app/task/$childId';
+      for (final parentNode in item.extraParentNodeIds) {
+        final parentId = todoistIdByNode[parentNode];
+        if (parentId == null) continue;
+        await _client.updateTask(
+          parentId,
+          description: 'Also linked: $link',
+        );
+      }
     }
 
     var completed = 0;

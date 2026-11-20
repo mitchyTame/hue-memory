@@ -329,9 +329,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                               const SizedBox(height: 4),
                               Text(
                                 _isDaily
-                                    ? 'Date hub → section branches → task leaves. '
-                                        'Edit node words in the list. Each branch '
-                                        'becomes a Todoist label; leaves go to Inbox.'
+                                    ? 'Date hub → section branches → tasks. '
+                                        'Links from a task become Todoist subtasks; '
+                                        'extra links to the same node reuse that task.'
                                     : _isCanvas
                                         ? 'Vision is a draft — edit labels in the list '
                                             '(not on the photo). Title becomes the filename.'

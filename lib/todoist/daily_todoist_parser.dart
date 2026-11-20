@@ -1,11 +1,15 @@
 import '../vault/daily_note_markdown.dart';
 
-/// One Inbox create from a daily section.
+/// One Inbox create from a daily section / mindmap node.
 class DailyTodoistCreate {
   const DailyTodoistCreate({
     required this.content,
     required this.label,
     this.priority,
+    this.nodeId,
+    this.parentNodeId,
+    this.dueDate,
+    this.extraParentNodeIds = const [],
   });
 
   final String content;
@@ -15,6 +19,19 @@ class DailyTodoistCreate {
 
   /// Todoist priority 1–4 (4 = urgent). Null = API default.
   final int? priority;
+
+  /// Mindmap node id (for parent/subtask wiring + dedupe).
+  final String? nodeId;
+
+  /// Mindmap parent **task** node id → Todoist `parent_id` subtask.
+  final String? parentNodeId;
+
+  /// Optional due date from the daily hub (root tasks).
+  final DateTime? dueDate;
+
+  /// Extra mindmap parents that also link here (same Todoist task; linked
+  /// via description after create — Todoist allows one `parent_id` only).
+  final List<String> extraParentNodeIds;
 }
 
 /// Structured parse of a · daily OCR / confirm body for Todoist sync.

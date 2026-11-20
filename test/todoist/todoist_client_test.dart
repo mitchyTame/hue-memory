@@ -81,6 +81,8 @@ void main() {
         expect(body['content'], 'Ship');
         expect(body['labels'], ['medium']);
         expect(body['priority'], 3);
+        expect(body['parent_id'], 'parent99');
+        expect(body['due_date'], '2026-11-20');
         return http.Response(
           jsonEncode({
             'id': 'new1',
@@ -103,6 +105,8 @@ void main() {
       content: 'Ship',
       labels: ['medium'],
       priority: 3,
+      parentId: 'parent99',
+      dueDate: DateTime(2026, 11, 20),
     );
     expect(created.id, 'new1');
     await client.closeTask('new1');

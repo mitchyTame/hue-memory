@@ -21,17 +21,18 @@ class DailyMindmapParseResult {
       sync.creates.isNotEmpty || sync.done.isNotEmpty;
 }
 
-/// Turns a · daily **mindmap** (date hub → branch labels → task leaves)
-/// into Todoist creates / done — the same hub→spoke linking used for △ canvas.
+/// Turns a · daily **mindmap** into Todoist creates / done.
 ///
-/// Expected ink layout:
-/// - Center hub: calendar day (`19 Oct '26` / `2026-10-19`)
-/// - First ring: section headings → Todoist labels (`Important`, `Errands`, …)
-/// - Leaves under each heading → Inbox tasks (or `done:` closes)
+/// Ink layout (same linking as △ canvas):
+/// - Center hub: calendar day → due date on root tasks
+/// - First ring: section headings → Todoist labels
+/// - Next ring: tasks under a section
+/// - Further links **from** a task → Todoist **subtasks** (`parent_id`)
+/// - Extra links **to** an already-seen task node → same Todoist task
+///   (recorded as [DailyTodoistCreate.extraParentNodeIds])
 class DailyMindmapParser {
   const DailyMindmapParser();
 
-  /// Parse edited confirm regions + canvas edges (Gemini / hybrid mindmap).
   DailyMindmapParseResult parse({
     required List<OcrRegion> regions,
     List<CanvasEdge> edges = const [],
@@ -49,17 +50,19 @@ class DailyMindmapParser {
     }
 
     final children = <String, List<String>>{};
-    final incoming = <String>{};
+    final incoming = <String, List<String>>{};
     for (final e in edges) {
       if (!labels.containsKey(e.fromNode) || !labels.containsKey(e.toNode)) {
         continue;
       }
       if (e.fromNode == e.toNode) continue;
       children.putIfAbsent(e.fromNode, () => []).add(e.toNode);
-      incoming.add(e.toNode);
+      incoming.putIfAbsent(e.toNode, () => []).add(e.fromNode);
     }
 
-    final roots = labels.keys.where((id) => !incoming.contains(id)).toList();
+    final roots = labels.keys
+        .where((id) => !(incoming[id]?.isNotEmpty ?? false))
+        .toList();
     final hubId = _pickHub(labels: labels, roots: roots, children: children);
     if (hubId == null) {
       return const DailyMindmapParseResult(
@@ -71,11 +74,12 @@ class DailyMindmapParser {
     final creates = <DailyTodoistCreate>[];
     final done = <String>[];
     final md = StringBuffer();
+    final emitted = <String>{}; // node ids already queued as creates
+    // nodeId → index in [creates] for attaching extra parents
+    final createIndex = <String, int>{};
 
     final branches = children[hubId] ?? const <String>[];
     if (branches.isEmpty) {
-      // Flat map: every non-hub node is a spoke with no grandchildren —
-      // cannot invent section structure; return empty for Todoist.
       return DailyMindmapParseResult(
         sync: const DailyTodoistParseResult(),
         hubDate: hubDate,
@@ -86,39 +90,48 @@ class DailyMindmapParser {
       final branchLabel = labels[branchId];
       if (branchLabel == null || branchLabel.trim().isEmpty) continue;
       final action = DailyTodoistParser.classifySection(branchLabel);
-      final leaves = _collectLeaves(
-        root: branchId,
-        children: children,
-        labels: labels,
-      );
-
       if (action.isSkip) continue;
 
+      final kids = children[branchId] ?? const <String>[];
+      if (kids.isEmpty) continue;
+
       if (action.isDone) {
-        if (leaves.isEmpty) continue;
         if (md.isNotEmpty) md.writeln();
         md.writeln('**Done:**');
-        for (final leaf in leaves) {
-          done.add(leaf);
-          md.writeln('- $leaf');
+        for (final leafId in kids) {
+          _collectDoneLeaves(
+            id: leafId,
+            children: children,
+            labels: labels,
+            done: done,
+            md: md,
+          );
         }
         continue;
       }
 
       final label = action.label!;
-      if (leaves.isEmpty) continue;
+      final priority =
+          action.priority ?? DailyTodoistParser.priorityForLabel(label);
       if (md.isNotEmpty) md.writeln();
       md.writeln('**${_displayHeading(label, branchLabel)}:**');
-      for (final leaf in leaves) {
-        creates.add(
-          DailyTodoistCreate(
-            content: leaf,
-            label: label,
-            priority: action.priority ??
-                DailyTodoistParser.priorityForLabel(label),
-          ),
+
+      for (final taskId in kids) {
+        _emitTaskTree(
+          nodeId: taskId,
+          parentTaskNodeId: null,
+          sectionLabel: label,
+          priority: priority,
+          dueDate: hubDate,
+          labels: labels,
+          children: children,
+          incoming: incoming,
+          creates: creates,
+          emitted: emitted,
+          createIndex: createIndex,
+          md: md,
+          depth: 0,
         );
-        md.writeln('- $leaf');
       }
     }
 
@@ -129,7 +142,113 @@ class DailyMindmapParser {
     );
   }
 
-  /// Prefer a date-like hub; else the root with the most children; else first root.
+  void _emitTaskTree({
+    required String nodeId,
+    required String? parentTaskNodeId,
+    required String sectionLabel,
+    required int? priority,
+    required DateTime? dueDate,
+    required Map<String, String> labels,
+    required Map<String, List<String>> children,
+    required Map<String, List<String>> incoming,
+    required List<DailyTodoistCreate> creates,
+    required Set<String> emitted,
+    required Map<String, int> createIndex,
+    required StringBuffer md,
+    required int depth,
+  }) {
+    final text = labels[nodeId]?.trim();
+    if (text == null || text.isEmpty) return;
+
+    if (emitted.contains(nodeId)) {
+      // Extra link into an already-emitted task (multi-parent mindmap).
+      if (parentTaskNodeId != null) {
+        final idx = createIndex[nodeId];
+        if (idx != null) {
+          final existing = creates[idx];
+          if (existing.parentNodeId != parentTaskNodeId &&
+              !existing.extraParentNodeIds.contains(parentTaskNodeId)) {
+            creates[idx] = DailyTodoistCreate(
+              content: existing.content,
+              label: existing.label,
+              priority: existing.priority,
+              nodeId: existing.nodeId,
+              parentNodeId: existing.parentNodeId,
+              dueDate: existing.dueDate,
+              extraParentNodeIds: [
+                ...existing.extraParentNodeIds,
+                parentTaskNodeId,
+              ],
+            );
+          }
+        }
+      }
+      return;
+    }
+
+    emitted.add(nodeId);
+    final indent = '  ' * depth;
+    md.writeln('$indent- $text');
+
+    creates.add(
+      DailyTodoistCreate(
+        content: text,
+        label: sectionLabel,
+        priority: parentTaskNodeId == null ? priority : null,
+        nodeId: nodeId,
+        parentNodeId: parentTaskNodeId,
+        // Due date only on root tasks under a section (not nested subtasks).
+        dueDate: parentTaskNodeId == null ? dueDate : null,
+      ),
+    );
+    createIndex[nodeId] = creates.length - 1;
+
+    final kids = children[nodeId] ?? const <String>[];
+    for (final childId in kids) {
+      _emitTaskTree(
+        nodeId: childId,
+        parentTaskNodeId: nodeId,
+        sectionLabel: sectionLabel,
+        priority: priority,
+        dueDate: dueDate,
+        labels: labels,
+        children: children,
+        incoming: incoming,
+        creates: creates,
+        emitted: emitted,
+        createIndex: createIndex,
+        md: md,
+        depth: depth + 1,
+      );
+    }
+  }
+
+  static void _collectDoneLeaves({
+    required String id,
+    required Map<String, List<String>> children,
+    required Map<String, String> labels,
+    required List<String> done,
+    required StringBuffer md,
+  }) {
+    final text = labels[id]?.trim();
+    if (text == null || text.isEmpty) return;
+    final kids = children[id];
+    if (kids == null || kids.isEmpty) {
+      done.add(text);
+      md.writeln('- $text');
+      return;
+    }
+    for (final child in kids) {
+      _collectDoneLeaves(
+        id: child,
+        children: children,
+        labels: labels,
+        done: done,
+        md: md,
+      );
+    }
+  }
+
   static String? _pickHub({
     required Map<String, String> labels,
     required List<String> roots,
@@ -141,7 +260,6 @@ class DailyMindmapParser {
     for (final id in labels.keys) {
       if (DailyNoteDate.tryParse(labels[id]!) != null) {
         dateHub = id;
-        // Prefer a date that is also a graph root when possible.
         if (roots.contains(id)) return id;
       }
     }
@@ -158,37 +276,7 @@ class DailyMindmapParser {
     return roots.first;
   }
 
-  /// Task texts = leaf descendants under [root]. If [root] itself is a leaf
-  /// (no children), it is not a task — branches without leaves yield nothing.
-  static List<String> _collectLeaves({
-    required String root,
-    required Map<String, List<String>> children,
-    required Map<String, String> labels,
-  }) {
-    final kids = children[root];
-    if (kids == null || kids.isEmpty) return const [];
-
-    // BFS so sibling order follows edge insertion (stable for confirm → Todoist).
-    final out = <String>[];
-    final queue = List<String>.from(kids);
-    final seen = <String>{root};
-    while (queue.isNotEmpty) {
-      final id = queue.removeAt(0);
-      if (!seen.add(id)) continue;
-      final text = labels[id];
-      if (text == null || text.trim().isEmpty) continue;
-      final grand = children[id];
-      if (grand == null || grand.isEmpty) {
-        out.add(text.trim());
-      } else {
-        queue.addAll(grand);
-      }
-    }
-    return out;
-  }
-
   static String _displayHeading(String normalizedLabel, String raw) {
-    // Keep familiar Title Case for known aliases in markdown mirror.
     switch (normalizedLabel) {
       case 'high':
         return 'Important';
