@@ -78,11 +78,15 @@ class _ConfirmShellState extends State<ConfirmShell> {
   String _captureDayIso() =>
       DailyNoteDate.formatIso(widget.capture.capturedAt.toLocal());
 
-  /// Daily: title is the calendar day. Seed from capture when unset / invalid.
+  /// Daily: title is the calendar day. Prefer hub node date, then capture day.
   String _initialTitle(bool daily) {
     final existing = widget.capture.title.trim();
     if (daily) {
       if (DailyNoteDate.tryParse(existing) != null) return existing;
+      for (final r in widget.capture.meaning.regions) {
+        final hub = DailyNoteDate.tryParse(r.text);
+        if (hub != null) return DailyNoteDate.formatIso(hub);
+      }
       return _captureDayIso();
     }
     return existing;
@@ -128,6 +132,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
 
   bool get _isDaily => _router.routeById(_selectedId).isDailyTasks;
   bool get _isCanvas => _router.routeById(_selectedId).isCanvas;
+
+  /// · daily mindmaps and △ canvases both edit hub/spoke node labels.
+  bool get _editMindmapNodes => _isCanvas || _isDaily;
 
   void _syncNodeText(int index, String text) {
     if (index < 0 || index >= _regions.length) return;
@@ -211,8 +218,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
       );
       return;
     }
-    // Pull latest text from controllers for canvas nodes.
-    if (_isCanvas) {
+    // Pull latest text from controllers for mindmap nodes (△ and ·).
+    if (_editMindmapNodes) {
       for (var i = 0; i < _regions.length && i < _nodeControllers.length; i++) {
         final t = _nodeControllers[i].text;
         final r = _regions[i];
@@ -229,13 +236,20 @@ class _ConfirmShellState extends State<ConfirmShell> {
     final commitTitle = _isDaily
         ? DailyNoteDate.formatIso(DailyNoteDate.tryParse(title)!)
         : title;
+    // · daily: mirror nodes into section markdown for fallback sync.
+    final noteBody = _isDaily && _editMindmapNodes
+        ? _regions
+            .map((r) => r.text.trim())
+            .where((t) => t.isNotEmpty)
+            .join('\n')
+        : _bodyController.text;
     await callback(
       symbolId: _selectedId,
       title: commitTitle,
-      noteBody: _bodyController.text,
+      noteBody: noteBody,
       links: const [],
       inkGhost: _isCanvas ? _inkGhost : true,
-      regions: _isCanvas ? List<OcrRegion>.from(_regions) : null,
+      regions: _editMindmapNodes ? List<OcrRegion>.from(_regions) : null,
     );
   }
 
@@ -267,6 +281,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                         // never burned into the vault photo.
                         return Opacity(
                           opacity: _isCanvas && _inkGhost ? 0.42 : 1,
+                          // · daily keeps full photo opacity (Todoist, not canvas).
                           child: CaptureRegionOverlay(
                             imageBytes: widget.capture.imageBytes,
                             feedback: widget.capture.regionFeedback,
@@ -304,19 +319,22 @@ class _ConfirmShellState extends State<ConfirmShell> {
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                             children: [
                               Text(
-                                _isCanvas ? 'Fix mindmap words' : 'Confirm',
+                                _editMindmapNodes
+                                    ? (_isDaily
+                                        ? 'Fix daily mindmap'
+                                        : 'Fix mindmap words')
+                                    : 'Confirm',
                                 style: textTheme.titleLarge,
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                _isCanvas
-                                    ? 'Vision is a draft — edit labels in the list '
-                                        '(not on the photo). Title becomes the filename.'
-                                    : _isDaily
-                                        ? 'Set the day for this page. Each '
-                                            'section heading becomes a Todoist '
-                                            'label; items under it go to Inbox. '
-                                            'done: closes matching tasks.'
+                                _isDaily
+                                    ? 'Date hub → section branches → task leaves. '
+                                        'Edit node words in the list. Each branch '
+                                        'becomes a Todoist label; leaves go to Inbox.'
+                                    : _isCanvas
+                                        ? 'Vision is a draft — edit labels in the list '
+                                            '(not on the photo). Title becomes the filename.'
                                         : 'Title becomes the filename. OCR text is saved as written.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,
@@ -396,20 +414,31 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     ),
                                   ),
                                 ),
-                              if (_isCanvas) ...[
-                                SwitchListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(
-                                    'Dim photo under nodes',
-                                    style: textTheme.titleMedium,
+                              if (_editMindmapNodes) ...[
+                                if (_isCanvas)
+                                  SwitchListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      'Dim photo under nodes',
+                                      style: textTheme.titleMedium,
+                                    ),
+                                    value: _inkGhost,
+                                    activeThumbColor: MemoryHues.accent,
+                                    activeTrackColor: MemoryHues.accentSoft,
+                                    onChanged: widget.committing
+                                        ? null
+                                        : (v) => setState(() => _inkGhost = v),
                                   ),
-                                  value: _inkGhost,
-                                  activeThumbColor: MemoryHues.accent,
-                                  activeTrackColor: MemoryHues.accentSoft,
-                                  onChanged: widget.committing
-                                      ? null
-                                      : (v) => setState(() => _inkGhost = v),
-                                ),
+                                if (_isDaily)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Text(
+                                      'Hub = date · branches = labels · leaves = tasks',
+                                      style: textTheme.labelMedium?.copyWith(
+                                        color: MemoryHues.inkMuted,
+                                      ),
+                                    ),
+                                  ),
                                 const SizedBox(height: 4),
                                 for (var i = 0; i < _regions.length; i++)
                                   _NodeEditTile(
@@ -433,7 +462,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   ),
                                 ),
                               ],
-                              if (!_isCanvas)
+                              if (!_editMindmapNodes)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 12),
                                   child: TextField(
@@ -442,11 +471,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     minLines: 6,
                                     maxLines: null,
                                     style: textTheme.bodyLarge,
-                                    decoration: InputDecoration(
-                                      labelText: _isDaily
-                                          ? 'Daily sections (OCR → Todoist)'
-                                          : 'Note (full OCR text)',
-                                      border: const OutlineInputBorder(),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Note (full OCR text)',
+                                      border: OutlineInputBorder(),
                                       alignLabelWithHint: true,
                                     ),
                                   ),

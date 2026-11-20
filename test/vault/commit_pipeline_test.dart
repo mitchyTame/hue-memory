@@ -339,6 +339,55 @@ Ignore this prose
     expect(await vault.exists('Organising/Daily/2026-10-16.md'), isFalse);
   });
 
+  test('daily-tasks mindmap hub→branch→leaf syncs labeled Inbox tasks', () async {
+    final regions = [
+      const OcrRegion(id: 'hub', text: "20 Nov '26", confidence: 0.9, bbox: [0.3, 0.4, 0.2, 0.08]),
+      const OcrRegion(id: 'high', text: 'High', confidence: 0.9, bbox: [0.6, 0.2, 0.2, 0.08]),
+      const OcrRegion(id: 'hue', text: 'Hue', confidence: 0.9, bbox: [0.75, 0.15, 0.2, 0.08]),
+      const OcrRegion(id: 'shop', text: 'shopping', confidence: 0.9, bbox: [0.2, 0.15, 0.2, 0.08]),
+      const OcrRegion(id: 'blend', text: 'portable blender', confidence: 0.9, bbox: [0.05, 0.1, 0.25, 0.08]),
+    ];
+    final capture = PendingCapture(
+      pageId: '20261120-p7k2',
+      imageBytes: _tinyPng(),
+      capturedAt: DateTime.utc(2026, 11, 20, 12),
+      meaning: MeaningResult(
+        detectedGlyph: '·',
+        regions: regions,
+        pageGenre: 'visual',
+        rawJson: {
+          'canvas_nodes': [
+            for (final r in regions)
+              {'id': r.id, 'type': 'text', 'text': r.text, 'x': 0, 'y': 0, 'width': 120, 'height': 48},
+          ],
+          'canvas_edges': [
+            {'id': 'e1', 'fromNode': 'hub', 'toNode': 'high'},
+            {'id': 'e2', 'fromNode': 'high', 'toNode': 'hue'},
+            {'id': 'e3', 'fromNode': 'hub', 'toNode': 'shop'},
+            {'id': 'e4', 'fromNode': 'shop', 'toNode': 'blend'},
+          ],
+        },
+      ),
+    );
+
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'daily-tasks',
+        title: '2026-11-20',
+        noteBody: '', // flat dump would fail — mindmap edges must win
+        regions: regions,
+      ),
+    );
+
+    expect(result.todoistSync?.createdCount, 2);
+    expect(
+      todoist.created.map((t) => '${t.labels.single}:${t.content}').toList(),
+      ['high:Hue', 'shopping:portable blender'],
+    );
+    expect(await vault.exists('Organising/Daily/2026-11-20.md'), isFalse);
+  });
+
   test('daily-tasks unmatched done is recorded for Settings UI', () async {
     todoist.openTasks = [
       const TodoistTask(id: '1', content: 'Known task'),

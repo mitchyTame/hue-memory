@@ -64,8 +64,9 @@ void main() {
     expect(router.route('◇').symbol.reviewGate, 'own_words');
   });
 
-  test('isVisualSymbol follows pack capture type (canvas output)', () {
+  test('isVisualSymbol follows pack capture type (canvas + daily mindmap)', () {
     expect(router.isVisualSymbol('visual'), isTrue);
+    expect(router.isVisualSymbol('daily-tasks'), isTrue);
     expect(router.isVisualSymbol('journal'), isFalse);
     final journalVisual = PackEditor.withCaptureType(
       DefaultPacks.zettelkastenInk.byId('journal')!,

@@ -146,21 +146,22 @@ class CommitPipeline {
 
     // △ / visual / photo_only must always produce JSON Canvas — never a
     // markdown note that embeds the photo (reads as OCR dump in Obsidian).
+    // · daily uses the visual *capture* path but syncs to Todoist (not .canvas).
     final genre = capture.meaning.pageGenre;
-    final writeCanvas = route.isCanvas ||
-        route.symbol.id == 'visual' ||
-        genre == 'visual' ||
-        genre == 'photo_only';
+    final writeCanvas = !route.isDailyTasks &&
+        (route.isCanvas ||
+            route.symbol.id == 'visual' ||
+            genre == 'visual' ||
+            genre == 'photo_only');
 
     if (route.isDailyTasks) {
       await _vault.writeBytes(rawImagePath, capture.imageBytes);
-      final markdown = _dailyMarkdownFor(input);
       final sync = _dailyTodoistSync ??
           await (_dailyTodoistSyncFactory?.call() ?? Future.value(null));
       if (sync == null) {
         throw const TodoistNotConfiguredException();
       }
-      final todoist = await sync.syncMarkdown(markdown);
+      final todoist = await _syncDailyTodoist(input: input, sync: sync);
       return CommitResult(
         pageId: capture.pageId,
         rawImagePath: rawImagePath,
@@ -336,6 +337,49 @@ class CommitPipeline {
       symbolId: route.symbol.id,
       canvasPath: canvasPath,
       // notePath intentionally null — △ never writes companion .md
+    );
+  }
+
+  /// · mindmap (hub→branch→leaf) first; section markdown as fallback.
+  Future<DailyTodoistSyncResult> _syncDailyTodoist({
+    required CommitInput input,
+    required DailyTodoistSync sync,
+  }) async {
+    final capture = input.capture;
+    final regionList = input.regions ?? capture.meaning.regions;
+    final fromGemini = CaptureCoordinator.canvasFromMeaning(
+      MeaningResult(
+        detectedGlyph: capture.meaning.detectedGlyph,
+        regions: regionList,
+        pageGenre: capture.meaning.pageGenre,
+        threadTick: capture.meaning.threadTick,
+        rawJson: capture.meaning.rawJson,
+      ),
+    );
+
+    var regions = regionList;
+    var edges = const <CanvasEdge>[];
+    if (fromGemini != null) {
+      final edited = ObsidianCanvasFromGemini.applyLabelEdits(
+        textNodes: fromGemini.nodes,
+        edited: regionList,
+      );
+      regions = [
+        for (final n in edited)
+          OcrRegion(
+            id: n.id,
+            text: (n.text ?? '').trim(),
+            confidence: 0.85,
+            bbox: const [0.1, 0.1, 0.3, 0.08],
+          ),
+      ];
+      edges = fromGemini.edges;
+    }
+
+    return sync.syncDaily(
+      markdown: _dailyMarkdownFor(input),
+      regions: regions,
+      edges: edges,
     );
   }
 

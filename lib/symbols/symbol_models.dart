@@ -58,9 +58,13 @@ class PackSymbol {
 
   String get primaryGlyph => glyphs.isNotEmpty ? glyphs.first : '?';
 
-  /// Pipeline kind driven by [output] (`canvas` → visual, else text).
+  /// Pipeline kind driven by [output].
+  ///
+  /// · daily pages are hand-drawn mindmaps (date hub → section branches →
+  /// tasks), so [dailyNoteAppend] uses the same visual/diagram path as △.
   SymbolCaptureType get captureType =>
-      output == SymbolOutput.canvas
+      output == SymbolOutput.canvas ||
+              output == SymbolOutput.dailyNoteAppend
           ? SymbolCaptureType.visual
           : SymbolCaptureType.text;
 

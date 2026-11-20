@@ -1,3 +1,6 @@
+import '../ocr/ocr_client.dart';
+import '../writers/canvas_writer.dart';
+import 'daily_mindmap_parser.dart';
 import 'daily_todoist_parser.dart';
 import 'todoist_client.dart';
 import 'unmatched_done_store.dart';
@@ -50,19 +53,38 @@ class DailyTodoistSync {
     required TodoistClient client,
     required UnmatchedDoneStore unmatchedStore,
     DailyTodoistParser parser = const DailyTodoistParser(),
+    DailyMindmapParser mindmapParser = const DailyMindmapParser(),
     DateTime Function()? clock,
   })  : _client = client,
         _unmatched = unmatchedStore,
         _parser = parser,
+        _mindmap = mindmapParser,
         _clock = clock ?? DateTime.now;
 
   final TodoistClient _client;
   final UnmatchedDoneStore _unmatched;
   final DailyTodoistParser _parser;
+  final DailyMindmapParser _mindmap;
   final DateTime Function() _clock;
 
+  /// Prefer mindmap hub→branch→leaf; fall back to section markdown.
+  Future<DailyTodoistSyncResult> syncDaily({
+    required String markdown,
+    List<OcrRegion> regions = const [],
+    List<CanvasEdge> edges = const [],
+  }) async {
+    if (regions.isNotEmpty) {
+      final mind = _mindmap.parse(regions: regions, edges: edges);
+      if (mind.hasWork) return syncParsed(mind.sync);
+    }
+    return syncMarkdown(markdown);
+  }
+
   Future<DailyTodoistSyncResult> syncMarkdown(String source) async {
-    final parsed = _parser.parse(source);
+    return syncParsed(_parser.parse(source));
+  }
+
+  Future<DailyTodoistSyncResult> syncParsed(DailyTodoistParseResult parsed) async {
     if (parsed.creates.isEmpty && parsed.done.isEmpty) {
       return const DailyTodoistSyncResult();
     }
