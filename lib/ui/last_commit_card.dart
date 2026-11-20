@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../capture/last_commit_summary.dart';
 import '../theme/memory_hues.dart';

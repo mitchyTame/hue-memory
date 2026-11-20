@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hue_memory/ui/manual_region_shell.dart';
 import 'package:hue_memory/vision/page_region.dart';
