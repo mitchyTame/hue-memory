@@ -144,7 +144,7 @@ class TodoistClient {
       final uri = Uri.parse(endpoint).replace(
         queryParameters: {
           'limit': '200',
-          if (cursor != null) 'cursor': cursor,
+          'cursor': ?cursor,
         },
       );
       final res = await _http.get(uri, headers: _headers);
