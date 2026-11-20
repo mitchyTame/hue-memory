@@ -60,6 +60,34 @@ done:
     expect(stored.single.content, 'Mystery paper task');
     expect(result.snackbarMessage, contains('done item not found'));
   });
+
+  test('sync ensures dynamic section labels and creates Inbox tasks', () async {
+    final client = _FakeTodoistClient();
+    final sync = DailyTodoistSync(
+      client: client,
+      unmatchedStore: MemoryUnmatchedDoneStore(),
+    );
+
+    final result = await sync.syncMarkdown('''
+Important:
+- Call dentist
+Weekend Plans:
+- Hike
+## Errands
+- Milk
+''');
+
+    expect(result.createdCount, 3);
+    expect(client.ensuredLabels.toSet(), containsAll(['high', 'weekend plans', 'errands']));
+    expect(
+      client.created.map((t) => '${t.labels.single}:${t.content}').toList(),
+      [
+        'high:Call dentist',
+        'weekend plans:Hike',
+        'errands:Milk',
+      ],
+    );
+  });
 }
 
 class _FakeTodoistClient extends TodoistClient {

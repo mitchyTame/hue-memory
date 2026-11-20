@@ -313,9 +313,10 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     ? 'Vision is a draft — edit labels in the list '
                                         '(not on the photo). Title becomes the filename.'
                                     : _isDaily
-                                        ? 'Set the day for this page. Sections '
-                                            '(high / medium / low / events / '
-                                            'reminders / done) sync to Todoist Inbox.'
+                                        ? 'Set the day for this page. Each '
+                                            'section heading becomes a Todoist '
+                                            'label; items under it go to Inbox. '
+                                            'done: closes matching tasks.'
                                         : 'Title becomes the filename. OCR text is saved as written.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,

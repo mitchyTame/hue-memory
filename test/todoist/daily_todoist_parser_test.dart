@@ -82,6 +82,76 @@ events:
     });
   });
 
+  group('dynamic section labels', () {
+    test('multi-heading OCR creates Inbox tasks labeled by each section', () {
+      const sample = '''
+19 Oct '26
+Important:
+- Seeing shanolin
+- License Management
+## Errands
+- Pick up dry cleaning
+Custom Project:
+- Ship dynamic labels
+shopping:
+☐ Milk
+☐ Eggs
+done:
+- Already finished
+Notes:
+Journal prose must not become a task.
+Log:
+☉
+''';
+
+      final result = parser.parse(sample);
+
+      expect(
+        result.creates.map((c) => '${c.label}:${c.content}').toList(),
+        [
+          'high:Seeing shanolin',
+          'high:License Management',
+          'errands:Pick up dry cleaning',
+          'custom project:Ship dynamic labels',
+          'shopping:Milk',
+          'shopping:Eggs',
+        ],
+      );
+      expect(result.done, ['Already finished']);
+      expect(
+        result.creates.any((c) => c.content.toLowerCase().contains('journal')),
+        isFalse,
+      );
+    });
+
+    test('inline Heading: item lines become labeled tasks', () {
+      final result = parser.parse('''
+high: Call dentist
+Errands: Buy stamps
+done: Close the loop
+''');
+      expect(
+        result.creates.map((c) => '${c.label}:${c.content}').toList(),
+        [
+          'high:Call dentist',
+          'errands:Buy stamps',
+        ],
+      );
+      expect(result.done, ['Close the loop']);
+    });
+
+    test('unknown headings are not dropped (root cause of empty sync)', () {
+      final result = parser.parse('''
+Weekend:
+- Hike
+- Meal prep
+''');
+      expect(result.creates, hasLength(2));
+      expect(result.creates.every((c) => c.label == 'weekend'), isTrue);
+      expect(result.done, isEmpty);
+    });
+  });
+
   group('done-match failure path (parser + sync helper)', () {
     test('done section lines are collected for matching', () {
       final result = parser.parse('''

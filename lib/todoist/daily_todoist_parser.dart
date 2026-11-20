@@ -10,7 +10,7 @@ class DailyTodoistCreate {
 
   final String content;
 
-  /// Todoist personal label name: `high` | `medium` | `low` | `events` | `reminders`.
+  /// Todoist personal label — section name (normalized), created if missing.
   final String label;
 
   /// Todoist priority 1–4 (4 = urgent). Null = API default.
@@ -28,50 +28,65 @@ class DailyTodoistParseResult {
   final List<String> done;
 }
 
+/// How a section heading should drive Todoist sync.
+enum _SectionKind { create, done, skip }
+
+class _SectionAction {
+  const _SectionAction.create(this.label, {this.priority})
+      : kind = _SectionKind.create;
+  const _SectionAction.done()
+      : kind = _SectionKind.done,
+        label = null,
+        priority = null;
+  const _SectionAction.skip()
+      : kind = _SectionKind.skip,
+        label = null,
+        priority = null;
+
+  final _SectionKind kind;
+  final String? label;
+  final int? priority;
+}
+
 /// Maps daily markdown sections → Todoist labels / done list.
 ///
-/// Drops Logs, Notes, and plain checkboxes outside sync sections.
+/// Any heading becomes a Todoist label (created on demand). Known aliases
+/// (`Important` → `high`, etc.) keep priority mapping. Journal noise
+/// (`Notes` / `Log`) and empty lines are skipped — not unknown headings.
 class DailyTodoistParser {
   const DailyTodoistParser();
 
-  static const createLabels = <String>{
-    'high',
-    'medium',
-    'low',
-    'events',
-    'reminders',
-  };
-
-  /// Section heading → sync kind (`high`…`reminders`, `done`, or null = drop).
-  static String? mapSection(String rawLabel) {
-    final key = _normalizeSectionKey(rawLabel);
+  /// Classify a raw section heading for sync.
+  static _SectionAction classifySection(String rawLabel) {
+    final key = normalizeSectionKey(rawLabel);
     switch (key) {
-      case 'high':
-      case 'important':
-      case 'priority':
-        return 'high';
-      case 'medium':
-      case 'med':
-        return 'medium';
-      case 'low':
-        return 'low';
-      case 'events':
-      case 'event':
-        return 'events';
-      case 'reminders':
-      case 'reminder':
-        return 'reminders';
       case 'done':
       case 'completed':
       case 'complete':
-        return 'done';
+        return const _SectionAction.done();
       case 'logs':
       case 'log':
       case 'notes':
       case 'note':
-        return null;
+        return const _SectionAction.skip();
+      case 'high':
+      case 'important':
+      case 'priority':
+        return const _SectionAction.create('high', priority: 4);
+      case 'medium':
+      case 'med':
+        return const _SectionAction.create('medium', priority: 3);
+      case 'low':
+        return const _SectionAction.create('low', priority: 2);
+      case 'events':
+      case 'event':
+        return const _SectionAction.create('events');
+      case 'reminders':
+      case 'reminder':
+        return const _SectionAction.create('reminders');
       default:
-        return null;
+        if (key.isEmpty) return const _SectionAction.skip();
+        return _SectionAction.create(key);
     }
   }
 
@@ -89,52 +104,8 @@ class DailyTodoistParser {
     }
   }
 
-  DailyTodoistParseResult parse(String source) {
-    final md = DailyNoteMarkdown.interpret(source);
-    if (md.trim().isEmpty) {
-      return const DailyTodoistParseResult();
-    }
-
-    final creates = <DailyTodoistCreate>[];
-    final done = <String>[];
-    String? active; // sync kind or '' for dropped / unknown
-
-    for (final raw in md.split('\n')) {
-      final line = raw.trimRight();
-      if (line.trim().isEmpty) continue;
-
-      final section = _sectionName(line);
-      if (section != null) {
-        active = mapSection(section) ?? '';
-        continue;
-      }
-
-      // Outside a sync section: ignore (incl. plain checkboxes / prose).
-      if (active == null || active.isEmpty) continue;
-
-      final content = _itemContent(line);
-      if (content == null || content.isEmpty) continue;
-
-      if (active == 'done') {
-        done.add(content);
-        continue;
-      }
-
-      if (createLabels.contains(active)) {
-        creates.add(
-          DailyTodoistCreate(
-            content: content,
-            label: active,
-            priority: priorityForLabel(active),
-          ),
-        );
-      }
-    }
-
-    return DailyTodoistParseResult(creates: creates, done: done);
-  }
-
-  static String _normalizeSectionKey(String raw) {
+  /// Public normalize used for labels + tests.
+  static String normalizeSectionKey(String raw) {
     var t = raw.trim();
     if (t.startsWith('**') && t.endsWith('**')) {
       t = t.substring(2, t.length - 2).trim();
@@ -143,13 +114,94 @@ class DailyTodoistParser {
     return t.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
 
+  DailyTodoistParseResult parse(String source) {
+    final md = DailyNoteMarkdown.interpret(source);
+    if (md.trim().isEmpty) {
+      return const DailyTodoistParseResult();
+    }
+
+    final creates = <DailyTodoistCreate>[];
+    final done = <String>[];
+    _SectionAction? active;
+
+    for (final raw in md.split('\n')) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) continue;
+
+      final section = _sectionName(line);
+      if (section != null) {
+        active = classifySection(section);
+        // Inline "Heading: item on same line"
+        final inlineItem = _inlineSectionItem(line, section);
+        if (inlineItem != null && inlineItem.isNotEmpty && active != null) {
+          _absorbItem(active, inlineItem, creates, done);
+        }
+        continue;
+      }
+
+      // Outside any section: ignore (date lines, orphan prose, root checkboxes).
+      if (active == null || active.kind == _SectionKind.skip) continue;
+
+      final content = _itemContent(line);
+      if (content == null || content.isEmpty) continue;
+      _absorbItem(active, content, creates, done);
+    }
+
+    return DailyTodoistParseResult(creates: creates, done: done);
+  }
+
+  static void _absorbItem(
+    _SectionAction active,
+    String content,
+    List<DailyTodoistCreate> creates,
+    List<String> done,
+  ) {
+    switch (active.kind) {
+      case _SectionKind.done:
+        done.add(content);
+      case _SectionKind.create:
+        final label = active.label;
+        if (label == null || label.isEmpty) return;
+        creates.add(
+          DailyTodoistCreate(
+            content: content,
+            label: label,
+            priority: active.priority ?? priorityForLabel(label),
+          ),
+        );
+      case _SectionKind.skip:
+        return;
+    }
+  }
+
+  /// When OCR puts `Heading: item` on one line, return the item text.
+  static String? _inlineSectionItem(String line, String sectionName) {
+    final trimmed = line.trim();
+    // Bold / markdown headings are never inline items.
+    if (trimmed.startsWith('#') || trimmed.startsWith('**')) return null;
+    final escaped = RegExp.escape(sectionName.trim());
+    final m = RegExp(
+      '^$escaped:\\s+(.+)\$',
+      caseSensitive: false,
+    ).firstMatch(trimmed);
+    if (m == null) return null;
+    return _cleanContent(m.group(1) ?? '');
+  }
+
   static String? _sectionName(String line) {
     final trimmed = line.trim();
     final bold = RegExp(r'^\*\*([^*].*?)\*\*:?\s*$').firstMatch(trimmed);
     if (bold != null) return bold.group(1);
 
+    // Heading-only: `high:` / `Custom Project:`
     final plain = RegExp(r'^([A-Za-z][\w\s/&-]{0,48}):\s*$').firstMatch(trimmed);
     if (plain != null) return plain.group(1);
+
+    // Inline: `high: Call dentist` — section name is the key before colon.
+    final inline = RegExp(
+      r'^([A-Za-z][\w\s/&-]{0,48}):\s+\S',
+    ).firstMatch(trimmed);
+    if (inline != null) return inline.group(1);
 
     final heading = RegExp(r'^#{1,3}\s+(.+?)\s*$').firstMatch(trimmed);
     if (heading != null) {
@@ -164,6 +216,7 @@ class DailyTodoistParser {
   static String? _itemContent(String line) {
     final trimmed = line.trim();
     if (trimmed.isEmpty) return null;
+    // Section headers (with or without inline item) are handled in parse().
     if (_sectionName(trimmed) != null) return null;
 
     // Dates / lone glyphs are not tasks.
@@ -201,7 +254,6 @@ class DailyTodoistParser {
 
   static String _cleanContent(String raw) {
     var t = raw.trim();
-    // Strip nested bullet leftovers.
     t = t.replaceFirst(RegExp(r'^[-*+·•]\s+'), '');
     return t.trim();
   }
