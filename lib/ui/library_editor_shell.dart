@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../symbols/ink_library.dart';
 import '../symbols/pack_editor.dart';

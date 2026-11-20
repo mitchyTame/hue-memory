@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../symbols/symbol_models.dart';
 import '../theme/memory_hues.dart';
