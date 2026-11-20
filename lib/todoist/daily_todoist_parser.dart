@@ -57,7 +57,7 @@ class DailyTodoistParser {
   const DailyTodoistParser();
 
   /// Classify a raw section heading for sync.
-  static _SectionAction classifySection(String rawLabel) {
+  static _SectionAction _classifySection(String rawLabel) {
     final key = normalizeSectionKey(rawLabel);
     switch (key) {
       case 'done':
@@ -130,11 +130,12 @@ class DailyTodoistParser {
 
       final section = _sectionName(line);
       if (section != null) {
-        active = classifySection(section);
+        final action = _classifySection(section);
+        active = action;
         // Inline "Heading: item on same line"
         final inlineItem = _inlineSectionItem(line, section);
-        if (inlineItem != null && inlineItem.isNotEmpty && active != null) {
-          _absorbItem(active, inlineItem, creates, done);
+        if (inlineItem != null && inlineItem.isNotEmpty) {
+          _absorbItem(action, inlineItem, creates, done);
         }
         continue;
       }
