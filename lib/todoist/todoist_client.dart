@@ -108,14 +108,44 @@ class TodoistClient {
     required String content,
     List<String> labels = const [],
     int? priority,
+    String? parentId,
+    DateTime? dueDate,
+    String? description,
   }) async {
+    final desc = description?.trim();
     final body = <String, dynamic>{
       'content': content,
       if (labels.isNotEmpty) 'labels': labels,
       'priority': ?priority,
+      'parent_id': ?parentId,
+      'description': ?(desc == null || desc.isEmpty ? null : desc),
+      if (dueDate != null)
+        'due_date':
+            '${dueDate.year.toString().padLeft(4, '0')}-'
+            '${dueDate.month.toString().padLeft(2, '0')}-'
+            '${dueDate.day.toString().padLeft(2, '0')}',
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks'),
+      headers: _headers,
+      body: jsonEncode(body),
+    );
+    _ensureOk(res);
+    return TodoistTask.fromJson(
+      jsonDecode(res.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Patch task fields (used to attach extra mindmap parent links).
+  Future<TodoistTask> updateTask(
+    String taskId, {
+    String? description,
+  }) async {
+    final body = <String, dynamic>{
+      'description': ?description,
+    };
+    final res = await _http.post(
+      Uri.parse('$baseUrl/tasks/$taskId'),
       headers: _headers,
       body: jsonEncode(body),
     );

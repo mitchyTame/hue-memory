@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:hue_memory/todoist/daily_todoist_parser.dart';
 import 'package:hue_memory/todoist/daily_todoist_sync.dart';
 import 'package:hue_memory/todoist/todoist_client.dart';
 import 'package:hue_memory/todoist/unmatched_done_store.dart';
@@ -60,6 +61,78 @@ done:
     expect(stored.single.content, 'Mystery paper task');
     expect(result.snackbarMessage, contains('done item not found'));
   });
+
+  test('sync ensures dynamic section labels and creates Inbox tasks', () async {
+    final client = _FakeTodoistClient();
+    final sync = DailyTodoistSync(
+      client: client,
+      unmatchedStore: MemoryUnmatchedDoneStore(),
+    );
+
+    final result = await sync.syncMarkdown('''
+Important:
+- Call dentist
+Weekend Plans:
+- Hike
+## Errands
+- Milk
+''');
+
+    expect(result.createdCount, 3);
+    expect(client.ensuredLabels.toSet(), containsAll(['high', 'weekend plans', 'errands']));
+    expect(
+      client.created.map((t) => '${t.labels.single}:${t.content}').toList(),
+      [
+        'high:Call dentist',
+        'weekend plans:Hike',
+        'errands:Milk',
+      ],
+    );
+  });
+
+  test('sync creates subtasks with parent_id from mindmap links', () async {
+    final client = _FakeTodoistClient();
+    final sync = DailyTodoistSync(
+      client: client,
+      unmatchedStore: MemoryUnmatchedDoneStore(),
+    );
+
+    final result = await sync.syncParsed(
+      const DailyTodoistParseResult(
+        creates: [
+          DailyTodoistCreate(
+            content: 'Hue',
+            label: 'high',
+            priority: 4,
+            nodeId: 'hue',
+          ),
+          DailyTodoistCreate(
+            content: 'Wire subtasks',
+            label: 'high',
+            nodeId: 'a',
+            parentNodeId: 'hue',
+          ),
+          DailyTodoistCreate(
+            content: 'Shared',
+            label: 'high',
+            nodeId: 's',
+            parentNodeId: 'hue',
+            extraParentNodeIds: ['other'],
+          ),
+          DailyTodoistCreate(
+            content: 'Other parent',
+            label: 'high',
+            nodeId: 'other',
+          ),
+        ],
+      ),
+    );
+
+    expect(result.createdCount, 4);
+    expect(client.parentIds['new-1'], isNull); // Hue root
+    expect(client.parentIds['new-2'], 'new-1'); // sub under Hue
+    expect(client.parentIds['new-3'], 'new-1');
+  });
 }
 
 class _FakeTodoistClient extends TodoistClient {
@@ -86,6 +159,9 @@ class _FakeTodoistClient extends TodoistClient {
     required String content,
     List<String> labels = const [],
     int? priority,
+    String? parentId,
+    DateTime? dueDate,
+    String? description,
   }) async {
     final task = TodoistTask(
       id: 'new-${created.length + 1}',
@@ -93,7 +169,18 @@ class _FakeTodoistClient extends TodoistClient {
       labels: labels,
     );
     created.add(task);
+    parentIds[task.id] = parentId;
     return task;
+  }
+
+  final Map<String, String?> parentIds = {};
+
+  @override
+  Future<TodoistTask> updateTask(
+    String taskId, {
+    String? description,
+  }) async {
+    return created.firstWhere((t) => t.id == taskId);
   }
 
   @override
