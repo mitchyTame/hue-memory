@@ -7,8 +7,11 @@ import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_client.dart';
 import 'package:hue_memory/symbols/symbol_models.dart';
 import 'package:hue_memory/symbols/symbol_router.dart';
+import 'package:http/http.dart' as http;
+import 'package:hue_memory/todoist/daily_todoist_sync.dart';
+import 'package:hue_memory/todoist/todoist_client.dart';
+import 'package:hue_memory/todoist/unmatched_done_store.dart';
 import 'package:hue_memory/vault/commit_pipeline.dart';
-import 'package:hue_memory/vault/daily_note_path.dart';
 import 'package:hue_memory/vault/fake_vault_fs.dart';
 import 'package:hue_memory/writers/link_writer.dart';
 
@@ -43,15 +46,19 @@ PendingCapture _capture({
 
 void main() {
   late FakeVaultFs vault;
+  late _FakeTodoistClient todoist;
+  late MemoryUnmatchedDoneStore unmatched;
   late CommitPipeline pipeline;
 
   setUp(() {
     vault = FakeVaultFs();
+    todoist = _FakeTodoistClient();
+    unmatched = MemoryUnmatchedDoneStore();
     pipeline = CommitPipeline(
       vault: vault,
-      dailyNoteSettings: const DailyNoteSettings(
-        folder: 'Organising/Daily',
-        format: 'YYYY-MM-DD',
+      dailyTodoistSync: DailyTodoistSync(
+        client: todoist,
+        unmatchedStore: unmatched,
       ),
     );
   });
@@ -295,90 +302,89 @@ void main() {
     expect(nodes.first['type'], 'text');
   });
 
-  test('daily-tasks appends OCR markdown under date title only', () async {
-    final capture = _capture(
-      glyph: '·',
-      regions: MockOcrClient.defaultTaskRegions,
-    );
-    final result = await pipeline.commit(
-      CommitInput(
-        capture: capture,
-        symbolId: 'daily-tasks',
-        title: '2026-10-16',
-        noteBody: 'ignored when taskLines set',
-        taskLines: const [
-          '- [ ] Buy ink cartridges',
-          '- [ ] Review fleeting notes',
-        ],
-      ),
-    );
-
-    expect(result.dailyNotePath, 'Organising/Daily/2026-10-16.md');
-    final body = await vault.readText(result.dailyNotePath!);
-    expect(body, startsWith('# 2026-10-16'));
-    expect(body, contains('- [ ] Buy ink cartridges'));
-    expect(body, isNot(contains('## Tasks')));
-    expect(body, isNot(contains('symbol-journal')));
-    expect(await vault.exists('captures/raw/20261016-p7k2.png'), isTrue);
-  });
-
-  test('daily-tasks title sets target day (not capture day)', () async {
-    final capture = _capture(
-      glyph: '·',
-      regions: MockOcrClient.defaultTaskRegions,
-    );
-    final result = await pipeline.commit(
-      CommitInput(
-        capture: capture,
-        symbolId: 'daily-tasks',
-        title: "19 Oct '26",
-        noteBody: 'From yesterday\'s page',
-        dailyMarkdown: 'From yesterday\'s page',
-      ),
-    );
-
-    expect(result.dailyNotePath, 'Organising/Daily/2026-10-19.md');
-    final body = await vault.readText(result.dailyNotePath!);
-    expect(body, startsWith('# 2026-10-19'));
-    expect(body, contains("From yesterday's page"));
-  });
-
-  test('daily-tasks preserves sections and nested bullets from noteBody', () async {
+  test('daily-tasks syncs sections to Todoist — not Obsidian Daily', () async {
     final capture = _capture(
       glyph: '·',
       regions: MockOcrClient.defaultTaskRegions,
     );
     const noteBody = '''
-19 Oct '26
-Important:
-- Seeing shanolin
-- License Management
+high:
+- Buy ink cartridges
+medium:
+- Review fleeting notes
 Notes:
-Worked on setting up the bare bare sewers. Did inventory review on all 3 platform sewers.
-Log:
-☉
+Ignore this prose
 ''';
     final result = await pipeline.commit(
       CommitInput(
         capture: capture,
         symbolId: 'daily-tasks',
-        title: 'Tasks',
+        title: '2026-10-16',
         noteBody: noteBody,
         dailyMarkdown: noteBody,
       ),
     );
 
-    final body = await vault.readText(result.dailyNotePath!);
-    expect(body, startsWith('# 2026-10-16'));
-    expect(body, contains('**Important:**'));
-    expect(body, contains('- Seeing shanolin'));
-    expect(body, contains('**Notes:**'));
-    expect(body, contains('Worked on setting up the bare bare sewers'));
-    expect(body, contains('**Log:**'));
-    expect(body, isNot(contains('## Tasks')));
-    expect(body, isNot(contains('symbol-journal')));
-    expect(body, isNot(contains('- [ ] Important')));
-    expect(body, isNot(contains('- [ ] - Seeing')));
+    expect(result.dailyNotePath, isNull);
+    expect(result.todoistSync?.createdCount, 2);
+    expect(todoist.created.map((t) => t.content).toList(), [
+      'Buy ink cartridges',
+      'Review fleeting notes',
+    ]);
+    expect(todoist.created.map((t) => t.labels.single).toList(), [
+      'high',
+      'medium',
+    ]);
+    expect(await vault.exists('captures/raw/20261016-p7k2.png'), isTrue);
+    expect(await vault.exists('Organising/Daily/2026-10-16.md'), isFalse);
+  });
+
+  test('daily-tasks unmatched done is recorded for Settings UI', () async {
+    todoist.openTasks = [
+      const TodoistTask(id: '1', content: 'Known task'),
+    ];
+    final capture = _capture(
+      glyph: '·',
+      regions: MockOcrClient.defaultTaskRegions,
+    );
+    const noteBody = '''
+done:
+- Known task
+- Missing from Todoist
+''';
+    final result = await pipeline.commit(
+      CommitInput(
+        capture: capture,
+        symbolId: 'daily-tasks',
+        title: '2026-10-16',
+        noteBody: noteBody,
+        dailyMarkdown: noteBody,
+      ),
+    );
+
+    expect(result.todoistSync?.completedCount, 1);
+    expect(result.todoistSync?.unmatchedDone, ['Missing from Todoist']);
+    final stored = await unmatched.read();
+    expect(stored.single.content, 'Missing from Todoist');
+  });
+
+  test('daily-tasks without Todoist sync throws', () async {
+    final bare = CommitPipeline(vault: vault);
+    final capture = _capture(
+      glyph: '·',
+      regions: MockOcrClient.defaultTaskRegions,
+    );
+    expect(
+      () => bare.commit(
+        CommitInput(
+          capture: capture,
+          symbolId: 'daily-tasks',
+          title: '2026-10-16',
+          noteBody: 'high:\n- A',
+        ),
+      ),
+      throwsA(isA<TodoistNotConfiguredException>()),
+    );
   });
 
   test('fileStemFromTitle keeps typed name — no pageId suffix', () {
@@ -432,4 +438,51 @@ Log:
       throwsA(isA<ArgumentError>()),
     );
   });
+}
+
+class _FakeTodoistClient extends TodoistClient {
+  _FakeTodoistClient({List<TodoistTask>? openTasks})
+      : openTasks = List<TodoistTask>.from(openTasks ?? const []),
+        super(apiToken: 'test-token', httpClient: _UnusedHttp());
+
+  List<TodoistTask> openTasks;
+  final List<TodoistTask> created = [];
+  final List<String> closedIds = [];
+
+  @override
+  Future<Map<String, String>> ensureLabels(Iterable<String> names) async {
+    return {for (final n in names) n: 'id-$n'};
+  }
+
+  @override
+  Future<List<TodoistTask>> listOpenTasks() async =>
+      List.unmodifiable(openTasks);
+
+  @override
+  Future<TodoistTask> createInboxTask({
+    required String content,
+    List<String> labels = const [],
+    int? priority,
+  }) async {
+    final task = TodoistTask(
+      id: 'new-${created.length + 1}',
+      content: content,
+      labels: labels,
+    );
+    created.add(task);
+    return task;
+  }
+
+  @override
+  Future<void> closeTask(String taskId) async {
+    closedIds.add(taskId);
+    openTasks.removeWhere((t) => t.id == taskId);
+  }
+}
+
+class _UnusedHttp extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    throw StateError('Fake Todoist client must not hit the network');
+  }
 }

@@ -2,10 +2,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../vault/vault_paths.dart';
 
-/// Bot agent mode — scan photos straight into a vault inbox folder.
+/// Bot agent mode — scan photos straight into inbox `.canvas` files.
 ///
 /// Prefs-only (no vault pack scaffolding). When [enabled], the app skips OCR,
-/// Gemini, Canvas, and markdown; it only writes the image file.
+/// symbols, confirm, and markdown; it writes raw under `captures/raw/` and a
+/// typed Gemini canvas under [inboxFolder] (default `inbox`).
 class BotAgentSettings {
   const BotAgentSettings({
     this.enabled = false,

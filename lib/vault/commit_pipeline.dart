@@ -6,12 +6,11 @@ import '../gemini/capture_coordinator.dart';
 import '../gemini/obsidian_canvas_from_gemini.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/symbol_router.dart';
+import '../todoist/daily_todoist_sync.dart';
 import '../writers/canvas_writer.dart';
 import '../writers/link_writer.dart';
 import '../writers/markdown_writer.dart';
 import '../writers/tag_builder.dart';
-import 'daily_note_path.dart';
-import 'daily_tasks_appender.dart';
 import 'vault_fs.dart';
 import 'vault_paths.dart';
 
@@ -67,6 +66,7 @@ class CommitResult {
     this.notePath,
     this.canvasPath,
     this.dailyNotePath,
+    this.todoistSync,
   });
 
   final String pageId;
@@ -74,10 +74,28 @@ class CommitResult {
   final String symbolId;
   final String? notePath;
   final String? canvasPath;
+
+  /// Legacy Obsidian daily path — unused for · (Todoist) commits.
   final String? dailyNotePath;
+
+  /// · daily → Todoist Inbox sync summary (null for other symbols).
+  final DailyTodoistSyncResult? todoistSync;
 
   String get primaryPath =>
       notePath ?? canvasPath ?? dailyNotePath ?? rawImagePath;
+}
+
+/// · daily commit needs a Todoist token / sync hook.
+class TodoistNotConfiguredException implements Exception {
+  const TodoistNotConfiguredException([
+    this.message =
+        'Add a Todoist API token in Settings before syncing · daily pages',
+  ]);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// Note/canvas basename already exists — Mitch must rename (no auto-suffix).
@@ -95,6 +113,7 @@ class VaultNameCollisionException implements Exception {
 /// Writes raw capture + routed vault artifacts through [VaultFs].
 ///
 /// Vault artifacts are **`.md` / `.canvas` / images only** — never `*.json`.
+/// · daily-tasks syncs sections to Todoist Inbox (not Organising/Daily).
 class CommitPipeline {
   CommitPipeline({
     required VaultFs vault,
@@ -102,26 +121,23 @@ class CommitPipeline {
     MarkdownWriter markdownWriter = const MarkdownWriter(),
     CanvasWriter canvasWriter = const CanvasWriter(),
     TagBuilder tagBuilder = const TagBuilder(),
-    DailyNotePathResolver dailyPathResolver = const DailyNotePathResolver(),
-    DailyTasksAppender dailyAppender = const DailyTasksAppender(),
-    DailyNoteSettings dailyNoteSettings = const DailyNoteSettings(),
+    DailyTodoistSync? dailyTodoistSync,
+    Future<DailyTodoistSync?> Function()? dailyTodoistSyncFactory,
   })  : _vault = vault,
         _router = router ?? SymbolRouter(),
         _markdown = markdownWriter,
         _canvas = canvasWriter,
         _tags = tagBuilder,
-        _dailyPaths = dailyPathResolver,
-        _dailyAppender = dailyAppender,
-        _dailySettings = dailyNoteSettings;
+        _dailyTodoistSync = dailyTodoistSync,
+        _dailyTodoistSyncFactory = dailyTodoistSyncFactory;
 
   final VaultFs _vault;
   final SymbolRouter _router;
   final MarkdownWriter _markdown;
   final CanvasWriter _canvas;
   final TagBuilder _tags;
-  final DailyNotePathResolver _dailyPaths;
-  final DailyTasksAppender _dailyAppender;
-  final DailyNoteSettings _dailySettings;
+  final DailyTodoistSync? _dailyTodoistSync;
+  final Future<DailyTodoistSync?> Function()? _dailyTodoistSyncFactory;
 
   Future<CommitResult> commit(CommitInput input) async {
     final capture = input.capture;
@@ -138,50 +154,18 @@ class CommitPipeline {
 
     if (route.isDailyTasks) {
       await _vault.writeBytes(rawImagePath, capture.imageBytes);
-      // Title field sets the daily calendar day (file + # heading).
-      final dailyDate = DailyNoteDate.tryParse(input.title) ??
-          DateTime(
-            capture.capturedAt.toLocal().year,
-            capture.capturedAt.toLocal().month,
-            capture.capturedAt.toLocal().day,
-          );
-      final dailyPath = _dailyPaths.resolve(
-        _dailySettings,
-        date: dailyDate,
-      );
-      final existing =
-          await _vault.exists(dailyPath) ? await _vault.readText(dailyPath) : null;
-      // Same OCR body path as other symbols — writer owns structure.
-      // Prefer explicit dailyMarkdown / taskLines for tests; else noteBody.
-      final explicitMd = input.dailyMarkdown?.trim();
-      final bodyMd = input.noteBody.trim();
-      final String? markdown;
-      final List<String>? tasks;
-      if (explicitMd != null && explicitMd.isNotEmpty) {
-        markdown = explicitMd;
-        tasks = null;
-      } else if (input.taskLines != null) {
-        markdown = null;
-        tasks = input.taskLines;
-      } else if (bodyMd.isNotEmpty) {
-        markdown = bodyMd;
-        tasks = null;
-      } else {
-        markdown = null;
-        tasks = capture.taskLines;
+      final markdown = _dailyMarkdownFor(input);
+      final sync = _dailyTodoistSync ??
+          await (_dailyTodoistSyncFactory?.call() ?? Future.value(null));
+      if (sync == null) {
+        throw const TodoistNotConfiguredException();
       }
-      final body = _dailyAppender.apply(
-        existingBody: existing,
-        markdown: markdown,
-        tasks: tasks,
-        date: dailyDate,
-      );
-      await _vault.writeText(dailyPath, body);
+      final todoist = await sync.syncMarkdown(markdown);
       return CommitResult(
         pageId: capture.pageId,
         rawImagePath: rawImagePath,
         symbolId: route.symbol.id,
-        dailyNotePath: dailyPath,
+        todoistSync: todoist,
       );
     }
 
@@ -353,6 +337,24 @@ class CommitPipeline {
       canvasPath: canvasPath,
       // notePath intentionally null — △ never writes companion .md
     );
+  }
+
+  /// Prefer explicit dailyMarkdown / taskLines; else noteBody / capture tasks.
+  String _dailyMarkdownFor(CommitInput input) {
+    final explicitMd = input.dailyMarkdown?.trim();
+    if (explicitMd != null && explicitMd.isNotEmpty) return explicitMd;
+    if (input.taskLines != null) {
+      return input.taskLines!
+          .map((t) => t.trimRight())
+          .where((t) => t.trim().isNotEmpty)
+          .join('\n');
+    }
+    final bodyMd = input.noteBody.trim();
+    if (bodyMd.isNotEmpty) return bodyMd;
+    return input.capture.taskLines
+        .map((t) => t.trimRight())
+        .where((t) => t.trim().isNotEmpty)
+        .join('\n');
   }
 
   Future<void> _assertNameAvailable(String relativePath) async {

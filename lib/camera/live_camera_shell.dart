@@ -268,8 +268,8 @@ class _LiveCameraShellState extends State<LiveCameraShell> {
                                 child: Text(
                                   botMode
                                       ? (landscape
-                                          ? 'Frame page · scan to inbox'
-                                          : 'Frame the page · scan to inbox')
+                                          ? 'Frame page · inbox canvas'
+                                          : 'Frame the page · inbox canvas')
                                       : (landscape
                                           ? 'Frame page · drag glyph box'
                                           : 'Frame the page · drag box over ink glyph'),

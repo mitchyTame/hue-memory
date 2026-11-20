@@ -319,8 +319,8 @@ class _FolderMapBand extends StatelessWidget {
           _FolderRow(glyph: 'J', name: 'journal', role: 'Journal entries (OCR → .md)'),
           _FolderRow(
             glyph: '·',
-            name: 'Organising/Daily',
-            role: 'GTD tasks appended to today’s note',
+            name: 'Todoist Inbox',
+            role: 'Daily sections → labeled Inbox tasks',
           ),
         ],
       ),

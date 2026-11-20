@@ -93,6 +93,91 @@ void main() {
     expect(edges.first.toNode, 'o');
   });
 
+  test('keeps Enhanced Bot typed prefixes on text nodes; skips file nodes', () {
+    final draft = parser.parse(
+      jsonEncode({
+        'nodes': [
+          {
+            'id': 'meta',
+            'type': 'text',
+            'text': '[META] scrap · 6 Nov',
+            'x': -40,
+            'y': -200,
+            'width': 200,
+            'height': 64,
+          },
+          {
+            'id': 'sum',
+            'type': 'text',
+            'text': '[SUMMARY] dentist + email follow-ups',
+            'x': 180,
+            'y': -200,
+            'width': 240,
+            'height': 64,
+          },
+          {
+            'id': 'evt',
+            'type': 'text',
+            'text': '[EVENT] Dentist Thu 10:00',
+            'x': -40,
+            'y': 0,
+            'width': 220,
+            'height': 72,
+          },
+          {
+            'id': 'task',
+            'type': 'text',
+            'text': '[TASK] Book taxi',
+            'x': 220,
+            'y': 0,
+            'width': 180,
+            'height': 64,
+          },
+          {
+            'id': 'q',
+            'type': 'text',
+            'text': '[QUESTION] Insurance covers?',
+            'x': -40,
+            'y': 120,
+            'width': 220,
+            'height': 64,
+          },
+          {
+            'id': 'img',
+            'type': 'file',
+            'file': 'captures/raw/ignore.jpg',
+            'x': 0,
+            'y': 0,
+            'width': 100,
+            'height': 100,
+          },
+        ],
+        'edges': [
+          {'id': 'e1', 'fromNode': 'sum', 'toNode': 'evt'},
+          {'id': 'e2', 'fromNode': 'sum', 'toNode': 'task'},
+        ],
+      }),
+    );
+
+    expect(draft.textNodes, hasLength(5));
+    expect(draft.textNodes.any((n) => n.type == 'file'), isFalse);
+    expect(
+      draft.textNodes.map((n) => n.text),
+      everyElement(startsWith('[')),
+    );
+    expect(
+      draft.textNodes.map((n) => n.text),
+      containsAll([
+        '[META] scrap · 6 Nov',
+        '[SUMMARY] dentist + email follow-ups',
+        '[EVENT] Dentist Thu 10:00',
+        '[TASK] Book taxi',
+        '[QUESTION] Insurance covers?',
+      ]),
+    );
+    expect(draft.edges, hasLength(2));
+  });
+
   test('buildDiagramCanvas places ghost photo above the idea graph', () {
     const writer = CanvasWriter();
     final draft = parser.parse(

@@ -9,10 +9,13 @@ import 'package:hue_memory/capture/page_id.dart';
 import 'package:hue_memory/gemini/gemini_settings.dart';
 import 'package:hue_memory/ocr/mock_ocr_client.dart';
 import 'package:hue_memory/ocr/ocr_settings.dart';
+import 'package:hue_memory/settings/bot_agent_settings.dart';
 import 'package:hue_memory/settings/vault_settings_store.dart';
 import 'package:hue_memory/symbols/active_pack_store.dart';
 import 'package:hue_memory/symbols/default_packs.dart';
 import 'package:hue_memory/theme/app_theme.dart';
+import 'package:hue_memory/todoist/todoist_settings.dart';
+import 'package:hue_memory/todoist/unmatched_done_store.dart';
 import 'package:hue_memory/vault/fake_vault_fs.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -49,6 +52,9 @@ void main() {
         settings: MemoryVaultSettingsStore(),
         ocrSettings: MemoryOcrSettingsStore(),
         geminiSettings: MemoryGeminiSettingsStore(),
+        botAgentSettings: MemoryBotAgentSettingsStore(),
+        todoistSettings: MemoryTodoistSettingsStore(),
+        unmatchedDoneStore: MemoryUnmatchedDoneStore(),
         packStore: ActivePackStore(prefs: prefs),
         initialPack: DefaultPacks.zettelkastenInk,
       ),

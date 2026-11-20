@@ -313,8 +313,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     ? 'Vision is a draft — edit labels in the list '
                                         '(not on the photo). Title becomes the filename.'
                                     : _isDaily
-                                        ? 'Set the daily date — that titles the file. '
-                                            'OCR text is saved as written.'
+                                        ? 'Set the day for this page. Sections '
+                                            '(high / medium / low / events / '
+                                            'reminders / done) sync to Todoist Inbox.'
                                         : 'Title becomes the filename. OCR text is saved as written.',
                                 style: textTheme.bodySmall?.copyWith(
                                   color: MemoryHues.inkMuted,
@@ -385,7 +386,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                   padding: const EdgeInsets.only(top: 8),
                                   child: Text(
                                     route.isDailyTasks
-                                        ? 'Saves to ${route.folder ?? 'Organising/Daily'}'
+                                        ? 'Syncs to Todoist Inbox (not Obsidian Daily)'
                                         : route.isCanvas
                                             ? 'Saves to ${route.folder}/ as .canvas'
                                             : 'Saves to ${route.folder}/',
@@ -440,9 +441,11 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     minLines: 6,
                                     maxLines: null,
                                     style: textTheme.bodyLarge,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Note (full OCR text)',
-                                      border: OutlineInputBorder(),
+                                    decoration: InputDecoration(
+                                      labelText: _isDaily
+                                          ? 'Daily sections (OCR → Todoist)'
+                                          : 'Note (full OCR text)',
+                                      border: const OutlineInputBorder(),
                                       alignLabelWithHint: true,
                                     ),
                                   ),

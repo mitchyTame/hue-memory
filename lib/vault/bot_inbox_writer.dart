@@ -1,79 +1,116 @@
 import 'dart:typed_data';
 
 import '../capture/page_id.dart';
+import '../writers/canvas_writer.dart';
+import 'daily_note_path.dart';
 import 'vault_fs.dart';
 import 'vault_paths.dart';
 
-/// Result of dropping a capture photo into the bot inbox folder.
+/// Result of writing an Enhanced Bot Mode canvas (+ raw photo) into the inbox.
 class BotInboxWriteResult {
   const BotInboxWriteResult({
     required this.relativePath,
     required this.fileName,
     required this.folder,
+    required this.rawImagePath,
+    required this.pageId,
   });
 
+  /// Vault-relative `.canvas` path under the inbox folder.
   final String relativePath;
   final String fileName;
   final String folder;
+
+  /// Vault-relative raw capture path (`captures/raw/…`).
+  final String rawImagePath;
+  final String pageId;
 }
 
-/// Writes capture bytes into a vault-relative inbox folder (image only).
+/// Writes Enhanced Bot Mode canvases into a vault inbox folder.
 ///
-/// No OCR, Gemini, Canvas, or markdown. Collision-safe unique filenames.
+/// Primary artifact is `YYYY-MM-DD[-n].canvas` with the page photo under
+/// `captures/raw/` (file node injected via [CanvasWriter.buildDiagramCanvas]).
+/// Collision-safe rename (`-2`…`-99`), never refuse.
 class BotInboxWriter {
   BotInboxWriter({
     PageId? pageIds,
-  }) : _pageIds = pageIds ?? PageId();
+    CanvasWriter? canvas,
+  })  : _pageIds = pageIds ?? PageId(),
+        _canvas = canvas ?? const CanvasWriter();
 
   final PageId _pageIds;
+  final CanvasWriter _canvas;
 
-  /// Write [imageBytes] under [inboxFolder] with a unique timestamp-ish name.
-  Future<BotInboxWriteResult> writeImage({
+  static const String defaultFolder = 'inbox';
+
+  /// Write [imageBytes] + Gemini text nodes as one inbox `.canvas`.
+  Future<BotInboxWriteResult> writeCanvas({
     required VaultFs vault,
     required String inboxFolder,
     required Uint8List imageBytes,
     required DateTime capturedAt,
+    required List<CanvasNode> textNodes,
+    List<CanvasEdge> edges = const [],
     String imageExtension = 'jpg',
   }) async {
     final folder =
         normalizeVaultFolder(inboxFolder) ?? BotInboxWriter.defaultFolder;
     final ext = _sanitizeExtension(imageExtension);
-    final pageId = _pageIds.generate(at: capturedAt.toLocal());
-    final relativePath = await _uniqueRelativePath(
+    final localAt = capturedAt.toLocal();
+    final pageId = _pageIds.generate(at: localAt);
+    final rawImagePath = joinVaultRelative('captures/raw', '$pageId.$ext');
+    final stem = DailyNoteDate.formatIso(localAt);
+    final canvasPath = await uniqueRelativePath(
       vault: vault,
       folder: folder,
-      stem: pageId,
-      extension: ext,
+      stem: stem,
+      extension: 'canvas',
     );
-    assertVaultWriteAllowed(relativePath);
+
+    final doc = _canvas.buildDiagramCanvas(
+      sourceImage: rawImagePath,
+      textNodes: textNodes,
+      edges: edges,
+    );
+    final canvasJson = _canvas.writeJson(doc);
+
+    assertVaultWriteAllowed(canvasPath);
+    assertVaultWriteAllowed(rawImagePath);
     await vault.ensureDir(folder);
-    await vault.writeBytes(relativePath, imageBytes);
-    final slash = relativePath.lastIndexOf('/');
+    await vault.ensureDir('captures/raw');
+    // Canvas first so the vault gets the Obsidian artifact even if image fails.
+    await vault.writeText(canvasPath, canvasJson);
+    await vault.writeBytes(rawImagePath, imageBytes);
+
+    final slash = canvasPath.lastIndexOf('/');
     final fileName =
-        slash == -1 ? relativePath : relativePath.substring(slash + 1);
+        slash == -1 ? canvasPath : canvasPath.substring(slash + 1);
     return BotInboxWriteResult(
-      relativePath: relativePath,
+      relativePath: canvasPath,
       fileName: fileName,
       folder: folder,
+      rawImagePath: rawImagePath,
+      pageId: pageId,
     );
   }
 
-  static const String defaultFolder = 'inbox';
-
-  Future<String> _uniqueRelativePath({
+  /// Collision-safe vault-relative path: `folder/stem.ext`, then `stem-2`…
+  static Future<String> uniqueRelativePath({
     required VaultFs vault,
     required String folder,
     required String stem,
     required String extension,
   }) async {
-    var candidate = joinVaultRelative(folder, '$stem.$extension');
+    final dir = normalizeVaultFolder(folder) ?? defaultFolder;
+    final ext = _sanitizeExtension(extension);
+    var candidate = joinVaultRelative(dir, '$stem.$ext');
     if (!await vault.exists(candidate)) return candidate;
     for (var n = 2; n <= 99; n++) {
-      candidate = joinVaultRelative(folder, '$stem-$n.$extension');
+      candidate = joinVaultRelative(dir, '$stem-$n.$ext');
       if (!await vault.exists(candidate)) return candidate;
     }
     throw StateError(
-      'Could not find a free filename for $stem.$extension in $folder',
+      'Could not find a free filename for $stem.$ext in $dir',
     );
   }
 
