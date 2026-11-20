@@ -142,7 +142,7 @@ class TodoistClient {
     String? description,
   }) async {
     final body = <String, dynamic>{
-      if (description != null) 'description': description,
+      'description': ?description,
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks/$taskId'),
