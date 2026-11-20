@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Memory hues design tokens (§3.5). Light-first surfaces; dark capture field.
 ///

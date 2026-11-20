@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../capture/pending_capture.dart';
 import '../ocr/ocr_client.dart';

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../gemini/gemini_client.dart';
 import '../gemini/gemini_settings.dart';
