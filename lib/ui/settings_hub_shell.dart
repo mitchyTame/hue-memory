@@ -14,11 +14,13 @@ class SettingsHubShell extends StatelessWidget {
     required this.ocrModeLabel,
     required this.packLabel,
     this.geminiModeLabel = 'Gemini: off',
+    this.todoistLabel = 'Todoist: off',
     this.botAgentEnabled = false,
     this.botAgentLabel = 'Bot agent: off',
     this.onOpenVault,
     this.onOpenOcr,
     this.onOpenGemini,
+    this.onOpenTodoist,
     this.onOpenSymbols,
     this.onOpenPaperKit,
     this.onOpenPromote,
@@ -31,11 +33,13 @@ class SettingsHubShell extends StatelessWidget {
   final String ocrModeLabel;
   final String packLabel;
   final String geminiModeLabel;
+  final String todoistLabel;
   final bool botAgentEnabled;
   final String botAgentLabel;
   final VoidCallback? onOpenVault;
   final VoidCallback? onOpenOcr;
   final VoidCallback? onOpenGemini;
+  final VoidCallback? onOpenTodoist;
   final VoidCallback? onOpenSymbols;
   final VoidCallback? onOpenPaperKit;
   final VoidCallback? onOpenPromote;
@@ -90,6 +94,13 @@ class SettingsHubShell extends StatelessWidget {
             onTap: onOpenGemini,
           ),
           if (!botOn) ...[
+            const Divider(height: 1),
+            ListTile(
+              title: Text('Todoist', style: textTheme.titleLarge),
+              subtitle: Text(todoistLabel, style: textTheme.labelMedium),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: onOpenTodoist,
+            ),
             const Divider(height: 1),
             ListTile(
               title: Text('OCR', style: textTheme.titleLarge),

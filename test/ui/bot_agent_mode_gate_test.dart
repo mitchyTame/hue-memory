@@ -59,8 +59,14 @@ void main() {
     expect(find.text('Bot agent'), findsOneWidget);
     expect(find.text('OCR'), findsOneWidget);
     expect(find.text('Gemini'), findsOneWidget);
+    expect(find.text('Todoist'), findsOneWidget);
     expect(find.text('Symbols'), findsOneWidget);
     expect(find.text('Paper kit'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.text('Promote ritual'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Promote ritual'), findsOneWidget);
   });
 

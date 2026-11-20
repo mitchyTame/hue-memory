@@ -33,6 +33,10 @@ import 'symbols/symbol_models.dart';
 import 'symbols/symbol_router.dart';
 import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
+import 'todoist/daily_todoist_sync.dart';
+import 'todoist/todoist_client.dart';
+import 'todoist/todoist_settings.dart';
+import 'todoist/unmatched_done_store.dart';
 import 'ui/bot_agent_settings_shell.dart';
 import 'ui/capture_shell.dart';
 import 'ui/confirm_shell.dart';
@@ -53,10 +57,10 @@ import 'ui/queue_shell.dart';
 import 'ui/manual_region_shell.dart';
 import 'ui/settings_hub_shell.dart';
 import 'ui/symbols_settings_shell.dart';
+import 'ui/todoist_settings_shell.dart';
 import 'ui/vault_settings_shell.dart';
 import 'vault/bot_inbox_writer.dart';
 import 'vault/commit_pipeline.dart';
-import 'vault/daily_note_path.dart';
 import 'vault/local_vault_fs.dart';
 import 'vault/saf_documents.dart';
 import 'vault/saf_vault_fs.dart';
@@ -73,6 +77,7 @@ enum _SettingsPane {
   botAgent,
   ocr,
   gemini,
+  todoist,
   symbols,
   folders,
   paperKit,
@@ -91,6 +96,8 @@ class HueMemoryApp extends StatefulWidget {
     OcrSettingsStore? ocrSettings,
     GeminiSettingsStore? geminiSettings,
     BotAgentSettingsStore? botAgentSettings,
+    TodoistSettingsStore? todoistSettings,
+    UnmatchedDoneStore? unmatchedDoneStore,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
@@ -103,6 +110,8 @@ class HueMemoryApp extends StatefulWidget {
         _ocrSettings = ocrSettings,
         _geminiSettings = geminiSettings,
         _botAgentSettings = botAgentSettings,
+        _todoistSettings = todoistSettings,
+        _unmatchedDoneStore = unmatchedDoneStore,
         _packStore = packStore,
         _initialPack = initialPack,
         _captureQueue = captureQueue,
@@ -116,6 +125,8 @@ class HueMemoryApp extends StatefulWidget {
   final OcrSettingsStore? _ocrSettings;
   final GeminiSettingsStore? _geminiSettings;
   final BotAgentSettingsStore? _botAgentSettings;
+  final TodoistSettingsStore? _todoistSettings;
+  final UnmatchedDoneStore? _unmatchedDoneStore;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
@@ -138,6 +149,12 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       );
   late final BotAgentSettingsStore _botAgentSettings =
       widget._botAgentSettings ?? PrefsBotAgentSettingsStore();
+  late final TodoistSettingsStore _todoistSettings = widget._todoistSettings ??
+      PrefsTodoistSettingsStore(
+        envApiToken: Platform.environment['TODOIST_API_TOKEN'] ?? '',
+      );
+  late final UnmatchedDoneStore _unmatchedDoneStore =
+      widget._unmatchedDoneStore ?? PrefsUnmatchedDoneStore();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final CaptureSessionPrefs _captureSession = CaptureSessionPrefs();
 
@@ -175,6 +192,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   String _geminiModeLabel = 'Gemini: off';
   BotAgentSettings _botAgent = const BotAgentSettings();
   String _botAgentLabel = 'Bot agent: off';
+  String _todoistLabel = 'Todoist: off';
   SymbolPack _activePack = DefaultPacks.zettelkastenInk;
   List<SymbolPack> _availablePacks = const [DefaultPacks.zettelkastenInk];
   bool _ready = false;
@@ -199,6 +217,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     await _refreshOcrLabel();
     await _refreshGeminiLabel();
     await _refreshBotAgent();
+    await _refreshTodoistLabel();
     try {
       _availablePacks = await _packStore.availablePacks();
       _activePack = widget._initialPack ?? await _packStore.activePack();
@@ -306,6 +325,14 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
     _syncCameraPack();
   }
 
+  Future<void> _refreshTodoistLabel() async {
+    final cfg = await _todoistSettings.read();
+    if (!mounted) return;
+    setState(() {
+      _todoistLabel = cfg.hasToken ? 'Todoist: token set' : 'Todoist: off';
+    });
+  }
+
   void _syncCameraPack() {
     final cam = _shutterCamera;
     if (cam is LiveCameraCapture) {
@@ -400,6 +427,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               geminiModeLabel: _geminiModeLabel,
               botAgent: _botAgent,
               botAgentLabel: _botAgentLabel,
+              todoistLabel: _todoistLabel,
               shutterHint: _botAgent.enabled
                   ? 'Shutter = inbox canvas\nGallery = pick a photo'
                   : _shutterHint,
@@ -409,6 +437,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               ocrSettings: _ocrSettings,
               geminiSettings: _geminiSettings,
               botAgentSettings: _botAgentSettings,
+              todoistSettings: _todoistSettings,
+              unmatchedDoneStore: _unmatchedDoneStore,
               pageIds: _pageIds,
               activePack: _activePack,
               availablePacks: _availablePacks,
@@ -422,6 +452,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               onOcrSettingsChanged: _refreshOcrLabel,
               onGeminiSettingsChanged: _refreshGeminiLabel,
               onBotAgentSettingsChanged: _refreshBotAgent,
+              onTodoistSettingsChanged: _refreshTodoistLabel,
               onSelectPack: _selectPack,
               onSaveCustomPack: _saveCustomPack,
               onSavePackEdits: _savePackEdits,
@@ -432,24 +463,27 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
   }
 }
 
-DailyNoteSettings dailyNoteSettingsForPack(SymbolPack pack) {
-  final daily = pack.byId('daily-tasks');
-  return DailyNoteSettings(
-    folder: daily?.folder ?? 'Organising/Daily',
-  );
-}
-
 LastCommitSummary lastCommitSummaryFromResult({
   required CommitResult result,
   required SymbolPack pack,
   required String symbolId,
 }) {
+  final sym = pack.byId(symbolId) ?? pack.byId(result.symbolId);
+  final sync = result.todoistSync;
+  if (sync != null) {
+    return LastCommitSummary(
+      fileName: sync.snackbarMessage,
+      folder: 'Todoist Inbox',
+      at: DateTime.now(),
+      symbolId: symbolId,
+      glyph: sym?.primaryGlyph ?? '·',
+    );
+  }
   final primary = result.primaryPath;
   final fileName = p.basename(primary);
   final dir = p.dirname(primary);
-  final sym = pack.byId(symbolId) ?? pack.byId(result.symbolId);
   final folder = dir == '.' || dir.isEmpty
-      ? (sym?.folder ?? 'Organising/Daily')
+      ? (sym?.folder ?? 'vault')
       : dir;
   return LastCommitSummary(
     fileName: fileName,
@@ -478,6 +512,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.geminiModeLabel,
     required this.botAgent,
     required this.botAgentLabel,
+    required this.todoistLabel,
     required this.shutterHint,
     required this.shutterCamera,
     required this.filePickCamera,
@@ -485,6 +520,8 @@ class _HomeNavigator extends StatefulWidget {
     required this.ocrSettings,
     required this.geminiSettings,
     required this.botAgentSettings,
+    required this.todoistSettings,
+    required this.unmatchedDoneStore,
     required this.pageIds,
     required this.activePack,
     required this.availablePacks,
@@ -495,6 +532,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.onOcrSettingsChanged,
     required this.onGeminiSettingsChanged,
     required this.onBotAgentSettingsChanged,
+    required this.onTodoistSettingsChanged,
     required this.onSelectPack,
     required this.onSaveCustomPack,
     required this.onSavePackEdits,
@@ -508,6 +546,7 @@ class _HomeNavigator extends StatefulWidget {
   final String geminiModeLabel;
   final BotAgentSettings botAgent;
   final String botAgentLabel;
+  final String todoistLabel;
   final String shutterHint;
   final CameraCapture shutterCamera;
   final CameraCapture filePickCamera;
@@ -515,6 +554,8 @@ class _HomeNavigator extends StatefulWidget {
   final OcrSettingsStore ocrSettings;
   final GeminiSettingsStore geminiSettings;
   final BotAgentSettingsStore botAgentSettings;
+  final TodoistSettingsStore todoistSettings;
+  final UnmatchedDoneStore unmatchedDoneStore;
   final PageId pageIds;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
@@ -525,6 +566,7 @@ class _HomeNavigator extends StatefulWidget {
   final Future<void> Function() onOcrSettingsChanged;
   final Future<void> Function() onGeminiSettingsChanged;
   final Future<void> Function() onBotAgentSettingsChanged;
+  final Future<void> Function() onTodoistSettingsChanged;
   final Future<void> Function(SymbolPack pack) onSelectPack;
   final Future<void> Function(SymbolPack pack) onSaveCustomPack;
   final Future<void> Function(SymbolPack pack) onSavePackEdits;
@@ -543,7 +585,16 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     return CommitPipeline(
       vault: vault,
       router: SymbolRouter(pack: pack),
-      dailyNoteSettings: dailyNoteSettingsForPack(pack),
+      dailyTodoistSyncFactory: _resolveDailyTodoistSync,
+    );
+  }
+
+  Future<DailyTodoistSync?> _resolveDailyTodoistSync() async {
+    final cfg = await widget.todoistSettings.read();
+    if (!cfg.hasToken) return null;
+    return DailyTodoistSync(
+      client: TodoistClient(apiToken: cfg.apiToken),
+      unmatchedStore: widget.unmatchedDoneStore,
     );
   }
 
@@ -575,6 +626,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   OcrSettings _ocrDraft = const OcrSettings();
   GeminiSettings _geminiDraft = const GeminiSettings();
   BotAgentSettings _botDraft = const BotAgentSettings();
+  TodoistSettings _todoistDraft = const TodoistSettings();
   final PaperKitPdf _paperKit = const PaperKitPdf();
   late final BotInboxWriter _botInbox =
       BotInboxWriter(pageIds: widget.pageIds);
@@ -1157,12 +1209,30 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         _committing = false;
         _lastCommit = summary;
       });
+      final sync = result.todoistSync;
+      final snackText = sync != null
+          ? sync.snackbarMessage
+          : 'Saved ${summary.fileName} in ${summary.folderLabel}';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Saved ${summary.fileName} in ${summary.folderLabel}',
-          ),
-          backgroundColor: MemoryHues.accent,
+          content: Text(snackText),
+          backgroundColor: sync != null && sync.hasUnmatched
+              ? MemoryHues.danger
+              : MemoryHues.accent,
+          action: sync != null && sync.hasUnmatched
+              ? SnackBarAction(
+                  label: 'View',
+                  textColor: MemoryHues.paperElevated,
+                  onPressed: () async {
+                    final t = await widget.todoistSettings.read();
+                    if (!mounted) return;
+                    setState(() {
+                      _todoistDraft = t;
+                      _settingsPane = _SettingsPane.todoist;
+                    });
+                  },
+                )
+              : null,
         ),
       );
     } on VaultNameCollisionException catch (e) {
@@ -1173,6 +1243,27 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           content: Text(e.readable),
           backgroundColor: MemoryHues.danger,
           duration: const Duration(seconds: 4),
+        ),
+      );
+    } on TodoistNotConfiguredException catch (e) {
+      if (!mounted) return;
+      setState(() => _committing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: MemoryHues.danger,
+          action: SnackBarAction(
+            label: 'Settings',
+            textColor: MemoryHues.paperElevated,
+            onPressed: () async {
+              final t = await widget.todoistSettings.read();
+              if (!mounted) return;
+              setState(() {
+                _todoistDraft = t;
+                _settingsPane = _SettingsPane.todoist;
+              });
+            },
+          ),
         ),
       );
     } catch (e) {
@@ -1455,6 +1546,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
             vaultLabel: widget.vaultLabel,
             ocrModeLabel: widget.ocrModeLabel,
             geminiModeLabel: widget.geminiModeLabel,
+            todoistLabel: widget.todoistLabel,
             packLabel: widget.activePack.displayName,
             botAgentEnabled: widget.botAgent.enabled,
             botAgentLabel: widget.botAgentLabel,
@@ -1482,6 +1574,13 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               setState(() {
                 _geminiDraft = g;
                 _settingsPane = _SettingsPane.gemini;
+              });
+            },
+            onOpenTodoist: () async {
+              final t = await widget.todoistSettings.read();
+              setState(() {
+                _todoistDraft = t;
+                _settingsPane = _SettingsPane.todoist;
               });
             },
             onOpenSymbols: () =>
@@ -1570,6 +1669,19 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               apiKey: key,
               model: model,
             ).verifyConnection(),
+          );
+        case _SettingsPane.todoist:
+          return TodoistSettingsShell(
+            initial: _todoistDraft,
+            unmatchedStore: widget.unmatchedDoneStore,
+            onBack: () => setState(() => _settingsPane = _SettingsPane.hub),
+            onSave: (settings) async {
+              await widget.todoistSettings.write(settings);
+              await widget.onTodoistSettingsChanged();
+              setState(() => _todoistDraft = settings);
+            },
+            onVerifyToken: (token) =>
+                TodoistClient(apiToken: token).verifyConnection(),
           );
         case _SettingsPane.symbols:
           return SymbolsSettingsShell(
