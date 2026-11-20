@@ -2,12 +2,15 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-/// Lightweight Todoist REST v2 client (Inbox tasks + personal labels).
+/// Lightweight Todoist API v1 client (Inbox tasks + personal labels).
+///
+/// Uses `https://api.todoist.com/api/v1` — REST v2 (`/rest/v2`) was shut down
+/// (HTTP 410) in February 2026.
 class TodoistClient {
   TodoistClient({
     required this.apiToken,
     http.Client? httpClient,
-    this.baseUrl = 'https://api.todoist.com/rest/v2',
+    this.baseUrl = 'https://api.todoist.com/api/v1',
   }) : _http = httpClient ?? http.Client(),
        _ownsHttp = httpClient == null;
 
@@ -35,7 +38,7 @@ class TodoistClient {
     }
     try {
       final res = await _http.get(
-        Uri.parse('$baseUrl/labels'),
+        Uri.parse('$baseUrl/labels').replace(queryParameters: {'limit': '1'}),
         headers: _headers,
       );
       if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -54,13 +57,8 @@ class TodoistClient {
   }
 
   Future<List<TodoistLabel>> listLabels() async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/labels'),
-      headers: _headers,
-    );
-    _ensureOk(res);
-    final list = jsonDecode(res.body) as List<dynamic>;
-    return list
+    final rows = await _paginateResults('$baseUrl/labels');
+    return rows
         .map((e) => TodoistLabel.fromJson(e as Map<String, dynamic>))
         .toList();
   }
@@ -100,13 +98,8 @@ class TodoistClient {
   }
 
   Future<List<TodoistTask>> listOpenTasks() async {
-    final res = await _http.get(
-      Uri.parse('$baseUrl/tasks'),
-      headers: _headers,
-    );
-    _ensureOk(res);
-    final list = jsonDecode(res.body) as List<dynamic>;
-    return list
+    final rows = await _paginateResults('$baseUrl/tasks');
+    return rows
         .map((e) => TodoistTask.fromJson(e as Map<String, dynamic>))
         .toList();
   }
@@ -143,6 +136,34 @@ class TodoistClient {
     }
   }
 
+  /// Fetch every page of a cursor-paginated list endpoint (`results` + `next_cursor`).
+  Future<List<dynamic>> _paginateResults(String endpoint) async {
+    final out = <dynamic>[];
+    String? cursor;
+    do {
+      final uri = Uri.parse(endpoint).replace(
+        queryParameters: {
+          'limit': '200',
+          'cursor': ?cursor,
+        },
+      );
+      final res = await _http.get(uri, headers: _headers);
+      _ensureOk(res);
+      final decoded = jsonDecode(res.body);
+      if (decoded is List) {
+        // Defensive: older list shapes (should not happen on api/v1).
+        out.addAll(decoded);
+        break;
+      }
+      final map = decoded as Map<String, dynamic>;
+      final page = map['results'];
+      if (page is List) out.addAll(page);
+      final next = map['next_cursor'];
+      cursor = (next is String && next.isNotEmpty) ? next : null;
+    } while (cursor != null);
+    return out;
+  }
+
   void _ensureOk(http.Response res) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
       throw TodoistApiException(_errorMessage(res.statusCode, res.body));
@@ -153,8 +174,19 @@ class TodoistClient {
     if (status == 401 || status == 403) {
       return 'Todoist token rejected ($status)';
     }
+    if (status == 410) {
+      return 'Todoist API endpoint retired (410). Update the app.';
+    }
     final trimmed = body.trim();
     if (trimmed.isEmpty) return 'Todoist error $status';
+    try {
+      final decoded = jsonDecode(trimmed);
+      if (decoded is Map && decoded['error'] != null) {
+        return 'Todoist error $status: ${decoded['error']}';
+      }
+    } catch (_) {
+      // fall through to raw body
+    }
     if (trimmed.length > 180) {
       return 'Todoist error $status: ${trimmed.substring(0, 180)}…';
     }
