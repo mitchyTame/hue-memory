@@ -605,7 +605,9 @@ class _FakeTodoistClient extends TodoistClient {
     int? priority,
     String? parentId,
     DateTime? dueDate,
+    bool dueHasTime = false,
     String? description,
+    String? requestId,
   }) async {
     final task = TodoistTask(
       id: 'new-${created.length + 1}',
@@ -619,7 +621,11 @@ class _FakeTodoistClient extends TodoistClient {
   @override
   Future<TodoistTask> updateTask(
     String taskId, {
+    String? content,
+    int? priority,
     String? description,
+    DateTime? dueDate,
+    bool dueHasTime = false,
   }) async {
     return created.firstWhere((t) => t.id == taskId);
   }

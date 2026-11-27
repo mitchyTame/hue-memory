@@ -5,6 +5,7 @@ import 'package:hue_memory/capture/pending_capture.dart';
 import 'package:hue_memory/ocr/ocr_client.dart';
 import 'package:hue_memory/todoist/daily_todoist_sync.dart';
 import 'package:hue_memory/todoist/todoist_client.dart';
+import 'package:hue_memory/todoist/todoist_ledger.dart';
 import 'package:hue_memory/todoist/todoist_retry.dart';
 import 'package:hue_memory/todoist/unmatched_done_store.dart';
 import 'package:hue_memory/vault/commit_pipeline.dart';
@@ -134,5 +135,49 @@ void main() {
     expect(result.notePath, 'fleeting/A thought.md');
     expect(result.todoistSync, isNull);
     expect(todoist.created, isEmpty);
+  });
+
+  test('an unreviewed re-capture updates the earlier task via the ledger',
+      () async {
+    final ledger = MemoryTodoistLedgerStore();
+    final linked = DailyTodoistSync(
+      client: todoist,
+      unmatchedStore: MemoryUnmatchedDoneStore(),
+      retryStore: retry,
+      ledgerStore: ledger,
+    );
+    final linkedPipeline = CommitPipeline(vault: vault, dailyTodoistSync: linked);
+    CommitInput input(String pageId, String body) => CommitInput(
+          capture: PendingCapture(
+            pageId: pageId,
+            imageBytes: Uint8List.fromList([1, 2, 3, 4]),
+            capturedAt: DateTime.utc(2026, 11, 27, 8),
+            meaning: const MeaningResult(
+              detectedGlyph: '·',
+              regions: [],
+              pageGenre: 'task_list',
+            ),
+          ),
+          symbolId: 'daily-tasks',
+          title: '2026-11-27',
+          noteBody: body,
+          dailyMarkdown: body,
+        );
+
+    final first = await linkedPipeline.commit(
+      input('20261127-aaaa', 'high:\n- Call dentist\n- Pay rent\n'),
+    );
+    expect(first.todoistSync?.createdCount, 2);
+
+    final second = await linkedPipeline.commit(
+      input('20261128-bbbb', 'high:\n- Call dentist today\n- Pay rent\n'),
+    );
+
+    expect(second.todoistSync?.createdCount, 0);
+    expect(second.todoistSync?.updatedCount, 1);
+    expect(todoist.created, hasLength(2));
+    expect(todoist.updates.single.content, 'Call dentist today');
+    expect(second.notePath, isNull);
+    expect(vault.filePaths.every((p) => p.contains('captures/raw/')), isTrue);
   });
 }

@@ -8,7 +8,9 @@ import '../writers/canvas_writer.dart';
 import 'daily_mindmap_parser.dart';
 import 'daily_todoist_parser.dart';
 import 'daily_todoist_plan.dart';
+import 'ledger_linker.dart';
 import 'todoist_client.dart';
+import 'todoist_ledger.dart';
 import 'todoist_retry.dart';
 import 'unmatched_done_store.dart';
 
@@ -16,6 +18,8 @@ import 'unmatched_done_store.dart';
 class DailyTodoistSyncResult {
   const DailyTodoistSyncResult({
     this.createdCount = 0,
+    this.updatedCount = 0,
+    this.unchangedCount = 0,
     this.completedCount = 0,
     this.unmatchedDone = const [],
     this.labels = const [],
@@ -25,6 +29,12 @@ class DailyTodoistSyncResult {
   });
 
   final int createdCount;
+
+  /// Existing tasks (from an earlier capture of this page) that were patched.
+  final int updatedCount;
+
+  /// Matched tasks that already said the same thing — nothing was sent.
+  final int unchangedCount;
   final int completedCount;
   final List<String> unmatchedDone;
 
@@ -43,6 +53,13 @@ class DailyTodoistSyncResult {
   bool get hasUnmatched => unmatchedDone.isNotEmpty;
   bool get hasFailures => failed.isNotEmpty;
 
+  /// Updates whose task was deleted or completed in Todoist — offered as
+  /// "recreate" rather than retried.
+  bool get hasMissing => failed.any((f) => f.remoteMissing);
+
+  /// Failures a plain "retry" can fix (everything except [hasMissing]).
+  bool get hasRetryable => failed.any((f) => !f.remoteMissing);
+
   /// First distinct failure reason, for the in-app notification.
   String? get failureReason => failed.isEmpty ? null : failed.first.error;
 
@@ -53,6 +70,14 @@ class DailyTodoistSyncResult {
         createdCount == 1
             ? '1 task → Todoist Inbox'
             : '$createdCount tasks → Todoist Inbox',
+      );
+    }
+    if (updatedCount > 0) {
+      parts.add(updatedCount == 1 ? '1 updated' : '$updatedCount updated');
+    }
+    if (unchangedCount > 0) {
+      parts.add(
+        unchangedCount == 1 ? '1 unchanged' : '$unchangedCount unchanged',
       );
     }
     if (completedCount > 0) {
@@ -94,12 +119,14 @@ class DailyTodoistSync {
     required TodoistClient client,
     required UnmatchedDoneStore unmatchedStore,
     TodoistRetryStore? retryStore,
+    TodoistLedgerStore? ledgerStore,
     DailyTodoistParser parser = const DailyTodoistParser(),
     DailyMindmapParser mindmapParser = const DailyMindmapParser(),
     DateTime Function()? clock,
   })  : _client = client,
         _unmatched = unmatchedStore,
         _retry = retryStore,
+        _ledger = ledgerStore,
         _clock = clock ?? DateTime.now,
         planner = DailyTodoistPlanner(
           parser: parser,
@@ -110,6 +137,7 @@ class DailyTodoistSync {
   final TodoistClient _client;
   final UnmatchedDoneStore _unmatched;
   final TodoistRetryStore? _retry;
+  final TodoistLedgerStore? _ledger;
   final DateTime Function() _clock;
   final DailyTodoistPlanner planner;
 
@@ -139,28 +167,76 @@ class DailyTodoistSync {
     return execute(DailyTodoistPlan.fromParse(parsed));
   }
 
+  /// Match [plan]'s items against tasks an earlier capture created, so a
+  /// re-captured page updates them (see [LedgerLinker]). No network.
+  ///
+  /// With [includeLive], items the ledger does not know are also matched
+  /// against the open Todoist tasks (one network read; skipped on error).
+  Future<DailyTodoistPlan> linkPlan(
+    DailyTodoistPlan plan, {
+    String? pageId,
+    bool includeLive = false,
+    Duration liveTimeout = const Duration(seconds: 8),
+  }) async {
+    final ledger = _ledger;
+    var linked = ledger == null
+        ? plan
+        : LedgerLinker.link(plan, await ledger.read(), pageId: pageId);
+    final unmatched = linked.creates.any(
+      (t) => t.match == null && t.content.trim().isNotEmpty,
+    );
+    if (includeLive && unmatched) {
+      try {
+        final open = await _client.listOpenTasks().timeout(liveTimeout);
+        linked = LedgerLinker.linkLive(linked, open);
+      } catch (_) {
+        // Offline / slow: the ledger result stands.
+      }
+    }
+    return linked;
+  }
+
   /// Send what is still included in [plan]. Never throws for Todoist / network
   /// errors: those become [DailyTodoistSyncResult.failed] and are persisted.
-  Future<DailyTodoistSyncResult> execute(DailyTodoistPlan plan) async {
+  ///
+  /// [pageId] ties the created tasks to this capture in the ledger.
+  Future<DailyTodoistSyncResult> execute(
+    DailyTodoistPlan plan, {
+    String? pageId,
+  }) async {
     if (!plan.hasWork) return const DailyTodoistSyncResult();
     final result = await _run(
       creates: plan.effectiveCreates,
       done: plan.effectiveDone,
       sectionLabels: plan.effectiveSectionLabels,
+      pageId: pageId,
     );
-    await _persistFailures(result, createdAt: _clock());
+    await _persistFailures(result, createdAt: _clock(), pageId: pageId);
     return result;
   }
 
   /// Retry only the items that failed earlier, across every stored batch.
-  /// Items that go through are removed; the rest stay stored.
-  Future<DailyTodoistSyncResult> retryPending() async {
+  /// Items that go through are removed; the rest stay stored. Updates whose
+  /// task is gone stay put until [recreateMissing].
+  Future<DailyTodoistSyncResult> retryPending() {
+    return _replay(recreate: false);
+  }
+
+  /// Create brand-new tasks for updates whose earlier task was deleted or
+  /// completed in Todoist.
+  Future<DailyTodoistSyncResult> recreateMissing() {
+    return _replay(recreate: true);
+  }
+
+  Future<DailyTodoistSyncResult> _replay({required bool recreate}) async {
     final store = _retry;
     if (store == null) return const DailyTodoistSyncResult();
     final batches = await store.read();
     if (batches.isEmpty) return const DailyTodoistSyncResult();
 
     var created = 0;
+    var updated = 0;
+    var unchanged = 0;
     var completed = 0;
     final unmatched = <String>[];
     final labels = <String>{};
@@ -170,31 +246,42 @@ class DailyTodoistSync {
     final allIds = <String, String>{};
 
     for (final batch in batches) {
+      bool selected(FailedTodoistItem i) =>
+          recreate ? i.remoteMissing : !i.remoteMissing;
+      final todo = [for (final i in batch.items) if (selected(i)) i];
+      final untouched = [for (final i in batch.items) if (!selected(i)) i];
+
       final r = await _run(
         creates: [
-          for (final i in batch.items)
-            if (i.kind == FailedItemKind.create) i.toCreate(),
+          for (final i in todo)
+            if (i.kind != FailedItemKind.done)
+              i.toCreate(recreate: recreate),
         ],
         done: [
-          for (final i in batch.items)
+          for (final i in todo)
             if (i.kind == FailedItemKind.done) i.content,
         ],
         sectionLabels: const [],
         knownIds: batch.todoistIdByNode,
+        pageId: batch.pageId,
       );
       created += r.createdCount;
+      updated += r.updatedCount;
+      unchanged += r.unchangedCount;
       completed += r.completedCount;
       unmatched.addAll(r.unmatchedDone);
       labels.addAll(r.labels);
       warnings.addAll(r.warnings);
       failed.addAll(r.failed);
       allIds.addAll(r.todoistIdByNode);
-      if (r.failed.isNotEmpty) {
+      final left = [...r.failed, ...untouched];
+      if (left.isNotEmpty) {
         remaining.add(
           TodoistRetryBatch(
             createdAt: batch.createdAt,
-            items: r.failed,
+            items: left,
             todoistIdByNode: {...batch.todoistIdByNode, ...r.todoistIdByNode},
+            pageId: batch.pageId,
           ),
         );
       }
@@ -202,6 +289,8 @@ class DailyTodoistSync {
     await store.write(remaining);
     return DailyTodoistSyncResult(
       createdCount: created,
+      updatedCount: updated,
+      unchangedCount: unchanged,
       completedCount: completed,
       unmatchedDone: unmatched,
       labels: labels.toList(),
@@ -214,6 +303,7 @@ class DailyTodoistSync {
   Future<void> _persistFailures(
     DailyTodoistSyncResult result, {
     required DateTime createdAt,
+    String? pageId,
   }) async {
     final store = _retry;
     if (store == null || !result.hasFailures) return;
@@ -222,6 +312,7 @@ class DailyTodoistSync {
         createdAt: createdAt,
         items: result.failed,
         todoistIdByNode: result.todoistIdByNode,
+        pageId: pageId,
       ),
     );
   }
@@ -231,6 +322,7 @@ class DailyTodoistSync {
     required List<String> done,
     required Iterable<String> sectionLabels,
     Map<String, String> knownIds = const {},
+    String? pageId,
   }) async {
     final labelNames = <String>{
       ...sectionLabels,
@@ -248,7 +340,10 @@ class DailyTodoistSync {
         final reason = describeError(e);
         return DailyTodoistSyncResult(
           failed: [
-            for (final c in creates) FailedTodoistItem.forCreate(c, reason),
+            for (final c in creates)
+              c.isUpdate
+                  ? FailedTodoistItem.forUpdate(c, reason)
+                  : FailedTodoistItem.forCreate(c, reason),
             for (final d in done) FailedTodoistItem.forDone(d, reason),
           ],
           todoistIdByNode: knownIds,
@@ -264,26 +359,86 @@ class DailyTodoistSync {
     final todoistIdByNode = <String, String>{...knownIds};
     final newIds = <String, String>{};
     var created = 0;
+    var updated = 0;
+    var unchanged = 0;
     String? abortReason;
 
-    for (final item in creates) {
+    for (final planned in creates) {
+      final isUpdate = planned.isUpdate;
+      FailedTodoistItem failure(String reason, {bool missing = false}) =>
+          isUpdate
+              ? FailedTodoistItem.forUpdate(
+                  planned,
+                  reason,
+                  remoteMissing: missing,
+                )
+              : FailedTodoistItem.forCreate(planned, reason);
+
       if (abortReason != null) {
-        failed.add(FailedTodoistItem.forCreate(item, abortReason));
+        failed.add(failure(abortReason));
         continue;
       }
-      String? parentId;
-      if (item.parentNodeId != null) {
-        parentId = todoistIdByNode[item.parentNodeId!];
-        if (parentId == null) {
-          failed.add(
-            FailedTodoistItem.forCreate(
-              item,
-              "Its parent task didn't send",
-            ),
+
+      if (isUpdate) {
+        final id = planned.updateTodoistId!;
+        final dueChanged =
+            planned.dueKey != null && planned.dueKey != planned.previousDue;
+        final same = planned.content == planned.previousContent &&
+            planned.priority == planned.previousPriority &&
+            !dueChanged;
+        if (same) {
+          unchanged++;
+          if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
+          await _ledgerSeen(id, planned, pageId, warnings);
+          continue;
+        }
+        try {
+          await _client.updateTask(
+            id,
+            content: planned.content == planned.previousContent
+                ? null
+                : planned.content,
+            // Todoist has no "unset": plain priority is 1.
+            priority: planned.priority == planned.previousPriority
+                ? null
+                : (planned.priority ?? 1),
+            dueDate: dueChanged ? planned.dueDate : null,
+            dueHasTime: dueChanged && planned.dueHasTime,
           );
+          updated++;
+          if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
+          await _ledgerSeen(id, planned, pageId, warnings);
+        } catch (e) {
+          if (e is TodoistApiException && e.isNotFound) {
+            await _ledgerRemove(id, warnings);
+            failed.add(
+              failure(
+                'Task was deleted or completed in Todoist',
+                missing: true,
+              ),
+            );
+            continue;
+          }
+          final reason = describeError(e);
+          failed.add(failure(reason));
+          if (_isFatal(e)) abortReason = reason;
+        }
+        continue;
+      }
+
+      String? parentId;
+      if (planned.parentNodeId != null) {
+        parentId = todoistIdByNode[planned.parentNodeId!];
+        if (parentId == null) {
+          failed.add(failure("Its parent task didn't send"));
           continue;
         }
       }
+      // Fixed before the first attempt and kept on failure, so a retry of a
+      // request that actually went through returns the same task.
+      final item = planned.requestId == null
+          ? planned.copyWith(requestId: TodoistClient.newRequestId())
+          : planned;
       try {
         final task = await _client.createInboxTask(
           content: item.content,
@@ -293,12 +448,15 @@ class DailyTodoistSync {
           priority: item.priority,
           parentId: parentId,
           dueDate: item.dueDate,
+          dueHasTime: item.dueHasTime,
+          requestId: item.requestId,
         );
         if (item.nodeId != null && item.nodeId!.isNotEmpty) {
           todoistIdByNode[item.nodeId!] = task.id;
           newIds[item.nodeId!] = task.id;
         }
         created++;
+        await _ledgerAdd(task.id, item, pageId, warnings);
       } catch (e) {
         final reason = describeError(e);
         failed.add(FailedTodoistItem.forCreate(item, reason));
@@ -335,34 +493,10 @@ class DailyTodoistSync {
           failed.add(FailedTodoistItem.forDone(d, abortReason));
         }
       } else {
-        List<TodoistTask>? open;
-        try {
-          open = await _client.listOpenTasks();
-        } catch (e) {
-          final reason = describeError(e);
-          for (final d in done) {
-            failed.add(FailedTodoistItem.forDone(d, reason));
-          }
-        }
-        if (open != null) {
-          final remaining = List<TodoistTask>.from(open);
-          for (final doneText in done) {
-            final match = findMatchingOpenTask(remaining, doneText);
-            if (match == null) {
-              unmatched.add(doneText);
-              continue;
-            }
-            try {
-              await _client.closeTask(match.id);
-              remaining.removeWhere((t) => t.id == match.id);
-              completed++;
-            } catch (e) {
-              failed.add(
-                FailedTodoistItem.forDone(doneText, describeError(e)),
-              );
-            }
-          }
-        }
+        final outcome = await _resolveDone(done, pageId, warnings);
+        completed = outcome.completed;
+        unmatched.addAll(outcome.unmatched);
+        failed.addAll(outcome.failed);
       }
     }
 
@@ -376,6 +510,8 @@ class DailyTodoistSync {
 
     return DailyTodoistSyncResult(
       createdCount: created,
+      updatedCount: updated,
+      unchangedCount: unchanged,
       completedCount: completed,
       unmatchedDone: unmatched,
       labels: {for (final l in labelNames) todoistLabel(l)}.toList(),
@@ -383,6 +519,208 @@ class DailyTodoistSync {
       todoistIdByNode: todoistIdByNode,
       warnings: warnings,
     );
+  }
+
+  /// Close each done line: the ledger first (tasks this app created, so the
+  /// right one even when the wording drifted), then the live fuzzy match
+  /// against every open task.
+  Future<({int completed, List<String> unmatched, List<FailedTodoistItem> failed})>
+      _resolveDone(
+    List<String> done,
+    String? pageId,
+    List<String> warnings,
+  ) async {
+    var completed = 0;
+    final unmatched = <String>[];
+    final failed = <FailedTodoistItem>[];
+
+    final ledgerOpen = <LedgerEntry>[
+      if (_ledger != null)
+        for (final e in await _readLedger(warnings))
+          if (e.isOpen) e,
+    ];
+    List<TodoistTask>? live;
+    String? liveError;
+    String? abortReason;
+
+    for (final text in done) {
+      if (abortReason != null) {
+        failed.add(FailedTodoistItem.forDone(text, abortReason));
+        continue;
+      }
+
+      var handled = false;
+      while (!handled) {
+        final entry = _ledgerMatch(ledgerOpen, text, pageId);
+        if (entry == null) break;
+        ledgerOpen.remove(entry);
+        try {
+          await _client.closeTask(entry.todoistId);
+          live?.removeWhere((t) => t.id == entry.todoistId);
+          await _ledgerComplete(entry.todoistId, warnings);
+          completed++;
+          handled = true;
+        } catch (e) {
+          if (e is TodoistApiException && e.isNotFound) {
+            // Gone remotely: forget it and try the next candidate / live list.
+            await _ledgerRemove(entry.todoistId, warnings);
+            continue;
+          }
+          final reason = describeError(e);
+          failed.add(FailedTodoistItem.forDone(text, reason));
+          if (_isFatal(e)) abortReason = reason;
+          handled = true;
+        }
+      }
+      if (handled) continue;
+
+      if (live == null && liveError == null) {
+        try {
+          live = List<TodoistTask>.from(await _client.listOpenTasks());
+        } catch (e) {
+          liveError = describeError(e);
+        }
+      }
+      if (liveError != null) {
+        failed.add(FailedTodoistItem.forDone(text, liveError));
+        continue;
+      }
+      final match = findMatchingOpenTask(live!, text);
+      if (match == null) {
+        unmatched.add(text);
+        continue;
+      }
+      try {
+        await _client.closeTask(match.id);
+        live.removeWhere((t) => t.id == match.id);
+        await _ledgerComplete(match.id, warnings);
+        completed++;
+      } catch (e) {
+        final reason = describeError(e);
+        failed.add(FailedTodoistItem.forDone(text, reason));
+        if (_isFatal(e)) abortReason = reason;
+      }
+    }
+    return (completed: completed, unmatched: unmatched, failed: failed);
+  }
+
+  /// Prefer an entry from the same page, then any open ledger entry.
+  static LedgerEntry? _ledgerMatch(
+    List<LedgerEntry> open,
+    String text,
+    String? pageId,
+  ) {
+    LedgerEntry? pick(List<LedgerEntry> pool) {
+      final task = findMatchingOpenTask([
+        for (final e in pool) TodoistTask(id: e.todoistId, content: e.content),
+      ], text);
+      if (task == null) return null;
+      return pool.firstWhere((e) => e.todoistId == task.id);
+    }
+
+    if (pageId != null) {
+      final same = pick([
+        for (final e in open)
+          if (e.pageId == pageId) e,
+      ]);
+      if (same != null) return same;
+    }
+    return pick(open);
+  }
+
+  Future<List<LedgerEntry>> _readLedger(List<String> warnings) async {
+    try {
+      return await _ledger!.read();
+    } catch (e) {
+      warnings.add('Could not read the task ledger: $e');
+      return const [];
+    }
+  }
+
+  /// Persisted right after each create — a crash later in the batch must not
+  /// lose the IDs of tasks that already exist.
+  Future<void> _ledgerAdd(
+    String todoistId,
+    DailyTodoistCreate item,
+    String? pageId,
+    List<String> warnings,
+  ) async {
+    final ledger = _ledger;
+    if (ledger == null) return;
+    try {
+      await ledger.upsert(
+        LedgerEntry(
+          todoistId: todoistId,
+          content: item.content,
+          label: item.label,
+          priority: item.priority,
+          pageId: pageId,
+          nodeId: item.nodeId,
+          due: item.dueKey,
+          createdAt: _clock(),
+        ),
+      );
+    } catch (e) {
+      warnings.add('Could not record "${item.content}" in the task ledger: $e');
+    }
+  }
+
+  /// A matched task was updated (or already matched): keep the ledger on the
+  /// latest wording / priority / page.
+  Future<void> _ledgerSeen(
+    String todoistId,
+    DailyTodoistCreate item,
+    String? pageId,
+    List<String> warnings,
+  ) async {
+    final ledger = _ledger;
+    if (ledger == null) return;
+    try {
+      final existing = [
+        for (final e in await ledger.read())
+          if (e.todoistId == todoistId) e,
+      ];
+      final base = existing.isEmpty
+          ? LedgerEntry(
+              todoistId: todoistId,
+              content: item.content,
+              label: item.label,
+              nodeId: item.nodeId,
+              createdAt: _clock(),
+            )
+          : existing.first;
+      await ledger.upsert(
+        base.copyWith(
+          content: item.content,
+          priority: item.priority,
+          clearPriority: item.priority == null,
+          pageId: pageId,
+          due: item.dueKey,
+        ),
+      );
+    } catch (e) {
+      warnings.add('Could not update the task ledger: $e');
+    }
+  }
+
+  Future<void> _ledgerComplete(String todoistId, List<String> warnings) async {
+    final ledger = _ledger;
+    if (ledger == null) return;
+    try {
+      await ledger.markCompleted(todoistId, _clock());
+    } catch (e) {
+      warnings.add('Could not update the task ledger: $e');
+    }
+  }
+
+  Future<void> _ledgerRemove(String todoistId, List<String> warnings) async {
+    final ledger = _ledger;
+    if (ledger == null) return;
+    try {
+      await ledger.remove(todoistId);
+    } catch (e) {
+      warnings.add('Could not update the task ledger: $e');
+    }
   }
 
   /// Auth / rate-limit / offline errors mean every later item would fail too.
@@ -412,32 +750,38 @@ class DailyTodoistSync {
     List<TodoistTask> openTasks,
     String doneText,
   ) {
-    final needle = normalizeTaskText(doneText);
+    // Compared on the core text, so `bolt | 16:50` (paper) still finds `bolt`
+    // (Todoist, once the time became a due date) and a tick / strike-through
+    // on the done line does not matter.
+    final needle = TaskText.core(doneText);
     if (needle.isEmpty) return null;
 
     TodoistTask? exact;
     TodoistTask? contains;
     for (final task in openTasks) {
-      final hay = normalizeTaskText(task.content);
+      final hay = TaskText.core(task.content);
       if (hay.isEmpty) continue;
       if (hay == needle) {
         exact = task;
         break;
       }
-      if (hay.contains(needle) || needle.contains(hay)) {
-        // Prefer longer overlap; keep first reasonable contains.
+      if (_containsWords(hay, needle) || _containsWords(needle, hay)) {
         contains ??= task;
       }
     }
     return exact ?? contains;
   }
 
-  static String normalizeTaskText(String raw) {
-    var t = raw.trim().toLowerCase();
-    t = t.replaceFirst(RegExp(r'^[-*+·•]\s+'), '');
-    t = t.replaceFirst(RegExp(r'^\[([ xX])\]\s*'), '');
-    t = t.replaceFirst(RegExp(r'^(☐|☑|☒|□|■)\s*'), '');
-    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return t;
+  /// [part] appears in [whole] on word boundaries (`bolt` in `fix bolt`,
+  /// not in `bolts`).
+  static bool _containsWords(String whole, String part) {
+    if (part.length > whole.length) return false;
+    final re = RegExp(
+      '(?:^|[^\\p{L}\\p{N}])${RegExp.escape(part)}(?:\$|[^\\p{L}\\p{N}])',
+      unicode: true,
+    );
+    return re.hasMatch(whole);
   }
+
+  static String normalizeTaskText(String raw) => TaskText.normalize(raw);
 }

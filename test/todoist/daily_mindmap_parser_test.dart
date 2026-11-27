@@ -142,7 +142,8 @@ void main() {
     expect(root.content, 'Hue');
     expect(root.nodeId, 'hue');
     expect(root.parentNodeId, isNull);
-    expect(root.dueDate, isNotNull);
+    // Nothing written next to the task: no due date (not the hub date).
+    expect(root.dueDate, isNull);
 
     final subs = result.sync.creates.skip(1).toList();
     expect(subs.every((c) => c.parentNodeId == 'hue'), isTrue);
@@ -246,7 +247,7 @@ void main() {
       );
       expect(result.sync.creates.every((c) => c.parentNodeId == null), isTrue);
       expect(
-        result.sync.creates.every((c) => c.dueDate == DateTime(2026, 11, 27)),
+        result.sync.creates.every((c) => c.dueDate == null),
         isTrue,
       );
       expect(

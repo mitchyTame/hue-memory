@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
@@ -123,7 +124,9 @@ class TodoistClient {
     int? priority,
     String? parentId,
     DateTime? dueDate,
+    bool dueHasTime = false,
     String? description,
+    String? requestId,
   }) async {
     final desc = description?.trim();
     final body = <String, dynamic>{
@@ -132,15 +135,15 @@ class TodoistClient {
       'priority': ?priority,
       'parent_id': ?parentId,
       'description': ?(desc == null || desc.isEmpty ? null : desc),
-      if (dueDate != null)
-        'due_date':
-            '${dueDate.year.toString().padLeft(4, '0')}-'
-            '${dueDate.month.toString().padLeft(2, '0')}-'
-            '${dueDate.day.toString().padLeft(2, '0')}',
+      ...dueFields(dueDate, hasTime: dueHasTime),
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks'),
-      headers: _headers,
+      headers: {
+        ..._headers,
+        if (requestId != null && requestId.isNotEmpty)
+          'X-Request-Id': requestId,
+      },
       body: jsonEncode(body),
     );
     _ensureOk(res);
@@ -149,13 +152,21 @@ class TodoistClient {
     );
   }
 
-  /// Patch task fields (used to attach extra mindmap parent links).
+  /// Patch task fields: description (extra mindmap parent links), or the
+  /// text / priority of a task created by an earlier capture.
   Future<TodoistTask> updateTask(
     String taskId, {
+    String? content,
+    int? priority,
     String? description,
+    DateTime? dueDate,
+    bool dueHasTime = false,
   }) async {
     final body = <String, dynamic>{
+      'content': ?content,
+      'priority': ?priority,
       'description': ?description,
+      ...dueFields(dueDate, hasTime: dueHasTime),
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks/$taskId'),
@@ -180,6 +191,38 @@ class TodoistClient {
         statusCode: res.statusCode,
       );
     }
+  }
+
+  /// Todoist due fields: `due_date` for a day, `due_datetime` (UTC) when a
+  /// time of day was written. Nothing when [due] is null.
+  static Map<String, String> dueFields(DateTime? due, {required bool hasTime}) {
+    if (due == null) return const {};
+    if (hasTime) {
+      final u = due.toUtc();
+      String two(int v) => v.toString().padLeft(2, '0');
+      return {
+        'due_datetime': '${u.year.toString().padLeft(4, '0')}-${two(u.month)}-'
+            '${two(u.day)}T${two(u.hour)}:${two(u.minute)}:00Z',
+      };
+    }
+    return {
+      'due_date': '${due.year.toString().padLeft(4, '0')}-'
+          '${due.month.toString().padLeft(2, '0')}-'
+          '${due.day.toString().padLeft(2, '0')}',
+    };
+  }
+
+  /// Random UUID v4 for Todoist's `X-Request-Id` idempotency header: a repeat
+  /// of the same create (e.g. after a timeout) returns the original task.
+  static String newRequestId([Random? random]) {
+    final rng = random ?? Random.secure();
+    final b = List<int>.generate(16, (_) => rng.nextInt(256));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    String hex(int from, int to) => [
+          for (var i = from; i < to; i++) b[i].toRadixString(16).padLeft(2, '0'),
+        ].join();
+    return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
   }
 
   /// Fetch every page of a cursor-paginated list endpoint (`results` + `next_cursor`).
@@ -269,11 +312,15 @@ class TodoistTask {
     required this.id,
     required this.content,
     this.labels = const [],
+    this.priority,
   });
 
   final String id;
   final String content;
   final List<String> labels;
+
+  /// Todoist API priority (1 = none … 4 = urgent); null when not reported.
+  final int? priority;
 
   factory TodoistTask.fromJson(Map<String, dynamic> json) {
     final rawLabels = json['labels'];
@@ -287,6 +334,10 @@ class TodoistTask {
       id: '${json['id']}',
       content: '${json['content'] ?? ''}',
       labels: labels,
+      priority: switch (json['priority']) {
+        final int p when p > 1 => p,
+        _ => null,
+      },
     );
   }
 }
@@ -298,6 +349,9 @@ class TodoistApiException implements Exception {
 
   /// HTTP status when the failure came from a Todoist response.
   final int? statusCode;
+
+  /// The task (or endpoint) no longer exists — deleted or completed remotely.
+  bool get isNotFound => statusCode == 404;
 
   @override
   String toString() => message;

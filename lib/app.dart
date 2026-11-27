@@ -35,6 +35,8 @@ import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
 import 'todoist/daily_todoist_plan.dart';
 import 'todoist/daily_todoist_sync.dart';
+import 'todoist/ledger_linker.dart';
+import 'todoist/todoist_ledger.dart';
 import 'todoist/todoist_client.dart';
 import 'todoist/todoist_retry.dart';
 import 'todoist/todoist_settings.dart';
@@ -101,6 +103,7 @@ class HueMemoryApp extends StatefulWidget {
     TodoistSettingsStore? todoistSettings,
     UnmatchedDoneStore? unmatchedDoneStore,
     TodoistRetryStore? todoistRetryStore,
+    TodoistLedgerStore? todoistLedgerStore,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
@@ -116,6 +119,7 @@ class HueMemoryApp extends StatefulWidget {
         _todoistSettings = todoistSettings,
         _unmatchedDoneStore = unmatchedDoneStore,
         _todoistRetryStore = todoistRetryStore,
+        _todoistLedgerStore = todoistLedgerStore,
         _packStore = packStore,
         _initialPack = initialPack,
         _captureQueue = captureQueue,
@@ -132,6 +136,7 @@ class HueMemoryApp extends StatefulWidget {
   final TodoistSettingsStore? _todoistSettings;
   final UnmatchedDoneStore? _unmatchedDoneStore;
   final TodoistRetryStore? _todoistRetryStore;
+  final TodoistLedgerStore? _todoistLedgerStore;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
@@ -162,6 +167,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       widget._unmatchedDoneStore ?? PrefsUnmatchedDoneStore();
   late final TodoistRetryStore _todoistRetryStore =
       widget._todoistRetryStore ?? PrefsTodoistRetryStore();
+  late final TodoistLedgerStore _todoistLedgerStore =
+      widget._todoistLedgerStore ?? PrefsTodoistLedgerStore();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final CaptureSessionPrefs _captureSession = CaptureSessionPrefs();
 
@@ -447,6 +454,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               todoistSettings: _todoistSettings,
               unmatchedDoneStore: _unmatchedDoneStore,
               todoistRetryStore: _todoistRetryStore,
+              todoistLedgerStore: _todoistLedgerStore,
               pageIds: _pageIds,
               activePack: _activePack,
               availablePacks: _availablePacks,
@@ -531,6 +539,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.todoistSettings,
     required this.unmatchedDoneStore,
     required this.todoistRetryStore,
+    required this.todoistLedgerStore,
     required this.pageIds,
     required this.activePack,
     required this.availablePacks,
@@ -566,6 +575,7 @@ class _HomeNavigator extends StatefulWidget {
   final TodoistSettingsStore todoistSettings;
   final UnmatchedDoneStore unmatchedDoneStore;
   final TodoistRetryStore todoistRetryStore;
+  final TodoistLedgerStore todoistLedgerStore;
   final PageId pageIds;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
@@ -606,6 +616,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       client: TodoistClient(apiToken: cfg.apiToken),
       unmatchedStore: widget.unmatchedDoneStore,
       retryStore: widget.todoistRetryStore,
+      ledgerStore: widget.todoistLedgerStore,
     );
   }
 
@@ -681,13 +692,19 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   }
 
   /// Re-send only the Todoist items that failed earlier.
-  Future<void> _retryTodoist() async {
+  Future<void> _retryTodoist() => _replayTodoist(recreate: false);
+
+  /// Recreate updates whose earlier Todoist task was deleted or completed.
+  Future<void> _recreateTodoist() => _replayTodoist(recreate: true);
+
+  Future<void> _replayTodoist({required bool recreate}) async {
     if (_retryBusy) return;
     setState(() => _retryBusy = true);
     try {
       final sync = await _resolveDailyTodoistSync();
       if (sync == null) throw const TodoistNotConfiguredException();
-      final result = await sync.retryPending();
+      final result =
+          recreate ? await sync.recreateMissing() : await sync.retryPending();
       await _refreshRetryBatches();
       if (!mounted) return;
       setState(() => _retryBusy = false);
@@ -707,11 +724,23 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       setState(() => _retryBusy = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Retry failed: $e'),
+          content: Text('${recreate ? 'Recreate' : 'Retry'} failed: $e'),
           backgroundColor: MemoryHues.danger,
         ),
       );
     }
+  }
+
+  Future<DailyTodoistPlan> _linkTodoistPlan(
+    DailyTodoistPlan plan,
+    String pageId,
+  ) async {
+    final sync = await _resolveDailyTodoistSync();
+    if (sync == null) {
+      final entries = await widget.todoistLedgerStore.read();
+      return LedgerLinker.link(plan, entries, pageId: pageId);
+    }
+    return sync.linkPlan(plan, pageId: pageId, includeLive: true);
   }
 
   Future<void> _discardTodoistRetries() async {
@@ -1292,9 +1321,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
               : MemoryHues.accent,
           action: sync != null && sync.hasFailures
               ? SnackBarAction(
-                  label: 'Retry failed',
+                  label: sync.hasRetryable ? 'Retry failed' : 'Recreate',
                   textColor: MemoryHues.paperElevated,
-                  onPressed: _retryTodoist,
+                  onPressed: sync.hasRetryable ? _retryTodoist : _recreateTodoist,
                 )
               : sync != null && sync.hasUnmatched
               ? SnackBarAction(
@@ -1877,6 +1906,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         onCancel: _committing ? null : () => setState(() => _pending = null),
         onCommit: _commit,
         todoistPlanner: _todoistPlanner,
+        todoistLinker: _linkTodoistPlan,
         onSendTodoist: ({
           required title,
           required noteBody,
@@ -1906,6 +1936,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
       todoistRetryBusy: _retryBusy,
       onRetryTodoist: _retryTodoist,
       onDiscardTodoist: _discardTodoistRetries,
+      onRecreateTodoist: _recreateTodoist,
       statusMessage: _captureStatus,
       queueCount: _queueCount,
       onShutter: () => _beginCapture(widget.shutterCamera),

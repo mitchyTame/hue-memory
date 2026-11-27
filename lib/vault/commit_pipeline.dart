@@ -352,17 +352,21 @@ class CommitPipeline {
   Future<DailyTodoistSyncResult> _syncDailyTodoist({
     required CommitInput input,
     required DailyTodoistSync sync,
-  }) {
-    final reviewed = input.todoistPlan;
-    if (reviewed != null) return sync.execute(reviewed);
-
+  }) async {
     final capture = input.capture;
+    final reviewed = input.todoistPlan;
+    if (reviewed != null) {
+      return sync.execute(reviewed, pageId: capture.pageId);
+    }
+
+    final plan = sync.planner.planFromMeaning(
+      meaning: capture.meaning,
+      regions: input.regions ?? capture.meaning.regions,
+      markdown: _dailyMarkdownFor(input),
+    );
     return sync.execute(
-      sync.planner.planFromMeaning(
-        meaning: capture.meaning,
-        regions: input.regions ?? capture.meaning.regions,
-        markdown: _dailyMarkdownFor(input),
-      ),
+      await sync.linkPlan(plan, pageId: capture.pageId, includeLive: true),
+      pageId: capture.pageId,
     );
   }
 

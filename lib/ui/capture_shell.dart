@@ -23,6 +23,7 @@ class CaptureShell extends StatelessWidget {
     this.todoistRetryBusy = false,
     this.onRetryTodoist,
     this.onDiscardTodoist,
+    this.onRecreateTodoist,
     this.statusMessage,
     this.busy = false,
     this.botAgentMode = false,
@@ -44,6 +45,7 @@ class CaptureShell extends StatelessWidget {
   final bool todoistRetryBusy;
   final VoidCallback? onRetryTodoist;
   final VoidCallback? onDiscardTodoist;
+  final VoidCallback? onRecreateTodoist;
 
   /// Live OCR / capture status line (loading, success, failure).
   final String? statusMessage;
@@ -156,6 +158,7 @@ class CaptureShell extends StatelessWidget {
                                   busy: todoistRetryBusy,
                                   onRetry: onRetryTodoist,
                                   onDiscard: onDiscardTodoist,
+                                  onRecreate: onRecreateTodoist,
                                 ),
                               ],
                               if (lastCommit != null) ...[

@@ -11,6 +11,7 @@ class TodoistRetryCard extends StatelessWidget {
     this.busy = false,
     this.onRetry,
     this.onDiscard,
+    this.onRecreate,
     this.maxListed = 6,
   });
 
@@ -18,6 +19,9 @@ class TodoistRetryCard extends StatelessWidget {
   final bool busy;
   final VoidCallback? onRetry;
   final VoidCallback? onDiscard;
+
+  /// Recreate updates whose earlier Todoist task no longer exists.
+  final VoidCallback? onRecreate;
   final int maxListed;
 
   @override
@@ -27,6 +31,8 @@ class TodoistRetryCard extends StatelessWidget {
     if (items.isEmpty) return const SizedBox.shrink();
     final reasons = <String>{for (final i in items) i.error}.toList();
     final listed = items.take(maxListed).toList();
+    final missing = items.where((i) => i.remoteMissing).toList();
+    final retryable = items.length - missing.length;
 
     return Container(
       key: const ValueKey('todoist-retry-card'),
@@ -60,7 +66,11 @@ class TodoistRetryCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Text(
-                '${item.kind == FailedItemKind.done ? '✓ ' : '• '}'
+                '${switch (item.kind) {
+                  FailedItemKind.done => '✓ ',
+                  FailedItemKind.update => '↻ ',
+                  FailedItemKind.create => '• ',
+                }}'
                 '${item.content}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -76,21 +86,44 @@ class TodoistRetryCard extends StatelessWidget {
                 color: MemoryHues.paperElevated.withValues(alpha: 0.6),
               ),
             ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              FilledButton(
-                key: const ValueKey('todoist-retry-button'),
-                onPressed: busy ? null : onRetry,
-                child: busy
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Retry failed'),
+          if (missing.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              missing.length == 1
+                  ? '↻ 1 earlier task is gone from Todoist (deleted or '
+                      'completed). Recreate it as a new task?'
+                  : '↻ ${missing.length} earlier tasks are gone from Todoist '
+                      '(deleted or completed). Recreate them as new tasks?',
+              key: const ValueKey('todoist-missing-note'),
+              style: textTheme.labelMedium?.copyWith(
+                color: MemoryHues.paperElevated,
               ),
-              const SizedBox(width: 8),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (retryable > 0)
+                FilledButton(
+                  key: const ValueKey('todoist-retry-button'),
+                  onPressed: busy ? null : onRetry,
+                  child: busy
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Retry failed'),
+                ),
+              if (missing.isNotEmpty)
+                FilledButton(
+                  key: const ValueKey('todoist-recreate-button'),
+                  onPressed: busy ? null : onRecreate,
+                  child: const Text('Recreate'),
+                ),
               TextButton(
                 key: const ValueKey('todoist-discard-button'),
                 onPressed: busy ? null : onDiscard,

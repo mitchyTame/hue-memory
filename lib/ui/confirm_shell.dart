@@ -30,6 +30,11 @@ typedef ConfirmTodoistSendCallback =
       required DailyTodoistPlan plan,
     });
 
+/// Matches a freshly planned checklist against earlier captures' Todoist
+/// tasks (the ledger), so a re-captured page shows "update" instead of "new".
+typedef ConfirmTodoistLinker =
+    Future<DailyTodoistPlan> Function(DailyTodoistPlan plan, String pageId);
+
 /// Confirm-on-photo — photo hero, symbol chips, edits, Commit.
 ///
 /// - **△ / visual:** clean photo (no text overlays); labels edited in the
@@ -46,6 +51,7 @@ class ConfirmShell extends StatefulWidget {
     this.committing = false,
     this.todoistPlanner,
     this.onSendTodoist,
+    this.todoistLinker,
   });
 
   final PendingCapture capture;
@@ -59,6 +65,9 @@ class ConfirmShell extends StatefulWidget {
   /// is sent to Todoist; otherwise Save commits directly as before.
   final DailyTodoistPlanner? todoistPlanner;
   final ConfirmTodoistSendCallback? onSendTodoist;
+
+  /// Optional: recognise a re-captured page before the checklist is shown.
+  final ConfirmTodoistLinker? todoistLinker;
 
   @override
   State<ConfirmShell> createState() => _ConfirmShellState();
@@ -75,6 +84,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   int? _focusedNode;
 
   DailyTodoistPlan? _plan;
+  bool _linking = false;
   final List<TextEditingController> _taskControllers = [];
   final List<TextEditingController> _doneControllers = [];
 
@@ -289,15 +299,27 @@ class _ConfirmShellState extends State<ConfirmShell> {
   }
 
   /// Daily step 1 → 2: parse the fixed nodes into an editable checklist.
-  void _review() {
+  Future<void> _review() async {
     if (widget.committing || !_reviewEnabled) return;
     if (_validatedTitle() == null) return;
     _syncRegionsFromControllers();
-    final plan = widget.todoistPlanner!.planFromMeaning(
+    var plan = widget.todoistPlanner!.planFromMeaning(
       meaning: widget.capture.meaning,
       regions: List<OcrRegion>.from(_regions),
       markdown: _noteBodyForCommit(),
     );
+    final linker = widget.todoistLinker;
+    if (linker != null) {
+      if (_linking) return;
+      setState(() => _linking = true);
+      try {
+        plan = await linker(plan, widget.capture.pageId);
+      } catch (_) {
+        // Linking is a convenience; without it every item is simply "new".
+      }
+      if (!mounted) return;
+      _linking = false;
+    }
     setState(() {
       _discardPlan();
       _plan = plan;
@@ -340,7 +362,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
       if (_reviewing) {
         await _sendReviewed();
       } else {
-        _review();
+        await _review();
       }
       return;
     }
@@ -362,7 +384,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
   String get _primaryLabel {
     if (_isDaily && _reviewEnabled) {
       final plan = _plan;
-      if (plan == null) return 'Review';
+      if (plan == null) return _linking ? 'Checking Todoist…' : 'Review';
       final n = plan.includedCount;
       return n == 0 ? 'Send' : 'Send $n to Todoist';
     }
@@ -381,6 +403,36 @@ class _ConfirmShellState extends State<ConfirmShell> {
         'pick a priority. Skipping a task also skips its subtasks.',
         style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
       ),
+      if (plan.hasLinks) ...[
+        const SizedBox(height: 8),
+        Container(
+          key: const ValueKey('plan-linked-banner'),
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: MemoryHues.accentSoft,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '${plan.linkedByPageId ? 'This page was already sent' : plan.hasLinkedPage ? 'Looks like a re-capture of an earlier page' : 'Some items are already in Todoist'}: '
+            '${plan.updateCount} update · ${plan.newCount} new. '
+            'Updates change the existing Todoist task instead of adding a '
+            'copy; tap a badge to switch.',
+            style: textTheme.bodySmall,
+          ),
+        ),
+      ] else if (plan.rememberedCount != null && plan.creates.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            'No earlier copies found (checked ${plan.rememberedCount} '
+            'remembered task${plan.rememberedCount == 1 ? '' : 's'}'
+            '${plan.liveChecked ? ' and your open Todoist tasks' : ''}) — '
+            'everything below is new.',
+            key: const ValueKey('plan-link-checked'),
+            style: textTheme.labelSmall?.copyWith(color: MemoryHues.inkMuted),
+          ),
+        ),
       const SizedBox(height: 12),
       if (!plan.hasItems)
         Text(
@@ -398,6 +450,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
           onIncluded: (v) => _updatePlan((p) => p.setTaskIncluded(i, v)),
           onText: (t) => _updatePlan((p) => p.setTaskContent(i, t)),
           onPriority: (v) => _updatePlan((p) => p.setTaskPriority(i, v)),
+          showLink: plan.hasLinks,
+          onUpdate: (v) => _updatePlan((p) => p.setTaskUpdate(i, v)),
+          onClearDue: () => _updatePlan((p) => p.clearTaskDue(i)),
         ),
       if (plan.done.isNotEmpty) ...[
         const SizedBox(height: 8),
@@ -674,6 +729,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                               const Spacer(),
                               FilledButton(
                                 onPressed: widget.committing ||
+                                        _linking ||
                                         !_titleOk ||
                                         (_reviewing && !_plan!.hasWork)
                                     ? null
@@ -801,6 +857,9 @@ class _PlanTaskTile extends StatelessWidget {
     required this.onIncluded,
     required this.onText,
     required this.onPriority,
+    this.showLink = false,
+    this.onUpdate,
+    this.onClearDue,
   });
 
   final PlannedTask task;
@@ -810,6 +869,22 @@ class _PlanTaskTile extends StatelessWidget {
   final ValueChanged<bool> onIncluded;
   final ValueChanged<String> onText;
   final ValueChanged<int?> onPriority;
+  final bool showLink;
+  final ValueChanged<bool>? onUpdate;
+  final VoidCallback? onClearDue;
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String dueLabel(DateTime due, {required bool hasTime}) {
+    final day = '${due.day} ${_months[due.month - 1]}';
+    if (!hasTime) return 'due $day';
+    final hh = due.hour.toString().padLeft(2, '0');
+    final mm = due.minute.toString().padLeft(2, '0');
+    return 'due $day $hh:$mm';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -872,6 +947,36 @@ class _PlanTaskTile extends StatelessWidget {
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    if (showLink)
+                      ActionChip(
+                        key: const ValueKey('plan-link'),
+                        label: Text(task.isUpdate ? 'update' : 'new'),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: enabled && included && task.match != null
+                            ? () => onUpdate?.call(!task.isUpdate)
+                            : null,
+                        backgroundColor: task.isUpdate
+                            ? MemoryHues.accentSoft
+                            : MemoryHues.paper,
+                        side: BorderSide(
+                          color: task.isUpdate
+                              ? MemoryHues.accent
+                              : MemoryHues.rule,
+                        ),
+                      ),
+                    if (task.create.dueDate != null)
+                      InputChip(
+                        key: const ValueKey('plan-due'),
+                        label: Text(
+                          dueLabel(
+                            task.create.dueDate!,
+                            hasTime: task.create.dueHasTime,
+                          ),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        onDeleted: enabled && included ? onClearDue : null,
+                        deleteButtonTooltipMessage: 'No due date',
+                      ),
                     if (isSub)
                       Text(
                         'subtask',
@@ -905,6 +1010,18 @@ class _PlanTaskTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (task.isUpdate &&
+                  task.match!.content.trim() != task.content.trim())
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, top: 4),
+                  child: Text(
+                    'was: ${task.match!.content}',
+                    key: const ValueKey('plan-was'),
+                    style: textTheme.labelSmall?.copyWith(
+                      color: MemoryHues.inkMuted,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

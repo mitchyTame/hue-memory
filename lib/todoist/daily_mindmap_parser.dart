@@ -2,6 +2,7 @@ import '../ocr/ocr_client.dart';
 import '../vault/daily_note_path.dart';
 import '../writers/canvas_writer.dart';
 import 'daily_todoist_parser.dart';
+import 'task_text.dart';
 
 /// One parsed daily mindmap: Todoist sync payload + optional hub date.
 class DailyMindmapParseResult {
@@ -96,6 +97,9 @@ class DailyMindmapParser {
       return const DailyMindmapParseResult(sync: DailyTodoistParseResult());
     }
     final hubDate = dates[hubId];
+    // Only a task's own `| HH:MM` gives it a due date (on this day); tasks
+    // with nothing written get none.
+    final pageDate = hubDate ?? referenceDate;
 
     final ring = _ringDistances(hubId, neighbours);
     final children = <String, List<String>>{};
@@ -157,8 +161,10 @@ class DailyMindmapParser {
         if (md.isNotEmpty) md.writeln();
         md.writeln('**Done:**');
         for (final item in split.items) {
-          done.add(item);
-          md.writeln('- $item');
+          final text = TaskText.withoutMarks(item);
+          if (text.isEmpty) continue;
+          done.add(text);
+          md.writeln('- $text');
         }
         for (final leafId in kids) {
           _collectDoneLeaves(
@@ -180,15 +186,21 @@ class DailyMindmapParser {
       md.writeln('**${_displayHeading(label, split.heading)}:**');
 
       for (var i = 0; i < split.items.length; i++) {
-        final item = split.items[i];
+        final item = TaskText.withoutMarks(split.items[i]);
+        if (item.isEmpty) continue;
+        if (TaskText.isTicked(split.items[i])) {
+          done.add(item);
+          md.writeln('- [x] $item');
+          continue;
+        }
         md.writeln('- $item');
         creates.add(
-          DailyTodoistCreate(
-            content: item,
+          DailyTodoistParser.taskFromText(
+            text: item,
             label: label,
             priority: priority,
             nodeId: '$branchId#${i + 1}',
-            dueDate: hubDate,
+            pageDate: pageDate,
           ),
         );
       }
@@ -199,7 +211,8 @@ class DailyMindmapParser {
           parentTaskNodeId: null,
           sectionLabel: label,
           priority: priority,
-          dueDate: hubDate,
+          pageDate: pageDate,
+          done: done,
           labels: labels,
           children: children,
           incoming: incoming,
@@ -258,8 +271,9 @@ class DailyMindmapParser {
     required String? parentTaskNodeId,
     required String sectionLabel,
     required int? priority,
-    required DateTime? dueDate,
+    required DateTime? pageDate,
     required Map<String, String> labels,
+    List<String>? done,
     required Map<String, List<String>> children,
     required Map<String, List<String>> incoming,
     required List<DailyTodoistCreate> creates,
@@ -286,6 +300,7 @@ class DailyMindmapParser {
               nodeId: existing.nodeId,
               parentNodeId: existing.parentNodeId,
               dueDate: existing.dueDate,
+              dueHasTime: existing.dueHasTime,
               extraParentNodeIds: [
                 ...existing.extraParentNodeIds,
                 parentTaskNodeId,
@@ -299,29 +314,37 @@ class DailyMindmapParser {
 
     emitted.add(nodeId);
     final indent = '  ' * depth;
-    md.writeln('$indent- $text');
-
-    creates.add(
-      DailyTodoistCreate(
-        content: text,
-        label: sectionLabel,
-        priority: parentTaskNodeId == null ? priority : null,
-        nodeId: nodeId,
-        parentNodeId: parentTaskNodeId,
-        // Due date only on root tasks under a section (not nested subtasks).
-        dueDate: parentTaskNodeId == null ? dueDate : null,
-      ),
-    );
-    createIndex[nodeId] = creates.length - 1;
+    final clean = TaskText.withoutMarks(text);
+    final ticked = TaskText.isTicked(text) && clean.isNotEmpty;
+    // Ticked off on paper: close the existing task instead of creating it;
+    // anything hanging off it stays a task of the section.
+    if (ticked) {
+      done?.add(clean);
+      md.writeln('$indent- [x] $clean');
+    } else {
+      md.writeln('$indent- $clean');
+      creates.add(
+        DailyTodoistParser.taskFromText(
+          text: clean.isEmpty ? text : clean,
+          label: sectionLabel,
+          priority: parentTaskNodeId == null ? priority : null,
+          nodeId: nodeId,
+          parentNodeId: parentTaskNodeId,
+          pageDate: pageDate,
+        ),
+      );
+      createIndex[nodeId] = creates.length - 1;
+    }
 
     final kids = children[nodeId] ?? const <String>[];
     for (final childId in kids) {
       _emitTaskTree(
         nodeId: childId,
-        parentTaskNodeId: nodeId,
+        parentTaskNodeId: ticked ? parentTaskNodeId : nodeId,
         sectionLabel: sectionLabel,
         priority: priority,
-        dueDate: dueDate,
+        pageDate: pageDate,
+        done: done,
         labels: labels,
         children: children,
         incoming: incoming,

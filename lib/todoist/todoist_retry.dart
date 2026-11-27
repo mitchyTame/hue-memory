@@ -4,9 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'daily_todoist_parser.dart';
 
-enum FailedItemKind { create, done }
+enum FailedItemKind { create, update, done }
 
 /// One planned Todoist item that did not go through (kept for retry).
+///
+/// [FailedItemKind.update] is a re-capture update of an earlier task; when
+/// that task is gone from Todoist ([remoteMissing]) it waits for the user to
+/// choose to recreate it.
 class FailedTodoistItem {
   const FailedTodoistItem({
     required this.kind,
@@ -17,15 +21,44 @@ class FailedTodoistItem {
     this.nodeId,
     this.parentNodeId,
     this.dueDate,
+    this.dueHasTime = false,
     this.extraParentNodeIds = const [],
+    this.requestId,
+    this.updateTodoistId,
+    this.previousContent,
+    this.previousPriority,
+    this.previousDue,
+    this.remoteMissing = false,
   });
 
   factory FailedTodoistItem.forCreate(
     DailyTodoistCreate create,
     String error,
   ) {
+    return FailedTodoistItem._from(FailedItemKind.create, create, error);
+  }
+
+  factory FailedTodoistItem.forUpdate(
+    DailyTodoistCreate create,
+    String error, {
+    bool remoteMissing = false,
+  }) {
+    return FailedTodoistItem._from(
+      FailedItemKind.update,
+      create,
+      error,
+      remoteMissing: remoteMissing,
+    );
+  }
+
+  factory FailedTodoistItem._from(
+    FailedItemKind kind,
+    DailyTodoistCreate create,
+    String error, {
+    bool remoteMissing = false,
+  }) {
     return FailedTodoistItem(
-      kind: FailedItemKind.create,
+      kind: kind,
       content: create.content,
       error: error,
       label: create.label,
@@ -33,7 +66,14 @@ class FailedTodoistItem {
       nodeId: create.nodeId,
       parentNodeId: create.parentNodeId,
       dueDate: create.dueDate,
+      dueHasTime: create.dueHasTime,
       extraParentNodeIds: create.extraParentNodeIds,
+      requestId: create.requestId,
+      updateTodoistId: create.updateTodoistId,
+      previousContent: create.previousContent,
+      previousPriority: create.previousPriority,
+      previousDue: create.previousDue,
+      remoteMissing: remoteMissing,
     );
   }
 
@@ -53,18 +93,36 @@ class FailedTodoistItem {
   final String? nodeId;
   final String? parentNodeId;
   final DateTime? dueDate;
+  final bool dueHasTime;
   final List<String> extraParentNodeIds;
+  final String? requestId;
+  final String? updateTodoistId;
+  final String? previousContent;
+  final int? previousPriority;
+  final String? previousDue;
 
-  DailyTodoistCreate toCreate() {
-    return DailyTodoistCreate(
+  /// The task this item would update no longer exists in Todoist.
+  final bool remoteMissing;
+
+  /// Back into a send item. [recreate] turns a failed update into a brand-new
+  /// task (fresh request ID, no link to the missing one).
+  DailyTodoistCreate toCreate({bool recreate = false}) {
+    final create = DailyTodoistCreate(
       content: content,
       label: label,
       priority: priority,
       nodeId: nodeId,
       parentNodeId: parentNodeId,
       dueDate: dueDate,
+      dueHasTime: dueHasTime,
       extraParentNodeIds: extraParentNodeIds,
+      requestId: requestId,
+      updateTodoistId: updateTodoistId,
+      previousContent: previousContent,
+      previousPriority: previousPriority,
+      previousDue: previousDue,
     );
+    return recreate ? create.copyWith(clearUpdate: true) : create;
   }
 
   FailedTodoistItem withError(String next) {
@@ -77,7 +135,14 @@ class FailedTodoistItem {
       nodeId: nodeId,
       parentNodeId: parentNodeId,
       dueDate: dueDate,
+      dueHasTime: dueHasTime,
       extraParentNodeIds: extraParentNodeIds,
+      requestId: requestId,
+      updateTodoistId: updateTodoistId,
+      previousContent: previousContent,
+      previousPriority: previousPriority,
+      previousDue: previousDue,
+      remoteMissing: remoteMissing,
     );
   }
 
@@ -90,15 +155,24 @@ class FailedTodoistItem {
         'nodeId': ?nodeId,
         'parentNodeId': ?parentNodeId,
         if (dueDate != null) 'dueDate': dueDate!.toIso8601String(),
+        if (dueHasTime) 'dueTime': true,
         if (extraParentNodeIds.isNotEmpty) 'extra': extraParentNodeIds,
+        'requestId': ?requestId,
+        'updateId': ?updateTodoistId,
+        'prevContent': ?previousContent,
+        'prevPriority': ?previousPriority,
+        'prevDue': ?previousDue,
+        if (remoteMissing) 'missing': true,
       };
 
   factory FailedTodoistItem.fromJson(Map<String, dynamic> json) {
     final extra = json['extra'];
     return FailedTodoistItem(
-      kind: json['kind'] == 'done'
-          ? FailedItemKind.done
-          : FailedItemKind.create,
+      kind: switch (json['kind']) {
+        'done' => FailedItemKind.done,
+        'update' => FailedItemKind.update,
+        _ => FailedItemKind.create,
+      },
       content: '${json['content'] ?? ''}',
       error: '${json['error'] ?? ''}',
       label: '${json['label'] ?? ''}',
@@ -106,7 +180,15 @@ class FailedTodoistItem {
       nodeId: json['nodeId'] as String?,
       parentNodeId: json['parentNodeId'] as String?,
       dueDate: DateTime.tryParse('${json['dueDate'] ?? ''}'),
+      dueHasTime: json['dueTime'] == true,
       extraParentNodeIds: extra is List ? [for (final e in extra) '$e'] : const [],
+      requestId: json['requestId'] as String?,
+      updateTodoistId: json['updateId'] as String?,
+      previousContent: json['prevContent'] as String?,
+      previousPriority:
+          json['prevPriority'] is int ? json['prevPriority'] as int : null,
+      previousDue: json['prevDue'] as String?,
+      remoteMissing: json['missing'] == true,
     );
   }
 }
@@ -118,16 +200,21 @@ class TodoistRetryBatch {
     required this.createdAt,
     required this.items,
     this.todoistIdByNode = const {},
+    this.pageId,
   });
 
   final DateTime createdAt;
   final List<FailedTodoistItem> items;
   final Map<String, String> todoistIdByNode;
 
+  /// Capture page the items came from (recorded in the ledger on retry).
+  final String? pageId;
+
   Map<String, Object?> toJson() => {
         'createdAt': createdAt.toIso8601String(),
         'items': [for (final i in items) i.toJson()],
         'ids': todoistIdByNode,
+        'pageId': ?pageId,
       };
 
   factory TodoistRetryBatch.fromJson(Map<String, dynamic> json) {
@@ -145,6 +232,7 @@ class TodoistRetryBatch {
       todoistIdByNode: rawIds is Map
           ? {for (final e in rawIds.entries) '${e.key}': '${e.value}'}
           : const {},
+      pageId: json['pageId'] as String?,
     );
   }
 }

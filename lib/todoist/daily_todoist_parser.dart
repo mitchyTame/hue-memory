@@ -1,4 +1,5 @@
 import '../vault/daily_note_markdown.dart';
+import 'task_text.dart';
 
 /// One Inbox create from a daily section / mindmap node.
 class DailyTodoistCreate {
@@ -9,7 +10,13 @@ class DailyTodoistCreate {
     this.nodeId,
     this.parentNodeId,
     this.dueDate,
+    this.dueHasTime = false,
     this.extraParentNodeIds = const [],
+    this.requestId,
+    this.updateTodoistId,
+    this.previousContent,
+    this.previousPriority,
+    this.previousDue,
   });
 
   final String content;
@@ -26,12 +33,44 @@ class DailyTodoistCreate {
   /// Mindmap parent **task** node id → Todoist `parent_id` subtask.
   final String? parentNodeId;
 
-  /// Optional due date from the daily hub (root tasks).
+  /// Due date, only when the page wrote one for this task (a `| HH:MM`
+  /// time lands on the page date). No date on paper → no due date.
   final DateTime? dueDate;
+
+  /// [dueDate] carries a time of day (Todoist `due_datetime`).
+  final bool dueHasTime;
+
+  /// `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (local), for comparing captures.
+  String? get dueKey => dueKeyOf(dueDate, hasTime: dueHasTime);
+
+  static String? dueKeyOf(DateTime? due, {required bool hasTime}) {
+    if (due == null) return null;
+    String two(int v) => v.toString().padLeft(2, '0');
+    final day = '${due.year.toString().padLeft(4, '0')}-${two(due.month)}-'
+        '${two(due.day)}';
+    return hasTime ? '${day}T${two(due.hour)}:${two(due.minute)}' : day;
+  }
 
   /// Extra mindmap parents that also link here (same Todoist task; linked
   /// via description after create — Todoist allows one `parent_id` only).
   final List<String> extraParentNodeIds;
+
+  /// Todoist `X-Request-Id` for this create, fixed on the first attempt so a
+  /// retry cannot create the task twice.
+  final String? requestId;
+
+  /// Set when a re-capture matched a task from the ledger: this item then
+  /// updates that Todoist task instead of creating a new one.
+  final String? updateTodoistId;
+
+  /// What the ledger recorded for [updateTodoistId] (to skip no-op updates).
+  final String? previousContent;
+  final int? previousPriority;
+
+  /// [dueKey] the matched task already has, when known.
+  final String? previousDue;
+
+  bool get isUpdate => updateTodoistId != null;
 
   DailyTodoistCreate copyWith({
     String? content,
@@ -40,6 +79,15 @@ class DailyTodoistCreate {
     String? parentNodeId,
     bool clearParent = false,
     List<String>? extraParentNodeIds,
+    String? requestId,
+    String? updateTodoistId,
+    String? previousContent,
+    int? previousPriority,
+    String? previousDue,
+    bool clearUpdate = false,
+    DateTime? dueDate,
+    bool? dueHasTime,
+    bool clearDue = false,
   }) {
     return DailyTodoistCreate(
       content: content ?? this.content,
@@ -47,8 +95,17 @@ class DailyTodoistCreate {
       priority: clearPriority ? null : (priority ?? this.priority),
       nodeId: nodeId,
       parentNodeId: clearParent ? null : (parentNodeId ?? this.parentNodeId),
-      dueDate: dueDate,
+      dueDate: clearDue ? null : (dueDate ?? this.dueDate),
+      dueHasTime: clearDue ? false : (dueHasTime ?? this.dueHasTime),
       extraParentNodeIds: extraParentNodeIds ?? this.extraParentNodeIds,
+      requestId: clearUpdate ? null : (requestId ?? this.requestId),
+      updateTodoistId:
+          clearUpdate ? null : (updateTodoistId ?? this.updateTodoistId),
+      previousContent:
+          clearUpdate ? null : (previousContent ?? this.previousContent),
+      previousPriority:
+          clearUpdate ? null : (previousPriority ?? this.previousPriority),
+      previousDue: clearUpdate ? null : (previousDue ?? this.previousDue),
     );
   }
 }
@@ -191,7 +248,31 @@ class DailyTodoistParser {
     unicode: true,
   );
 
-  DailyTodoistParseResult parse(String source) {
+  /// A task line under a create section. A trailing `| HH:MM` becomes a due
+  /// time on [pageDate] and is removed from the text; with no time written
+  /// there is no due date at all.
+  static DailyTodoistCreate taskFromText({
+    required String text,
+    required String label,
+    int? priority,
+    String? nodeId,
+    String? parentNodeId,
+    DateTime? pageDate,
+  }) {
+    final timed = pageDate == null ? null : TaskText.splitPipeTime(text);
+    return DailyTodoistCreate(
+      content: timed?.content ?? text,
+      label: label,
+      priority: priority,
+      nodeId: nodeId,
+      parentNodeId: parentNodeId,
+      dueDate: timed?.time.on(pageDate!),
+      dueHasTime: timed != null,
+    );
+  }
+
+  /// [pageDate] is the day the page is for; it only matters for `| HH:MM`.
+  DailyTodoistParseResult parse(String source, {DateTime? pageDate}) {
     final md = DailyNoteMarkdown.interpret(source);
     if (md.trim().isEmpty) {
       return const DailyTodoistParseResult();
@@ -219,16 +300,32 @@ class DailyTodoistParser {
         }
         final inlineItem = _inlineSectionItem(line, section);
         if (inlineItem != null && inlineItem.isNotEmpty) {
-          _absorbItem(action, inlineItem, creates, done);
+          _absorbItem(
+            action,
+            TaskText.withoutMarks(inlineItem),
+            creates,
+            done,
+            ticked: TaskText.isTicked(inlineItem),
+            pageDate: pageDate,
+          );
         }
         continue;
       }
 
       if (active == null || active.kind == DailySectionKind.skip) continue;
 
-      final content = _itemContent(line);
-      if (content == null || content.isEmpty) continue;
-      _absorbItem(active, content, creates, done);
+      final item = _itemContent(line);
+      if (item == null || item.isEmpty) continue;
+      final content = TaskText.withoutMarks(item);
+      if (content.isEmpty) continue;
+      _absorbItem(
+        active,
+        content,
+        creates,
+        done,
+        ticked: TaskText.isTicked(line) || TaskText.isTicked(item),
+        pageDate: pageDate,
+      );
     }
 
     return DailyTodoistParseResult(
@@ -242,19 +339,27 @@ class DailyTodoistParser {
     DailySectionAction active,
     String content,
     List<DailyTodoistCreate> creates,
-    List<String> done,
-  ) {
+    List<String> done, {
+    bool ticked = false,
+    DateTime? pageDate,
+  }) {
     switch (active.kind) {
       case DailySectionKind.done:
         done.add(content);
       case DailySectionKind.create:
         final label = active.label;
         if (label == null || label.isEmpty) return;
+        // Ticked off on paper: close the existing task, don't create it.
+        if (ticked) {
+          done.add(content);
+          return;
+        }
         creates.add(
-          DailyTodoistCreate(
-            content: content,
+          taskFromText(
+            text: content,
             label: label,
             priority: active.priority ?? priorityForLabel(label),
+            pageDate: pageDate,
           ),
         );
       case DailySectionKind.skip:
