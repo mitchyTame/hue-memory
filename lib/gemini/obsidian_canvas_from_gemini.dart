@@ -25,7 +25,16 @@ class GeminiCanvasDraft {
 
 /// Build / validate Obsidian-shaped Canvas from Gemini Flash JSON.
 class ObsidianCanvasFromGemini {
-  const ObsidianCanvasFromGemini();
+  const ObsidianCanvasFromGemini({this.maxTextNodes = defaultMaxTextNodes});
+
+  /// Enhanced Bot Mode inbox canvases.
+  static const int defaultMaxTextNodes = 24;
+
+  /// △ diagrams and · daily mindmaps (hub + every name + every task).
+  static const int diagramMaxTextNodes = 80;
+
+  /// Text nodes beyond this are dropped (with their edges).
+  final int maxTextNodes;
 
   /// Parse model JSON; commit injects the real photo file node path.
   ///
@@ -74,7 +83,11 @@ class ObsidianCanvasFromGemini {
 
     final textNodes = <CanvasNode>[];
     final seen = <String>{};
-    for (var i = 0; i < nodesRaw.length && textNodes.length < 24; i++) {
+    for (
+      var i = 0;
+      i < nodesRaw.length && textNodes.length < maxTextNodes;
+      i++
+    ) {
       final item = nodesRaw[i];
       if (item is! Map) continue;
       final type = '${item['type'] ?? 'text'}'.toLowerCase();

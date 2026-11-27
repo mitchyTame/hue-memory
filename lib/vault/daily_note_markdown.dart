@@ -15,7 +15,8 @@ class DailyNoteMarkdown {
     r'^(\s*)([-*+·•])\s+(.*)$',
   );
   static final RegExp _sectionLabel = RegExp(
-    r'^([A-Za-z][\w\s/&-]{0,48}):\s*$',
+    r"^([\p{L}][\p{L}\p{M}\p{N}_\s/&'’.\-]{0,48}):\s*$",
+    unicode: true,
   );
   static final RegExp _dateLine = RegExp(
     r"^(\d{1,2}\s+[A-Za-z]{3,9}\s+'?\d{2,4}|\d{4}-\d{2}-\d{2})\s*$",

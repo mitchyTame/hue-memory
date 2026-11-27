@@ -50,6 +50,80 @@ class DailyNoteDate {
     return null;
   }
 
+  static final RegExp _weekdayPrefix = RegExp(
+    r'^(?:mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun)[a-z]*\.?,?\s+',
+    caseSensitive: false,
+  );
+  static final RegExp _ordinal = RegExp(
+    r'\b(\d{1,2})(?:st|nd|rd|th)\b',
+    caseSensitive: false,
+  );
+  static final RegExp _monDayYear = RegExp(
+    r"^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+'?(\d{2,4})$",
+  );
+  static final RegExp _dayMonNoYear = RegExp(r'^(\d{1,2})\s+([A-Za-z]{3,9})$');
+  static final RegExp _numericDmy = RegExp(
+    r'^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})$',
+  );
+
+  /// Handwritten hub dates as read off a daily mindmap.
+  ///
+  /// Accepts everything [tryParse] does, plus a leading weekday
+  /// (`Fri 27 Nov '26`), ordinals (`27th Nov`), `Nov 27 2026`, day-first
+  /// numerics (`27/11/26`), multi-line hubs, and a missing year (taken from
+  /// [reference], else the current year). The whole line must be a date.
+  static DateTime? tryParseLoose(String raw, {DateTime? reference}) {
+    final strict = tryParse(raw);
+    if (strict != null) return strict;
+    final lines = raw
+        .split(RegExp(r'[\r\n]+'))
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    final candidates = <String>[lines.join(' '), ...lines];
+    for (final c in candidates) {
+      final hit = _tryParseLooseLine(c, reference: reference);
+      if (hit != null) return hit;
+    }
+    return null;
+  }
+
+  static DateTime? _tryParseLooseLine(String line, {DateTime? reference}) {
+    var t = line.trim().replaceAll(RegExp(r'\s+'), ' ');
+    t = t.replaceFirst(_weekdayPrefix, '');
+    t = t.replaceAllMapped(_ordinal, (m) => m.group(1)!);
+    t = t.replaceAll(RegExp(r'\s*,\s*'), ' ').trim();
+    if (t.isEmpty) return null;
+
+    final strict = tryParse(t);
+    if (strict != null) return strict;
+
+    final mdy = _monDayYear.firstMatch(t);
+    if (mdy != null) {
+      final m = _monthNumber(mdy.group(1)!);
+      if (m == null) return null;
+      var y = int.parse(mdy.group(3)!);
+      if (y < 100) y += 2000;
+      return _validDay(y, m, int.parse(mdy.group(2)!));
+    }
+
+    final noYear = _dayMonNoYear.firstMatch(t);
+    if (noYear != null) {
+      final m = _monthNumber(noYear.group(2)!);
+      if (m == null) return null;
+      final y = (reference ?? DateTime.now()).year;
+      return _validDay(y, m, int.parse(noYear.group(1)!));
+    }
+
+    final dmy = _numericDmy.firstMatch(t);
+    if (dmy != null) {
+      var y = int.parse(dmy.group(3)!);
+      if (y < 100) y += 2000;
+      return _validDay(y, int.parse(dmy.group(2)!), int.parse(dmy.group(1)!));
+    }
+    return null;
+  }
+
   static DateTime? _validDay(int year, int month, int day) {
     if (month < 1 || month > 12 || day < 1 || day > 31) return null;
     final dt = DateTime(year, month, day);

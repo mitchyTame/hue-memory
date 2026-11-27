@@ -11,11 +11,15 @@ class DailyTodoistSyncResult {
     this.createdCount = 0,
     this.completedCount = 0,
     this.unmatchedDone = const [],
+    this.labels = const [],
   });
 
   final int createdCount;
   final int completedCount;
   final List<String> unmatchedDone;
+
+  /// Todoist label names ensured for this page (one per section / name).
+  final List<String> labels;
 
   bool get hasUnmatched => unmatchedDone.isNotEmpty;
 
@@ -34,6 +38,9 @@ class DailyTodoistSyncResult {
             ? '1 completed'
             : '$completedCount completed',
       );
+    }
+    if (labels.isNotEmpty) {
+      parts.add(labels.length == 1 ? '1 label' : '${labels.length} labels');
     }
     if (hasUnmatched) {
       parts.add(
@@ -74,7 +81,11 @@ class DailyTodoistSync {
     List<CanvasEdge> edges = const [],
   }) async {
     if (regions.isNotEmpty) {
-      final mind = _mindmap.parse(regions: regions, edges: edges);
+      final mind = _mindmap.parse(
+        regions: regions,
+        edges: edges,
+        referenceDate: _clock(),
+      );
       if (mind.hasWork) return syncParsed(mind.sync);
     }
     return syncMarkdown(markdown);
@@ -85,15 +96,20 @@ class DailyTodoistSync {
   }
 
   Future<DailyTodoistSyncResult> syncParsed(DailyTodoistParseResult parsed) async {
-    if (parsed.creates.isEmpty && parsed.done.isEmpty) {
+    if (!parsed.hasWork) {
       return const DailyTodoistSyncResult();
     }
 
     final labelNames = <String>{
+      ...parsed.sectionLabels,
       for (final c in parsed.creates) c.label,
-    };
-    if (labelNames.isNotEmpty) {
-      await _client.ensureLabels(labelNames);
+    }..removeWhere((l) => l.trim().isEmpty);
+    final ensured = labelNames.isEmpty
+        ? const <String, TodoistLabel>{}
+        : await _client.ensureLabels(labelNames);
+    String todoistLabel(String label) {
+      final name = ensured[label]?.name.trim() ?? '';
+      return name.isEmpty ? label : name;
     }
 
     // nodeId → Todoist task id (parents before children in [creates]).
@@ -105,7 +121,9 @@ class DailyTodoistSync {
           : todoistIdByNode[item.parentNodeId!];
       final task = await _client.createInboxTask(
         content: item.content,
-        labels: item.parentNodeId == null ? [item.label] : const [],
+        labels: item.parentNodeId == null
+            ? [todoistLabel(item.label)]
+            : const [],
         priority: item.priority,
         parentId: parentId,
         dueDate: item.dueDate,
@@ -162,6 +180,7 @@ class DailyTodoistSync {
       createdCount: created,
       completedCount: completed,
       unmatchedDone: unmatched,
+      labels: {for (final l in labelNames) todoistLabel(l)}.toList(),
     );
   }
 

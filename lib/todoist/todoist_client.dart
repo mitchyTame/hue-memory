@@ -75,27 +75,40 @@ class TodoistClient {
     );
   }
 
-  /// Ensure each [names] label exists; returns name → id.
-  Future<Map<String, String>> ensureLabels(Iterable<String> names) async {
+  /// Todoist rejects label names longer than this.
+  static const int maxLabelLength = 128;
+
+  /// Ensure each [names] label exists (case-insensitive match against the
+  /// user's personal labels); returns requested name → the label as stored
+  /// in Todoist, so tasks reference the existing spelling (`Deshan`, not
+  /// `deshan`).
+  Future<Map<String, TodoistLabel>> ensureLabels(Iterable<String> names) async {
     final existing = await listLabels();
-    final byName = <String, String>{
-      for (final l in existing) l.name.toLowerCase(): l.id,
+    final byKey = <String, TodoistLabel>{
+      for (final l in existing) labelKey(l.name): l,
     };
-    final out = <String, String>{};
+    final out = <String, TodoistLabel>{};
     for (final raw in names) {
-      final name = raw.trim();
+      final name = clipLabelName(raw);
       if (name.isEmpty) continue;
-      final key = name.toLowerCase();
-      var id = byName[key];
-      if (id == null) {
-        final created = await createLabel(name);
-        id = created.id;
-        byName[key] = id;
+      final key = labelKey(name);
+      var label = byKey[key];
+      if (label == null) {
+        label = await createLabel(name);
+        byKey[key] = label;
       }
-      out[name] = id;
+      out[raw] = label;
     }
     return out;
   }
+
+  static String clipLabelName(String raw) {
+    final t = raw.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (t.length <= maxLabelLength) return t;
+    return t.substring(0, maxLabelLength).trimRight();
+  }
+
+  static String labelKey(String name) => clipLabelName(name).toLowerCase();
 
   Future<List<TodoistTask>> listOpenTasks() async {
     final rows = await _paginateResults('$baseUrl/tasks');

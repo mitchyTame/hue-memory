@@ -140,6 +140,39 @@ done: Close the loop
       expect(result.done, ['Close the loop']);
     });
 
+    test('names with diacritics / apostrophes are section headings', () {
+      final result = parser.parse('''
+Zoë:
+- Book piano lesson
+Thandiwé:
+- Lift club
+Mum's:
+- Birthday card
+André: call re braai
+Don't forget: milk
+''');
+      expect(result.creates.map((c) => '${c.label}:${c.content}').toList(), [
+        'zoë:Book piano lesson',
+        'thandiwé:Lift club',
+        "mum's:Birthday card",
+        'andré:call re braai',
+        "andré:Don't forget: milk",
+      ]);
+    });
+
+    test('headings with no items are still reported as labels', () {
+      final result = parser.parse('''
+Deshan:
+Thabo:
+- Return drill
+Notes:
+done:
+''');
+      expect(result.sectionLabels, ['deshan', 'thabo']);
+      expect(result.creates.single.label, 'thabo');
+      expect(result.hasWork, isTrue);
+    });
+
     test('unknown headings are not dropped (root cause of empty sync)', () {
       final result = parser.parse('''
 Weekend:

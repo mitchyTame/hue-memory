@@ -39,10 +39,18 @@ class DailyTodoistParseResult {
   const DailyTodoistParseResult({
     this.creates = const [],
     this.done = const [],
+    this.sectionLabels = const [],
   });
 
   final List<DailyTodoistCreate> creates;
   final List<String> done;
+
+  /// Every create-section label seen (including sections with no tasks yet),
+  /// so each name on the page exists as a Todoist label.
+  final List<String> sectionLabels;
+
+  bool get hasWork =>
+      creates.isNotEmpty || done.isNotEmpty || sectionLabels.isNotEmpty;
 }
 
 /// How a section heading should drive Todoist sync.
@@ -127,14 +135,42 @@ class DailyTodoistParser {
   }
 
   /// Public normalize used for labels + tests.
+  ///
+  /// Strips heading / bullet / checkbox / `@` prefixes and icon glyphs drawn
+  /// next to a section name so `🛒 Shopping:` and `## shopping` share a label.
   static String normalizeSectionKey(String raw) {
     var t = raw.trim();
-    if (t.startsWith('**') && t.endsWith('**')) {
+    if (t.startsWith('**') && t.endsWith('**') && t.length >= 4) {
       t = t.substring(2, t.length - 2).trim();
     }
+    t = t.replaceFirst(_sectionPrefixNoise, '');
+    t = t.replaceFirst(_sectionSuffixNoise, '');
     if (t.endsWith(':')) t = t.substring(0, t.length - 1).trim();
     return t.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
+
+  static final RegExp _sectionPrefixNoise = RegExp(
+    r'^(?:[\s#*+\-·•☐☑☒□■@:]|\p{So}|\p{Sk}|\p{Cf}|\u{FE0F})+',
+    unicode: true,
+  );
+  static final RegExp _sectionSuffixNoise = RegExp(
+    r'(?:[\s*:]|\p{So}|\p{Sk}|\p{Cf}|\u{FE0F})+$',
+    unicode: true,
+  );
+
+  /// Heading shapes that may end with `:` on their own line (any script —
+  /// `Zoë:`, `Thandiwé:`, `Mum's:`).
+  static final RegExp plainSectionLine = RegExp(
+    r"^([\p{L}][\p{L}\p{M}\p{N}_\s/&'’.\-]{0,48}):\s*$",
+    unicode: true,
+  );
+
+  /// `Heading: item` on one line. Narrower than [plainSectionLine] so prose
+  /// such as `Don't forget: milk` stays a task.
+  static final RegExp inlineSectionLine = RegExp(
+    r'^([\p{L}][\p{L}\p{M}\p{N}_\s/&\-]{0,48}):\s+\S',
+    unicode: true,
+  );
 
   DailyTodoistParseResult parse(String source) {
     final md = DailyNoteMarkdown.interpret(source);
@@ -144,6 +180,7 @@ class DailyTodoistParser {
 
     final creates = <DailyTodoistCreate>[];
     final done = <String>[];
+    final sectionLabels = <String>[];
     DailySectionAction? active;
 
     for (final raw in md.split('\n')) {
@@ -154,6 +191,13 @@ class DailyTodoistParser {
       if (section != null) {
         final action = classifySection(section);
         active = action;
+        final label = action.label;
+        if (action.isCreate &&
+            label != null &&
+            label.isNotEmpty &&
+            !sectionLabels.contains(label)) {
+          sectionLabels.add(label);
+        }
         final inlineItem = _inlineSectionItem(line, section);
         if (inlineItem != null && inlineItem.isNotEmpty) {
           _absorbItem(action, inlineItem, creates, done);
@@ -168,7 +212,11 @@ class DailyTodoistParser {
       _absorbItem(active, content, creates, done);
     }
 
-    return DailyTodoistParseResult(creates: creates, done: done);
+    return DailyTodoistParseResult(
+      creates: creates,
+      done: done,
+      sectionLabels: sectionLabels,
+    );
   }
 
   static void _absorbItem(
@@ -212,12 +260,10 @@ class DailyTodoistParser {
     final bold = RegExp(r'^\*\*([^*].*?)\*\*:?\s*$').firstMatch(trimmed);
     if (bold != null) return bold.group(1);
 
-    final plain = RegExp(r'^([A-Za-z][\w\s/&-]{0,48}):\s*$').firstMatch(trimmed);
+    final plain = plainSectionLine.firstMatch(trimmed);
     if (plain != null) return plain.group(1);
 
-    final inline = RegExp(
-      r'^([A-Za-z][\w\s/&-]{0,48}):\s+\S',
-    ).firstMatch(trimmed);
+    final inline = inlineSectionLine.firstMatch(trimmed);
     if (inline != null) return inline.group(1);
 
     final heading = RegExp(r'^#{1,3}\s+(.+?)\s*$').firstMatch(trimmed);
@@ -262,6 +308,18 @@ class DailyTodoistParser {
       return _cleanContent(bullet.group(1) ?? '');
     }
 
+    return _cleanContent(trimmed);
+  }
+
+  /// Strip bullet / checkbox / OCR box prefixes from one item line.
+  static String cleanItemLine(String raw) {
+    final trimmed = raw.trim();
+    final checkbox = RegExp(
+      r'^(?:[-*+]\s+)?\[([ xX])\]\s*(.*)$',
+    ).firstMatch(trimmed);
+    if (checkbox != null) return _cleanContent(checkbox.group(2) ?? '');
+    final ocrBox = RegExp(r'^(?:☐|☑|☒|□|■)\s*(.*)$').firstMatch(trimmed);
+    if (ocrBox != null) return _cleanContent(ocrBox.group(1) ?? '');
     return _cleanContent(trimmed);
   }
 

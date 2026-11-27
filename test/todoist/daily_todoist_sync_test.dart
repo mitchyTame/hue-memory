@@ -90,6 +90,41 @@ Weekend Plans:
     );
   });
 
+  test('sync ensures labels for names with no tasks and reuses existing '
+      'Todoist spelling on tasks', () async {
+    final client = _FakeTodoistClient()..existingNames['deshan'] = 'Deshan';
+    final sync = DailyTodoistSync(
+      client: client,
+      unmatchedStore: MemoryUnmatchedDoneStore(),
+    );
+
+    final result = await sync.syncParsed(
+      const DailyTodoistParseResult(
+        creates: [DailyTodoistCreate(content: 'Walk Sunday', label: 'deshan')],
+        sectionLabels: ['deshan', 'thabo'],
+      ),
+    );
+
+    expect(client.ensuredLabels.toSet(), {'deshan', 'thabo'});
+    expect(client.created.single.labels, ['Deshan']);
+    expect(result.labels, ['Deshan', 'thabo']);
+    expect(result.snackbarMessage, '1 task → Todoist Inbox · 2 labels');
+  });
+
+  test('label-only page still syncs labels', () async {
+    final client = _FakeTodoistClient();
+    final sync = DailyTodoistSync(
+      client: client,
+      unmatchedStore: MemoryUnmatchedDoneStore(),
+    );
+    final result = await sync.syncParsed(
+      const DailyTodoistParseResult(sectionLabels: ['thabo']),
+    );
+    expect(client.ensuredLabels, ['thabo']);
+    expect(client.created, isEmpty);
+    expect(result.snackbarMessage, '1 label');
+  });
+
   test('sync creates subtasks with parent_id from mindmap links', () async {
     final client = _FakeTodoistClient();
     final sync = DailyTodoistSync(
@@ -146,10 +181,16 @@ class _FakeTodoistClient extends TodoistClient {
   final List<String> ensuredLabels = [];
 
   @override
-  Future<Map<String, String>> ensureLabels(Iterable<String> names) async {
+  Future<Map<String, TodoistLabel>> ensureLabels(Iterable<String> names) async {
     ensuredLabels.addAll(names);
-    return {for (final n in names) n: 'id-$n'};
+    return {
+      for (final n in names)
+        n: TodoistLabel(id: 'id-$n', name: existingNames[n] ?? n),
+    };
   }
+
+  /// Lowercase key → label as the user already spelled it in Todoist.
+  final Map<String, String> existingNames = {};
 
   @override
   Future<List<TodoistTask>> listOpenTasks() async => List.unmodifiable(_open);
