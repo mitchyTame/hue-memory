@@ -32,6 +32,25 @@ class DailyTodoistCreate {
   /// Extra mindmap parents that also link here (same Todoist task; linked
   /// via description after create — Todoist allows one `parent_id` only).
   final List<String> extraParentNodeIds;
+
+  DailyTodoistCreate copyWith({
+    String? content,
+    int? priority,
+    bool clearPriority = false,
+    String? parentNodeId,
+    bool clearParent = false,
+    List<String>? extraParentNodeIds,
+  }) {
+    return DailyTodoistCreate(
+      content: content ?? this.content,
+      label: label,
+      priority: clearPriority ? null : (priority ?? this.priority),
+      nodeId: nodeId,
+      parentNodeId: clearParent ? null : (parentNodeId ?? this.parentNodeId),
+      dueDate: dueDate,
+      extraParentNodeIds: extraParentNodeIds ?? this.extraParentNodeIds,
+    );
+  }
 }
 
 /// Structured parse of a · daily OCR / confirm body for Todoist sync.

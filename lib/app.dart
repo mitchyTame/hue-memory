@@ -33,8 +33,10 @@ import 'symbols/symbol_models.dart';
 import 'symbols/symbol_router.dart';
 import 'theme/app_theme.dart';
 import 'theme/memory_hues.dart';
+import 'todoist/daily_todoist_plan.dart';
 import 'todoist/daily_todoist_sync.dart';
 import 'todoist/todoist_client.dart';
+import 'todoist/todoist_retry.dart';
 import 'todoist/todoist_settings.dart';
 import 'todoist/unmatched_done_store.dart';
 import 'ui/bot_agent_settings_shell.dart';
@@ -98,6 +100,7 @@ class HueMemoryApp extends StatefulWidget {
     BotAgentSettingsStore? botAgentSettings,
     TodoistSettingsStore? todoistSettings,
     UnmatchedDoneStore? unmatchedDoneStore,
+    TodoistRetryStore? todoistRetryStore,
     ActivePackStore? packStore,
     SymbolPack? initialPack,
     CaptureQueue? captureQueue,
@@ -112,6 +115,7 @@ class HueMemoryApp extends StatefulWidget {
         _botAgentSettings = botAgentSettings,
         _todoistSettings = todoistSettings,
         _unmatchedDoneStore = unmatchedDoneStore,
+        _todoistRetryStore = todoistRetryStore,
         _packStore = packStore,
         _initialPack = initialPack,
         _captureQueue = captureQueue,
@@ -127,6 +131,7 @@ class HueMemoryApp extends StatefulWidget {
   final BotAgentSettingsStore? _botAgentSettings;
   final TodoistSettingsStore? _todoistSettings;
   final UnmatchedDoneStore? _unmatchedDoneStore;
+  final TodoistRetryStore? _todoistRetryStore;
   final ActivePackStore? _packStore;
   final SymbolPack? _initialPack;
   final CaptureQueue? _captureQueue;
@@ -155,6 +160,8 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
       );
   late final UnmatchedDoneStore _unmatchedDoneStore =
       widget._unmatchedDoneStore ?? PrefsUnmatchedDoneStore();
+  late final TodoistRetryStore _todoistRetryStore =
+      widget._todoistRetryStore ?? PrefsTodoistRetryStore();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final CaptureSessionPrefs _captureSession = CaptureSessionPrefs();
 
@@ -439,6 +446,7 @@ class _HueMemoryAppState extends State<HueMemoryApp> {
               botAgentSettings: _botAgentSettings,
               todoistSettings: _todoistSettings,
               unmatchedDoneStore: _unmatchedDoneStore,
+              todoistRetryStore: _todoistRetryStore,
               pageIds: _pageIds,
               activePack: _activePack,
               availablePacks: _availablePacks,
@@ -522,6 +530,7 @@ class _HomeNavigator extends StatefulWidget {
     required this.botAgentSettings,
     required this.todoistSettings,
     required this.unmatchedDoneStore,
+    required this.todoistRetryStore,
     required this.pageIds,
     required this.activePack,
     required this.availablePacks,
@@ -556,6 +565,7 @@ class _HomeNavigator extends StatefulWidget {
   final BotAgentSettingsStore botAgentSettings;
   final TodoistSettingsStore todoistSettings;
   final UnmatchedDoneStore unmatchedDoneStore;
+  final TodoistRetryStore todoistRetryStore;
   final PageId pageIds;
   final SymbolPack activePack;
   final List<SymbolPack> availablePacks;
@@ -595,6 +605,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     return DailyTodoistSync(
       client: TodoistClient(apiToken: cfg.apiToken),
       unmatchedStore: widget.unmatchedDoneStore,
+      retryStore: widget.todoistRetryStore,
     );
   }
 
@@ -619,6 +630,9 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   List<QueueJob> _queueJobs = const [];
   List<PromoteCandidate> _promoteCandidates = const [];
   LastCommitSummary? _lastCommit;
+  final DailyTodoistPlanner _todoistPlanner = DailyTodoistPlanner();
+  List<TodoistRetryBatch> _retryBatches = const [];
+  bool _retryBusy = false;
   String? _captureStatus;
   bool _mockOcrHintShown = false;
   String? _lastProbePath;
@@ -643,6 +657,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
   void initState() {
     super.initState();
     _refreshQueueCount();
+    _refreshRetryBatches();
   }
 
   @override
@@ -657,6 +672,51 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         oldWidget.geminiSettings != widget.geminiSettings) {
       _coordinator = _buildCoordinator();
     }
+  }
+
+  Future<void> _refreshRetryBatches() async {
+    final batches = await widget.todoistRetryStore.read();
+    if (!mounted) return;
+    setState(() => _retryBatches = batches);
+  }
+
+  /// Re-send only the Todoist items that failed earlier.
+  Future<void> _retryTodoist() async {
+    if (_retryBusy) return;
+    setState(() => _retryBusy = true);
+    try {
+      final sync = await _resolveDailyTodoistSync();
+      if (sync == null) throw const TodoistNotConfiguredException();
+      final result = await sync.retryPending();
+      await _refreshRetryBatches();
+      if (!mounted) return;
+      setState(() => _retryBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.hasFailures
+                ? '${result.snackbarMessage} — ${result.failureReason}'
+                : result.snackbarMessage,
+          ),
+          backgroundColor:
+              result.hasFailures ? MemoryHues.danger : MemoryHues.accent,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _retryBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Retry failed: $e'),
+          backgroundColor: MemoryHues.danger,
+        ),
+      );
+    }
+  }
+
+  Future<void> _discardTodoistRetries() async {
+    await widget.todoistRetryStore.clear();
+    await _refreshRetryBatches();
   }
 
   Future<void> _refreshQueueCount() async {
@@ -1167,6 +1227,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     required List<LinkPick> links,
     bool inkGhost = true,
     List<OcrRegion>? regions,
+    DailyTodoistPlan? todoistPlan,
   }) async {
     final pending = _pending;
     if (pending == null || _committing) return;
@@ -1181,6 +1242,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           links: links,
           inkGhost: inkGhost,
           regions: regions,
+          todoistPlan: todoistPlan,
           // Daily · pages: pass confirm body as structured markdown — do not
           // split every line into a forced checkbox list.
           dailyMarkdown: symbolId == 'daily-tasks' ? noteBody : null,
@@ -1210,16 +1272,31 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         _lastCommit = summary;
       });
       final sync = result.todoistSync;
+      if (sync != null && sync.hasFailures) {
+        await _refreshRetryBatches();
+      }
+      if (!mounted) return;
       final snackText = sync != null
-          ? sync.snackbarMessage
+          ? (sync.hasFailures
+              ? '${sync.snackbarMessage} — ${sync.failureReason}'
+              : sync.snackbarMessage)
           : 'Saved ${summary.fileName} in ${summary.folderLabel}';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(snackText),
-          backgroundColor: sync != null && sync.hasUnmatched
+          duration: sync != null && sync.hasFailures
+              ? const Duration(seconds: 8)
+              : const Duration(seconds: 4),
+          backgroundColor: sync != null && (sync.hasUnmatched || sync.hasFailures)
               ? MemoryHues.danger
               : MemoryHues.accent,
-          action: sync != null && sync.hasUnmatched
+          action: sync != null && sync.hasFailures
+              ? SnackBarAction(
+                  label: 'Retry failed',
+                  textColor: MemoryHues.paperElevated,
+                  onPressed: _retryTodoist,
+                )
+              : sync != null && sync.hasUnmatched
               ? SnackBarAction(
                   label: 'View',
                   textColor: MemoryHues.paperElevated,
@@ -1799,6 +1876,21 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         committing: _committing,
         onCancel: _committing ? null : () => setState(() => _pending = null),
         onCommit: _commit,
+        todoistPlanner: _todoistPlanner,
+        onSendTodoist: ({
+          required title,
+          required noteBody,
+          required regions,
+          required plan,
+        }) =>
+            _commit(
+              symbolId: 'daily-tasks',
+              title: title,
+              noteBody: noteBody,
+              links: const [],
+              regions: regions,
+              todoistPlan: plan,
+            ),
       );
     }
     final botOn = _botAgentOn;
@@ -1810,6 +1902,10 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           : '${widget.vaultLabel} · ${widget.ocrModeLabel} · ${widget.activePack.displayName}',
       shutterHint: widget.shutterHint,
       lastCommit: _lastCommit,
+      todoistRetryBatches: _retryBatches,
+      todoistRetryBusy: _retryBusy,
+      onRetryTodoist: _retryTodoist,
+      onDiscardTodoist: _discardTodoistRetries,
       statusMessage: _captureStatus,
       queueCount: _queueCount,
       onShutter: () => _beginCapture(widget.shutterCamera),

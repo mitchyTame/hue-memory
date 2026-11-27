@@ -3,7 +3,9 @@ import 'package:material_ui/material_ui.dart';
 import '../capture/last_commit_summary.dart';
 import '../theme/hue_atmosphere.dart';
 import '../theme/memory_hues.dart';
+import '../todoist/todoist_retry.dart';
 import 'last_commit_card.dart';
+import 'todoist_retry_card.dart';
 
 /// Capture home — shutter (live / sample) + gallery pick.
 class CaptureShell extends StatelessWidget {
@@ -17,6 +19,10 @@ class CaptureShell extends StatelessWidget {
     this.queueCount = 0,
     this.vaultLabel = 'In-memory vault (FakeVaultFs)',
     this.lastCommit,
+    this.todoistRetryBatches = const [],
+    this.todoistRetryBusy = false,
+    this.onRetryTodoist,
+    this.onDiscardTodoist,
     this.statusMessage,
     this.busy = false,
     this.botAgentMode = false,
@@ -32,6 +38,12 @@ class CaptureShell extends StatelessWidget {
   final int queueCount;
   final String vaultLabel;
   final LastCommitSummary? lastCommit;
+
+  /// Todoist items that did not send (kept for retry).
+  final List<TodoistRetryBatch> todoistRetryBatches;
+  final bool todoistRetryBusy;
+  final VoidCallback? onRetryTodoist;
+  final VoidCallback? onDiscardTodoist;
 
   /// Live OCR / capture status line (loading, success, failure).
   final String? statusMessage;
@@ -135,6 +147,15 @@ class CaptureShell extends StatelessWidget {
                                     color: MemoryHues.accentSoft
                                         .withValues(alpha: 0.9),
                                   ),
+                                ),
+                              ],
+                              if (todoistRetryBatches.isNotEmpty) ...[
+                                const SizedBox(height: 16),
+                                TodoistRetryCard(
+                                  batches: todoistRetryBatches,
+                                  busy: todoistRetryBusy,
+                                  onRetry: onRetryTodoist,
+                                  onDiscard: onDiscardTodoist,
                                 ),
                               ],
                               if (lastCommit != null) ...[

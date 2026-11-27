@@ -175,7 +175,10 @@ class TodoistClient {
     );
     if (res.statusCode != 204 &&
         (res.statusCode < 200 || res.statusCode >= 300)) {
-      throw TodoistApiException(_errorMessage(res.statusCode, res.body));
+      throw TodoistApiException(
+        _errorMessage(res.statusCode, res.body),
+        statusCode: res.statusCode,
+      );
     }
   }
 
@@ -209,7 +212,10 @@ class TodoistClient {
 
   void _ensureOk(http.Response res) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
-      throw TodoistApiException(_errorMessage(res.statusCode, res.body));
+      throw TodoistApiException(
+        _errorMessage(res.statusCode, res.body),
+        statusCode: res.statusCode,
+      );
     }
   }
 
@@ -286,9 +292,12 @@ class TodoistTask {
 }
 
 class TodoistApiException implements Exception {
-  TodoistApiException(this.message);
+  TodoistApiException(this.message, {this.statusCode});
 
   final String message;
+
+  /// HTTP status when the failure came from a Todoist response.
+  final int? statusCode;
 
   @override
   String toString() => message;
