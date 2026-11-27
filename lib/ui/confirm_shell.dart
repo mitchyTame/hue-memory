@@ -6,7 +6,9 @@ import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
 import '../theme/hue_atmosphere.dart';
+import '../todoist/daily_todoist_parser.dart';
 import '../todoist/daily_todoist_plan.dart';
+import '../todoist/due_phrase.dart';
 import '../theme/memory_hues.dart';
 import '../vault/daily_note_path.dart';
 import '../writers/link_writer.dart';
@@ -337,6 +339,23 @@ class _ConfirmShellState extends State<ConfirmShell> {
     setState(_discardPlan);
   }
 
+  /// Edit a task's due as words ("tomorrow 9am", "every Monday"); read
+  /// against the page date. Empty removes it.
+  Future<void> _editDue(int index) async {
+    final plan = _plan;
+    if (plan == null || widget.committing) return;
+    final create = plan.creates[index].create;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) =>
+          _DueDialog(initial: create.dueString ?? create.duePhrase ?? ''),
+    );
+    if (result == null || !mounted) return;
+    final pageDate = _plan?.pageDate ?? DateTime.now();
+    final due = DuePhrase.parsePhrase(result, pageDate: pageDate);
+    _updatePlan((p) => p.setTaskDue(index, due));
+  }
+
   void _updatePlan(DailyTodoistPlan Function(DailyTodoistPlan) edit) {
     final plan = _plan;
     if (plan == null) return;
@@ -415,7 +434,8 @@ class _ConfirmShellState extends State<ConfirmShell> {
           ),
           child: Text(
             '${plan.linkedByPageId ? 'This page was already sent' : plan.hasLinkedPage ? 'Looks like a re-capture of an earlier page' : 'Some items are already in Todoist'}: '
-            '${plan.updateCount} update · ${plan.newCount} new. '
+            '${plan.updateCount} update · ${plan.newCount} new'
+            '${plan.completeCount > 0 ? ' · ${plan.completeCount} to complete' : ''}. '
             'Updates change the existing Todoist task instead of adding a '
             'copy; tap a badge to switch.',
             style: textTheme.bodySmall,
@@ -453,6 +473,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
           showLink: plan.hasLinks,
           onUpdate: (v) => _updatePlan((p) => p.setTaskUpdate(i, v)),
           onClearDue: () => _updatePlan((p) => p.clearTaskDue(i)),
+          onEditDue: () => _editDue(i),
         ),
       if (plan.done.isNotEmpty) ...[
         const SizedBox(height: 8),
@@ -466,6 +487,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
             enabled: enabled,
             onIncluded: (v) => _updatePlan((p) => p.setDoneIncluded(i, v)),
             onText: (t) => _updatePlan((p) => p.setDoneContent(i, t)),
+            liveChecked: plan.liveChecked,
           ),
       ],
       if (labelOnly.isNotEmpty)
@@ -860,6 +882,7 @@ class _PlanTaskTile extends StatelessWidget {
     this.showLink = false,
     this.onUpdate,
     this.onClearDue,
+    this.onEditDue,
   });
 
   final PlannedTask task;
@@ -872,18 +895,12 @@ class _PlanTaskTile extends StatelessWidget {
   final bool showLink;
   final ValueChanged<bool>? onUpdate;
   final VoidCallback? onClearDue;
+  final VoidCallback? onEditDue;
 
-  static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-
-  static String dueLabel(DateTime due, {required bool hasTime}) {
-    final day = '${due.day} ${_months[due.month - 1]}';
-    if (!hasTime) return 'due $day';
-    final hh = due.hour.toString().padLeft(2, '0');
-    final mm = due.minute.toString().padLeft(2, '0');
-    return 'due $day $hh:$mm';
+  static String? dueLabel(DailyTodoistCreate c) {
+    final label = c.dueLabel;
+    if (label == null) return null;
+    return c.dueString != null ? label : 'due $label';
   }
 
   @override
@@ -952,7 +969,10 @@ class _PlanTaskTile extends StatelessWidget {
                         key: const ValueKey('plan-link'),
                         label: Text(task.isUpdate ? 'update' : 'new'),
                         visualDensity: VisualDensity.compact,
-                        onPressed: enabled && included && task.match != null
+                        onPressed: enabled &&
+                                included &&
+                                task.match != null &&
+                                !task.match!.isGone
                             ? () => onUpdate?.call(!task.isUpdate)
                             : null,
                         backgroundColor: task.isUpdate
@@ -964,18 +984,21 @@ class _PlanTaskTile extends StatelessWidget {
                               : MemoryHues.rule,
                         ),
                       ),
-                    if (task.create.dueDate != null)
+                    if (task.create.hasDue)
                       InputChip(
                         key: const ValueKey('plan-due'),
-                        label: Text(
-                          dueLabel(
-                            task.create.dueDate!,
-                            hasTime: task.create.dueHasTime,
-                          ),
-                        ),
+                        label: Text(dueLabel(task.create)!),
                         visualDensity: VisualDensity.compact,
+                        onPressed: enabled && included ? onEditDue : null,
                         onDeleted: enabled && included ? onClearDue : null,
                         deleteButtonTooltipMessage: 'No due date',
+                      )
+                    else if (included)
+                      ActionChip(
+                        key: const ValueKey('plan-add-due'),
+                        label: const Text('+ due'),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: enabled ? onEditDue : null,
                       ),
                     if (isSub)
                       Text(
@@ -1010,6 +1033,17 @@ class _PlanTaskTile extends StatelessWidget {
                   ],
                 ),
               ),
+              if (_remoteNote(task) case final note?)
+                Padding(
+                  padding: const EdgeInsets.only(left: 12, top: 4),
+                  child: Text(
+                    note,
+                    key: const ValueKey('plan-remote'),
+                    style: textTheme.labelSmall?.copyWith(
+                      color: MemoryHues.inkMuted,
+                    ),
+                  ),
+                ),
               if (task.isUpdate &&
                   task.match!.content.trim() != task.content.trim())
                 Padding(
@@ -1028,6 +1062,23 @@ class _PlanTaskTile extends StatelessWidget {
       ),
     );
   }
+
+  /// What Todoist already holds for a matched item.
+  static String? _remoteNote(PlannedTask task) {
+    final m = task.match;
+    if (m == null) return null;
+    if (m.isCompleted) {
+      return task.included && task.useMatch
+          ? 'Already completed in Todoist — sending reopens it'
+          : 'Already completed in Todoist (tick to reopen it)';
+    }
+    if (m.isGone) {
+      return task.included
+          ? 'No longer in Todoist — sending creates it again'
+          : 'No longer in Todoist (tick to create it again)';
+    }
+    return null;
+  }
 }
 
 class _PlanDoneTile extends StatelessWidget {
@@ -1038,6 +1089,7 @@ class _PlanDoneTile extends StatelessWidget {
     required this.enabled,
     required this.onIncluded,
     required this.onText,
+    this.liveChecked = false,
   });
 
   final PlannedDone item;
@@ -1045,6 +1097,18 @@ class _PlanDoneTile extends StatelessWidget {
   final bool enabled;
   final ValueChanged<bool> onIncluded;
   final ValueChanged<String> onText;
+  final bool liveChecked;
+
+  String? get _status {
+    final m = item.match;
+    if (m != null && m.isCompleted) return 'Already completed in Todoist';
+    if (m != null && m.isGone) return 'No longer in Todoist';
+    if (!item.included) return null;
+    if (m != null) return 'Will complete: ${m.content}';
+    return liveChecked
+        ? 'No open Todoist task matches — will be listed as not found'
+        : 'Will complete the matching Todoist task';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1063,35 +1127,100 @@ class _PlanDoneTile extends StatelessWidget {
             Checkbox(
               key: const ValueKey('plan-include'),
               value: item.included,
-              onChanged: enabled ? (v) => onIncluded(v ?? false) : null,
+              onChanged: enabled && !item.alreadySettled
+                  ? (v) => onIncluded(v ?? false)
+                  : null,
             ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
-                child: TextField(
-                  key: const ValueKey('plan-text'),
-                  controller: controller,
-                  enabled: enabled && item.included,
-                  minLines: 1,
-                  maxLines: 3,
-                  onChanged: onText,
-                  style: textTheme.titleMedium?.copyWith(
-                    color: item.included ? MemoryHues.ink : MemoryHues.inkMuted,
-                    decoration: item.included
-                        ? null
-                        : TextDecoration.lineThrough,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    hintText: 'Done item',
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      key: const ValueKey('plan-text'),
+                      controller: controller,
+                      enabled: enabled && item.included,
+                      minLines: 1,
+                      maxLines: 3,
+                      onChanged: onText,
+                      style: textTheme.titleMedium?.copyWith(
+                        color: item.included
+                            ? MemoryHues.ink
+                            : MemoryHues.inkMuted,
+                        decoration: item.included
+                            ? null
+                            : TextDecoration.lineThrough,
+                      ),
+                      decoration: const InputDecoration(
+                        border: InputBorder.none,
+                        isDense: true,
+                        hintText: 'Done item',
+                      ),
+                    ),
+                    if (_status case final status?)
+                      Text(
+                        status,
+                        key: const ValueKey('plan-done-status'),
+                        style: textTheme.labelSmall?.copyWith(
+                          color: MemoryHues.inkMuted,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DueDialog extends StatefulWidget {
+  const _DueDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_DueDialog> createState() => _DueDialogState();
+}
+
+class _DueDialogState extends State<_DueDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Due date'),
+      content: TextField(
+        key: const ValueKey('plan-due-field'),
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(
+          hintText: 'e.g. tomorrow 9am, Fri, 3 Dec, every Monday',
+          helperText: 'Leave empty for no due date',
+        ),
+        onSubmitted: (v) => Navigator.of(context).pop(v),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          key: const ValueKey('plan-due-save'),
+          onPressed: () => Navigator.of(context).pop(_controller.text),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

@@ -856,6 +856,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
           extensionHint: shot.imageExtension,
           forcedSymbolId: shot.symbolId.isNotEmpty ? shot.symbolId : null,
           forceDiagram: chipVisual,
+          dailyTasks: _isDailyChip(router, shot.symbolId),
         );
         final pageId = widget.pageIds.generate(at: shot.capturedAt.toLocal());
         final meaning = coordinated.meaning;
@@ -1102,6 +1103,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
 
   /// Retry through [CaptureCoordinator] (same path as live capture).
   ///
+  static bool _isDailyChip(SymbolRouter router, String? symbolId) {
+    if (symbolId == null || symbolId.isEmpty) return false;
+    if (router.pack.byId(symbolId) == null) return false;
+    return router.routeById(symbolId).isDailyTasks;
+  }
+
   /// Preserves [QueueJob.forcedSymbolId] so △ never OCR-first on retry.
   Future<void> _retryQueuedCapture(QueueJob job) async {
     setState(() => _queueBusy = true);
@@ -1119,6 +1126,7 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
         extensionHint: job.imageExtension,
         forcedSymbolId: forced,
         forceDiagram: chipVisual,
+        dailyTasks: _isDailyChip(router, forced),
       );
       final pageId = widget.pageIds.generate(at: job.capturedAt.toLocal());
       final meaning = coordinated.meaning;

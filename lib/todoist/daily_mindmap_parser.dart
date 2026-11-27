@@ -293,14 +293,7 @@ class DailyMindmapParser {
           final existing = creates[idx];
           if (existing.parentNodeId != parentTaskNodeId &&
               !existing.extraParentNodeIds.contains(parentTaskNodeId)) {
-            creates[idx] = DailyTodoistCreate(
-              content: existing.content,
-              label: existing.label,
-              priority: existing.priority,
-              nodeId: existing.nodeId,
-              parentNodeId: existing.parentNodeId,
-              dueDate: existing.dueDate,
-              dueHasTime: existing.dueHasTime,
+            creates[idx] = existing.copyWith(
               extraParentNodeIds: [
                 ...existing.extraParentNodeIds,
                 parentTaskNodeId,

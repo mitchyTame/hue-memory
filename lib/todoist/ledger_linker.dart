@@ -28,8 +28,18 @@ class LedgerLinker {
     String? pageId,
   }) {
     final open = [for (final e in entries) if (e.isOpen) e];
+    final day = plan.pageDay;
+    // A completed task counts only for the same page (same page ID or the
+    // same day's page): shown as already done instead of created again.
+    bool samePage(LedgerEntry e) =>
+        (pageId != null && e.pageId == pageId) ||
+        (day != null && e.pageDay == day);
+    final eligible = [
+      for (final e in entries)
+        if (e.isOpen || samePage(e)) e,
+    ];
     final byPage = <String, List<LedgerEntry>>{};
-    for (final e in open) {
+    for (final e in eligible) {
       final page = e.pageId;
       if (page == null || page.isEmpty) continue;
       (byPage[page] ??= []).add(e);
@@ -38,8 +48,13 @@ class LedgerLinker {
       for (var i = 0; i < plan.creates.length; i++)
         if (plan.creates[i].content.trim().isNotEmpty) i,
     ];
-    if (open.isEmpty || candidates.isEmpty) {
-      return plan.withLinks(matches: const {}, rememberedCount: open.length);
+    final doneMatches = _linkDone(plan, entries, samePage);
+    if (eligible.isEmpty || candidates.isEmpty) {
+      return plan.withLinks(
+        matches: const {},
+        doneMatches: doneMatches,
+        rememberedCount: open.length,
+      );
     }
 
     String? chosen;
@@ -77,9 +92,63 @@ class LedgerLinker {
 
     return plan.withLinks(
       matches: matches,
+      doneMatches: doneMatches,
       linkedPageId: chosen,
       linkedByPageId: byId,
       rememberedCount: open.length,
+    );
+  }
+
+  /// Ticked items → the task each closes: an open entry from this page,
+  /// then any open entry, then a completed one from this page (shown as
+  /// already completed). Never a completed task from another day's page.
+  static Map<int, LedgerMatch> _linkDone(
+    DailyTodoistPlan plan,
+    List<LedgerEntry> entries,
+    bool Function(LedgerEntry) samePage,
+  ) {
+    final out = <int, LedgerMatch>{};
+    final taken = <String>{
+      for (final t in plan.creates)
+        if (t.match != null) t.match!.todoistId,
+    };
+    for (var i = 0; i < plan.done.length; i++) {
+      final text = plan.done[i].content;
+      if (text.trim().isEmpty) continue;
+      final pools = [
+        [for (final e in entries) if (e.isOpen && samePage(e)) e],
+        [for (final e in entries) if (e.isOpen) e],
+        [for (final e in entries) if (!e.isOpen && samePage(e)) e],
+      ];
+      for (final pool in pools) {
+        final free = [for (final e in pool) if (!taken.contains(e.todoistId)) e];
+        final j = TaskText.findDoneMatch([for (final e in free) e.content], text);
+        if (j == null) continue;
+        final e = free[j];
+        taken.add(e.todoistId);
+        out[i] = _matchOf(
+          e,
+          remote: e.isOpen ? RemoteState.unknown : RemoteState.completed,
+        );
+        break;
+      }
+    }
+    return out;
+  }
+
+  static LedgerMatch _matchOf(
+    LedgerEntry e, {
+    bool fromLive = false,
+    RemoteState remote = RemoteState.unknown,
+  }) {
+    return LedgerMatch(
+      todoistId: e.todoistId,
+      content: e.content,
+      priority: e.priority,
+      pageId: e.pageId,
+      due: e.due,
+      fromLive: fromLive,
+      remote: remote,
     );
   }
 
@@ -109,7 +178,32 @@ class LedgerLinker {
           ),
     ];
     final found = _assign(plan, pool, strictThreshold, done, fromLive: true);
-    return plan.withLinks(matches: found, liveChecked: true);
+    final used = {...taken, for (final m in found.values) m.todoistId};
+    for (final d in plan.done) {
+      if (d.match != null) used.add(d.match!.todoistId);
+    }
+    final doneFound = <int, LedgerMatch>{};
+    for (var i = 0; i < plan.done.length; i++) {
+      final d = plan.done[i];
+      if (d.match != null || d.content.trim().isEmpty) continue;
+      final free = [for (final t in openTasks) if (!used.contains(t.id)) t];
+      final j = TaskText.findDoneMatch([for (final t in free) t.content], d.content);
+      if (j == null) continue;
+      final t = free[j];
+      used.add(t.id);
+      doneFound[i] = LedgerMatch(
+        todoistId: t.id,
+        content: t.content,
+        priority: t.priority,
+        fromLive: true,
+        remote: RemoteState.open,
+      );
+    }
+    return plan.withLinks(
+      matches: found,
+      doneMatches: doneFound,
+      liveChecked: true,
+    );
   }
 
   /// One-to-one best matches at or above [min], highest similarity first.
@@ -140,13 +234,12 @@ class LedgerLinker {
       if (out.containsKey(p.index) || taken.contains(p.entry)) continue;
       taken.add(p.entry);
       final e = entries[p.entry];
-      out[p.index] = LedgerMatch(
-        todoistId: e.todoistId,
-        content: e.content,
-        priority: e.priority,
-        pageId: e.pageId,
-        due: e.due,
+      out[p.index] = _matchOf(
+        e,
         fromLive: fromLive,
+        remote: fromLive
+            ? RemoteState.open
+            : (e.isOpen ? RemoteState.unknown : RemoteState.completed),
       );
     }
     return out;

@@ -170,13 +170,13 @@ void main() {
     expect(first.todoistSync?.createdCount, 2);
 
     final second = await linkedPipeline.commit(
-      input('20261128-bbbb', 'high:\n- Call dentist today\n- Pay rent\n'),
+      input('20261128-bbbb', 'high:\n- Call the dentist\n- Pay rent\n'),
     );
 
     expect(second.todoistSync?.createdCount, 0);
     expect(second.todoistSync?.updatedCount, 1);
     expect(todoist.created, hasLength(2));
-    expect(todoist.updates.single.content, 'Call dentist today');
+    expect(todoist.updates.single.content, 'Call the dentist');
     expect(second.notePath, isNull);
     expect(vault.filePaths.every((p) => p.contains('captures/raw/')), isTrue);
   });

@@ -179,30 +179,47 @@ class GeminiClient {
     return CaptureClass.parse(text);
   }
 
+  /// Prompt shared by △ diagrams and · daily mindmaps.
+  static const String diagramCanvasPrompt =
+      'You read a hand-drawn mindmap PHOTO and return ONE JSON object only — '
+      'no markdown fences, no prose. '
+      'Schema matches Obsidian JSON Canvas: '
+      '{"nodes":[{"id":"…","type":"text","text":"…","x":0,"y":0,'
+      '"width":200,"height":80,"color":"1"}],'
+      '"edges":[{"id":"e1","fromNode":"a","fromSide":"right",'
+      '"toNode":"b","toSide":"left"}]}. '
+      'Include every written label as its own node: the hub, every branch '
+      'name, and every item hanging off a branch — one node per item; '
+      'never merge a branch name with its items in one node. '
+      'Add one edge for every drawn line, from the hub outward '
+      '(hub → branch → item). '
+      'Do NOT invent a photo/file node — the app injects the page photo. '
+      'Text ≤80 chars per node. Coordinates are Canvas pixels (may be '
+      'negative). Prefer a clear hub near 0,0 with satellites around it.\n\n'
+      'Return nodes/edges JSON only.';
+
+  /// Appended for · daily task pages only, so a tick or strike-through on
+  /// paper survives as `"done": true` (the node text drops the mark).
+  static const String dailyTasksPromptAddition =
+      'This page is a daily task list. A task is DONE when it is ticked, '
+      'checked, has a tick or cross beside it, or is crossed out / struck '
+      'through — either mark is enough. For every done task node add '
+      '"done": true and write its text without the tick or line. '
+      'Leave "done" off every other node. Keep times and dates in the text '
+      'exactly as written (for example "bolt | 16:50" or "Sunday @ 07:30").';
+
   /// Vision → Obsidian Canvas-shaped JSON (`nodes` / `edges`).
   ///
   /// Strips markdown fences; caller validates before vault write.
+  /// [dailyTasks] adds [dailyTasksPromptAddition] (· pages only).
   Future<String> diagramCanvasJson({
     required Uint8List imageBytes,
     required String mimeType,
+    bool dailyTasks = false,
   }) async {
-    const prompt =
-        'You read a hand-drawn mindmap PHOTO and return ONE JSON object only — '
-        'no markdown fences, no prose. '
-        'Schema matches Obsidian JSON Canvas: '
-        '{"nodes":[{"id":"…","type":"text","text":"…","x":0,"y":0,'
-        '"width":200,"height":80,"color":"1"}],'
-        '"edges":[{"id":"e1","fromNode":"a","fromSide":"right",'
-        '"toNode":"b","toSide":"left"}]}. '
-        'Include every written label as its own node: the hub, every branch '
-        'name, and every item hanging off a branch — one node per item; '
-        'never merge a branch name with its items in one node. '
-        'Add one edge for every drawn line, from the hub outward '
-        '(hub → branch → item). '
-        'Do NOT invent a photo/file node — the app injects the page photo. '
-        'Text ≤80 chars per node. Coordinates are Canvas pixels (may be '
-        'negative). Prefer a clear hub near 0,0 with satellites around it.\n\n'
-        'Return nodes/edges JSON only.';
+    final prompt = dailyTasks
+        ? '$diagramCanvasPrompt\n\n$dailyTasksPromptAddition'
+        : diagramCanvasPrompt;
     return _generate(
       modelId: diagramModel,
       contents: [

@@ -38,9 +38,13 @@ class ObsidianCanvasFromGemini {
 
   /// Parse model JSON; commit injects the real photo file node path.
   ///
+  /// [markDone] (· daily pages): a node flagged `"done": true` keeps that
+  /// state as a leading `✓ ` in its text, so confirm edits and the Todoist
+  /// planner both see it as ticked.
+  ///
   /// Throws [GeminiException] (never raw [FormatException]) so UI / queue
   /// never surface SDK-style "line N, character M" as a mystery OCR failure.
-  GeminiCanvasDraft parse(String raw) {
+  GeminiCanvasDraft parse(String raw, {bool markDone = false}) {
     final sliced = GeminiClient.stripFencesAndSliceJson(raw);
     if (sliced.trim().isEmpty) {
       throw const GeminiException(
@@ -93,8 +97,11 @@ class ObsidianCanvasFromGemini {
       final type = '${item['type'] ?? 'text'}'.toLowerCase();
       // Skip any file nodes — app owns the ink-ghost photo.
       if (type == 'file') continue;
-      final text = '${item['text'] ?? item['label'] ?? ''}'.trim();
+      var text = '${item['text'] ?? item['label'] ?? ''}'.trim();
       if (text.isEmpty) continue;
+      if (markDone && _isDone(item) && !text.startsWith('✓')) {
+        text = '✓ $text';
+      }
       var id = '${item['id'] ?? 'n${textNodes.length + 1}'}'.trim();
       if (id.isEmpty || id == 'img' || id == 'ghost') {
         id = 'n${textNodes.length + 1}';
@@ -148,6 +155,14 @@ class ObsidianCanvasFromGemini {
       regions: regions,
       suggestedTitle: suggested,
     );
+  }
+
+  static bool _isDone(Map<dynamic, dynamic> item) {
+    for (final key in const ['done', 'ticked', 'checked', 'struck', 'completed']) {
+      final v = item[key];
+      if (v == true || '$v'.toLowerCase() == 'true') return true;
+    }
+    return false;
   }
 
   /// Merge confirm label edits onto draft text nodes; keep geometry.

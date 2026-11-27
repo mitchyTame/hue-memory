@@ -228,7 +228,9 @@ void main() {
       includeLive: true,
     );
     expect(plan.creates.first.match?.todoistId, 'new-1');
-    expect(client.listCalls, 0);
+    // One read of the open tasks, to confirm the matched task is still open.
+    expect(client.listCalls, 1);
+    expect(plan.creates.first.match?.remote, RemoteState.open);
   });
 
   test('the markdown path ticks, times and leaves undated tasks undated', () {

@@ -417,7 +417,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.widgetWithText(TextField, 'bolt'), findsOneWidget);
-    expect(find.text('due 27 Nov 16:50'), findsOneWidget);
+    expect(find.text('due Fri 27 Nov 16:50'), findsOneWidget);
     // "Call mum" has nothing written next to it: no due chip.
     expect(find.byKey(const ValueKey('plan-due')), findsOneWidget);
     expect(find.byKey(const ValueKey('plan-link-checked')), findsOneWidget);
@@ -428,5 +428,171 @@ void main() {
 
     await tapText(tester, 'Send 2 to Todoist');
     expect(sentPlan!.effectiveCreates.map((c) => c.dueDate), [null, null]);
+  });
+
+  PendingCapture lines(List<String> text) {
+    final bytes = Uint8List.fromList(
+      File('test/fixtures/pixel.png').readAsBytesSync(),
+    );
+    return PendingCapture(
+      pageId: '20261127-cccc',
+      imageBytes: bytes,
+      capturedAt: DateTime.utc(2026, 11, 27, 8),
+      meaning: MeaningResult(
+        detectedGlyph: '·',
+        regions: [
+          for (final (i, line) in text.indexed)
+            OcrRegion(
+              id: 'n$i',
+              text: line,
+              confidence: 0.9,
+              bbox: [0.1, 0.1 + i * 0.05, 0.5, 0.04],
+            ),
+        ],
+        pageGenre: 'task_list',
+      ),
+      symbolId: 'daily-tasks',
+    );
+  }
+
+  testWidgets('dates from the page show before sending and can be edited',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    DailyTodoistPlan? sentPlan;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: lines([
+            'home:',
+            '- call mum tomorrow @ 4pm',
+            '- pay rent every 1st',
+            '- Buy milk',
+          ]),
+          todoistPlanner: DailyTodoistPlanner(
+            clock: () => DateTime(2026, 11, 27, 9),
+          ),
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {
+            sentPlan = plan;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, 'call mum'), findsOneWidget);
+    expect(find.text('due Sat 28 Nov 16:00'), findsOneWidget);
+    expect(find.text('Todoist will read: every 1st'), findsOneWidget);
+    // "Buy milk" has no date on paper: no due, only an "add" chip.
+    expect(find.byKey(const ValueKey('plan-due')), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('plan-add-due')), findsOneWidget);
+    expect(find.textContaining('@'), findsNothing);
+
+    await tapText(tester, 'due Sat 28 Nov 16:00');
+    await tester.enterText(
+      find.byKey(const ValueKey('plan-due-field')),
+      'Fri @ 9am',
+    );
+    await tester.tap(find.byKey(const ValueKey('plan-due-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('due Fri 27 Nov 09:00'), findsOneWidget);
+
+    await tapText(tester, '+ due');
+    await tester.enterText(
+      find.byKey(const ValueKey('plan-due-field')),
+      'every other week',
+    );
+    await tester.tap(find.byKey(const ValueKey('plan-due-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('Todoist will read: every other week'), findsOneWidget);
+
+    await tapText(tester, 'Send 3 to Todoist');
+    final sent = sentPlan!.effectiveCreates;
+    expect(sent[0].dueDate, DateTime(2026, 11, 27, 9));
+    expect(sent[1].dueString, 'every 1st');
+    expect(sent[2].dueString, 'every other week');
+  });
+
+  testWidgets('ticked items show what Todoist already holds', (tester) async {
+    tester.view.physicalSize = const Size(900, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    DailyTodoistPlan? sentPlan;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: lines([
+            'errands:',
+            '- ~~bolt~~ | 16:50',
+            '- ✓ Post office',
+            '- [x] Pharmacy',
+            '- Gym',
+          ]),
+          todoistPlanner: DailyTodoistPlanner(
+            clock: () => DateTime(2026, 11, 27, 9),
+          ),
+          todoistLinker: (plan, pageId) async {
+            final linked = LedgerLinker.link(
+              plan,
+              [
+                for (final (id, text) in [
+                  ('t1', 'bolt'),
+                  ('t2', 'Post office'),
+                  ('t3', 'Pharmacy'),
+                  ('t4', 'Gym'),
+                ])
+                  LedgerEntry(
+                    todoistId: id,
+                    content: text,
+                    createdAt: DateTime(2026, 11, 27, 8),
+                    pageId: 'earlier',
+                    pageDay: '2026-11-27',
+                  ),
+              ],
+              pageId: pageId,
+            );
+            return linked.withRemoteStates({
+              't1': RemoteState.open,
+              't2': RemoteState.completed,
+              't3': RemoteState.gone,
+              't4': RemoteState.completed,
+            });
+          },
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {
+            sentPlan = plan;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Will complete: bolt'), findsOneWidget);
+    expect(find.text('Already completed in Todoist'), findsOneWidget);
+    expect(find.text('No longer in Todoist'), findsOneWidget);
+    expect(
+      find.text('Already completed in Todoist (tick to reopen it)'),
+      findsOneWidget,
+    );
+
+    await tapText(tester, 'Send 1 to Todoist');
+    expect(sentPlan!.effectiveDoneTargets.map((d) => d.todoistId), ['t1']);
+    expect(sentPlan!.effectiveCreates, isEmpty);
   });
 }

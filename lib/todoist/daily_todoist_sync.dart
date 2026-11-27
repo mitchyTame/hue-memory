@@ -171,7 +171,9 @@ class DailyTodoistSync {
   /// re-captured page updates them (see [LedgerLinker]). No network.
   ///
   /// With [includeLive], items the ledger does not know are also matched
-  /// against the open Todoist tasks (one network read; skipped on error).
+  /// against the open Todoist tasks, and every matched task's live state is
+  /// read (open / completed / gone) so the review shows what Todoist really
+  /// holds. Network errors leave the ledger result standing.
   Future<DailyTodoistPlan> linkPlan(
     DailyTodoistPlan plan, {
     String? pageId,
@@ -182,18 +184,52 @@ class DailyTodoistSync {
     var linked = ledger == null
         ? plan
         : LedgerLinker.link(plan, await ledger.read(), pageId: pageId);
-    final unmatched = linked.creates.any(
-      (t) => t.match == null && t.content.trim().isNotEmpty,
-    );
-    if (includeLive && unmatched) {
-      try {
-        final open = await _client.listOpenTasks().timeout(liveTimeout);
-        linked = LedgerLinker.linkLive(linked, open);
-      } catch (_) {
-        // Offline / slow: the ledger result stands.
+    if (!includeLive) return linked;
+    final hasItems = linked.creates.any((t) => t.content.trim().isNotEmpty) ||
+        linked.done.any((d) => d.content.trim().isNotEmpty);
+    if (!hasItems) return linked;
+    final List<TodoistTask> open;
+    try {
+      open = await _client.listOpenTasks().timeout(liveTimeout);
+    } catch (_) {
+      return linked;
+    }
+    final openIds = {for (final t in open) t.id};
+    final states = <String, RemoteState>{};
+    final toFetch = <String>[];
+    for (final id in linked.linkedTodoistIds) {
+      if (openIds.contains(id)) {
+        states[id] = RemoteState.open;
+      } else {
+        toFetch.add(id);
       }
     }
-    return linked;
+    // Not among the open tasks: completed or deleted — ask for each.
+    await Future.wait([
+      for (final id in toFetch)
+        _remoteState(id, liveTimeout).then((s) {
+          if (s != RemoteState.unknown) states[id] = s;
+        }),
+    ]);
+    for (final e in states.entries) {
+      if (e.value == RemoteState.gone) {
+        await _ledgerRemove(e.key, <String>[]);
+      } else if (e.value == RemoteState.completed) {
+        await _ledgerComplete(e.key, <String>[]);
+      }
+    }
+    linked = linked.withRemoteStates(states);
+    return LedgerLinker.linkLive(linked, open);
+  }
+
+  Future<RemoteState> _remoteState(String id, Duration timeout) async {
+    try {
+      final task = await _client.getTask(id).timeout(timeout);
+      if (task == null) return RemoteState.gone;
+      return task.completed ? RemoteState.completed : RemoteState.open;
+    } catch (_) {
+      return RemoteState.unknown;
+    }
   }
 
   /// Send what is still included in [plan]. Never throws for Todoist / network
@@ -207,9 +243,10 @@ class DailyTodoistSync {
     if (!plan.hasWork) return const DailyTodoistSyncResult();
     final result = await _run(
       creates: plan.effectiveCreates,
-      done: plan.effectiveDone,
+      done: plan.effectiveDoneTargets,
       sectionLabels: plan.effectiveSectionLabels,
       pageId: pageId,
+      pageDay: plan.pageDay,
     );
     await _persistFailures(result, createdAt: _clock(), pageId: pageId);
     return result;
@@ -259,7 +296,8 @@ class DailyTodoistSync {
         ],
         done: [
           for (final i in todo)
-            if (i.kind == FailedItemKind.done) i.content,
+            if (i.kind == FailedItemKind.done)
+              DoneTarget(i.content, todoistId: i.updateTodoistId),
         ],
         sectionLabels: const [],
         knownIds: batch.todoistIdByNode,
@@ -319,10 +357,11 @@ class DailyTodoistSync {
 
   Future<DailyTodoistSyncResult> _run({
     required List<DailyTodoistCreate> creates,
-    required List<String> done,
+    required List<DoneTarget> done,
     required Iterable<String> sectionLabels,
     Map<String, String> knownIds = const {},
     String? pageId,
+    String? pageDay,
   }) async {
     final labelNames = <String>{
       ...sectionLabels,
@@ -344,7 +383,12 @@ class DailyTodoistSync {
               c.isUpdate
                   ? FailedTodoistItem.forUpdate(c, reason)
                   : FailedTodoistItem.forCreate(c, reason),
-            for (final d in done) FailedTodoistItem.forDone(d, reason),
+            for (final d in done)
+              FailedTodoistItem.forDone(
+                d.content,
+                reason,
+                todoistId: d.todoistId,
+              ),
           ],
           todoistIdByNode: knownIds,
         );
@@ -386,10 +430,34 @@ class DailyTodoistSync {
         final same = planned.content == planned.previousContent &&
             planned.priority == planned.previousPriority &&
             !dueChanged;
+        if (planned.reopen) {
+          try {
+            await _client.reopenTask(id);
+            await _ledgerReopen(id, warnings);
+          } catch (e) {
+            if (e is TodoistApiException && e.isNotFound) {
+              await _ledgerRemove(id, warnings);
+              failed.add(
+                failure('Task was deleted in Todoist', missing: true),
+              );
+              continue;
+            }
+            final reason = describeError(e);
+            failed.add(failure(reason));
+            if (_isFatal(e)) abortReason = reason;
+            continue;
+          }
+        }
         if (same) {
+          if (planned.reopen) {
+            updated++;
+            if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
+            await _ledgerSeen(id, planned, pageId, pageDay, warnings);
+            continue;
+          }
           unchanged++;
           if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
-          await _ledgerSeen(id, planned, pageId, warnings);
+          await _ledgerSeen(id, planned, pageId, pageDay, warnings);
           continue;
         }
         try {
@@ -404,10 +472,11 @@ class DailyTodoistSync {
                 : (planned.priority ?? 1),
             dueDate: dueChanged ? planned.dueDate : null,
             dueHasTime: dueChanged && planned.dueHasTime,
+            dueString: dueChanged ? planned.dueString : null,
           );
           updated++;
           if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
-          await _ledgerSeen(id, planned, pageId, warnings);
+          await _ledgerSeen(id, planned, pageId, pageDay, warnings);
         } catch (e) {
           if (e is TodoistApiException && e.isNotFound) {
             await _ledgerRemove(id, warnings);
@@ -449,6 +518,7 @@ class DailyTodoistSync {
           parentId: parentId,
           dueDate: item.dueDate,
           dueHasTime: item.dueHasTime,
+          dueString: item.dueString,
           requestId: item.requestId,
         );
         if (item.nodeId != null && item.nodeId!.isNotEmpty) {
@@ -456,7 +526,7 @@ class DailyTodoistSync {
           newIds[item.nodeId!] = task.id;
         }
         created++;
-        await _ledgerAdd(task.id, item, pageId, warnings);
+        await _ledgerAdd(task.id, item, pageId, pageDay, warnings);
       } catch (e) {
         final reason = describeError(e);
         failed.add(FailedTodoistItem.forCreate(item, reason));
@@ -490,7 +560,13 @@ class DailyTodoistSync {
     if (done.isNotEmpty) {
       if (abortReason != null) {
         for (final d in done) {
-          failed.add(FailedTodoistItem.forDone(d, abortReason));
+          failed.add(
+            FailedTodoistItem.forDone(
+              d.content,
+              abortReason,
+              todoistId: d.todoistId,
+            ),
+          );
         }
       } else {
         final outcome = await _resolveDone(done, pageId, warnings);
@@ -521,12 +597,13 @@ class DailyTodoistSync {
     );
   }
 
-  /// Close each done line: the ledger first (tasks this app created, so the
-  /// right one even when the wording drifted), then the live fuzzy match
-  /// against every open task.
+  /// Close each done line. A line the review linked to a task closes that
+  /// task; otherwise the ledger first (tasks this app created, so the right
+  /// one even when the wording drifted), then the live fuzzy match against
+  /// every open task.
   Future<({int completed, List<String> unmatched, List<FailedTodoistItem> failed})>
       _resolveDone(
-    List<String> done,
+    List<DoneTarget> done,
     String? pageId,
     List<String> warnings,
   ) async {
@@ -543,9 +620,40 @@ class DailyTodoistSync {
     String? liveError;
     String? abortReason;
 
-    for (final text in done) {
+    for (final target in done) {
+      final text = target.content;
       if (abortReason != null) {
-        failed.add(FailedTodoistItem.forDone(text, abortReason));
+        failed.add(
+          FailedTodoistItem.forDone(
+            text,
+            abortReason,
+            todoistId: target.todoistId,
+          ),
+        );
+        continue;
+      }
+
+      final linkedId = target.todoistId;
+      if (linkedId != null) {
+        ledgerOpen.removeWhere((e) => e.todoistId == linkedId);
+        try {
+          await _client.closeTask(linkedId);
+          live?.removeWhere((t) => t.id == linkedId);
+          await _ledgerComplete(linkedId, warnings);
+          completed++;
+        } catch (e) {
+          if (e is TodoistApiException && e.isNotFound) {
+            // Completed or deleted since the review: nothing left to close.
+            await _ledgerRemove(linkedId, warnings);
+            warnings.add('"$text" was already gone from Todoist');
+            continue;
+          }
+          final reason = describeError(e);
+          failed.add(
+            FailedTodoistItem.forDone(text, reason, todoistId: linkedId),
+          );
+          if (_isFatal(e)) abortReason = reason;
+        }
         continue;
       }
 
@@ -643,6 +751,7 @@ class DailyTodoistSync {
     String todoistId,
     DailyTodoistCreate item,
     String? pageId,
+    String? pageDay,
     List<String> warnings,
   ) async {
     final ledger = _ledger;
@@ -655,6 +764,7 @@ class DailyTodoistSync {
           label: item.label,
           priority: item.priority,
           pageId: pageId,
+          pageDay: pageDay,
           nodeId: item.nodeId,
           due: item.dueKey,
           createdAt: _clock(),
@@ -671,6 +781,7 @@ class DailyTodoistSync {
     String todoistId,
     DailyTodoistCreate item,
     String? pageId,
+    String? pageDay,
     List<String> warnings,
   ) async {
     final ledger = _ledger;
@@ -695,6 +806,7 @@ class DailyTodoistSync {
           priority: item.priority,
           clearPriority: item.priority == null,
           pageId: pageId,
+          pageDay: pageDay,
           due: item.dueKey,
         ),
       );
@@ -708,6 +820,20 @@ class DailyTodoistSync {
     if (ledger == null) return;
     try {
       await ledger.markCompleted(todoistId, _clock());
+    } catch (e) {
+      warnings.add('Could not update the task ledger: $e');
+    }
+  }
+
+  Future<void> _ledgerReopen(String todoistId, List<String> warnings) async {
+    final ledger = _ledger;
+    if (ledger == null) return;
+    try {
+      for (final e in await ledger.read()) {
+        if (e.todoistId == todoistId) {
+          await ledger.upsert(e.copyWith(status: LedgerStatus.open));
+        }
+      }
     } catch (e) {
       warnings.add('Could not update the task ledger: $e');
     }
@@ -753,34 +879,11 @@ class DailyTodoistSync {
     // Compared on the core text, so `bolt | 16:50` (paper) still finds `bolt`
     // (Todoist, once the time became a due date) and a tick / strike-through
     // on the done line does not matter.
-    final needle = TaskText.core(doneText);
-    if (needle.isEmpty) return null;
-
-    TodoistTask? exact;
-    TodoistTask? contains;
-    for (final task in openTasks) {
-      final hay = TaskText.core(task.content);
-      if (hay.isEmpty) continue;
-      if (hay == needle) {
-        exact = task;
-        break;
-      }
-      if (_containsWords(hay, needle) || _containsWords(needle, hay)) {
-        contains ??= task;
-      }
-    }
-    return exact ?? contains;
-  }
-
-  /// [part] appears in [whole] on word boundaries (`bolt` in `fix bolt`,
-  /// not in `bolts`).
-  static bool _containsWords(String whole, String part) {
-    if (part.length > whole.length) return false;
-    final re = RegExp(
-      '(?:^|[^\\p{L}\\p{N}])${RegExp.escape(part)}(?:\$|[^\\p{L}\\p{N}])',
-      unicode: true,
+    final i = TaskText.findDoneMatch(
+      [for (final t in openTasks) t.content],
+      doneText,
     );
-    return re.hasMatch(whole);
+    return i == null ? null : openTasks[i];
   }
 
   static String normalizeTaskText(String raw) => TaskText.normalize(raw);

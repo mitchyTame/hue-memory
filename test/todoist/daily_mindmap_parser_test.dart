@@ -74,10 +74,19 @@ void main() {
         'high:Hue',
         'high:Audit audio logs',
         'paused:Playbour',
-        'events:Deshan walk Sunday @ 07:30',
+        'events:Deshan walk',
         'reminders:Book Car Service',
         'reminders:prostate screening',
       ],
+    );
+    // "Sunday @ 07:30" is the due (the Sunday after the 20 Nov hub), never
+    // sent with the "@".
+    final walk = result.sync.creates.firstWhere((c) => c.content == 'Deshan walk');
+    expect(walk.dueDate, DateTime(2026, 11, 22, 7, 30));
+    expect(walk.dueHasTime, isTrue);
+    expect(
+      result.sync.creates.where((c) => c.content != 'Deshan walk').every((c) => !c.hasDue),
+      isTrue,
     );
     expect(result.sync.done, isEmpty); // Done branch has no leaves
     expect(result.sync.creates.where((c) => c.label == 'high').first.priority, 4);
@@ -237,7 +246,7 @@ void main() {
       expect(
         result.sync.creates.map((c) => '${c.label}:${c.content}').toList(),
         [
-          'deshan:Walk Sunday @ 07:30',
+          'deshan:Walk',
           'deshan:Send braai list',
           'zoë:Book piano lesson',
           'shanolin:License Management',
@@ -247,7 +256,11 @@ void main() {
       );
       expect(result.sync.creates.every((c) => c.parentNodeId == null), isTrue);
       expect(
-        result.sync.creates.every((c) => c.dueDate == null),
+        result.sync.creates.first.dueDate,
+        DateTime(2026, 11, 29, 7, 30),
+      );
+      expect(
+        result.sync.creates.skip(1).every((c) => !c.hasDue),
         isTrue,
       );
       expect(
@@ -276,7 +289,7 @@ void main() {
       );
       expect(
         result.sync.creates.map((c) => '${c.label}:${c.content}').toList(),
-        ['deshan:Walk Sunday', 'deshan:Braai', 'shanolin:Audit logs'],
+        ['deshan:Walk', 'deshan:Braai', 'shanolin:Audit logs'],
       );
     });
 
