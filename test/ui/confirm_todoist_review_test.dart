@@ -362,4 +362,71 @@ void main() {
     expect(recreated, 1);
     expect(retried, 0);
   });
+
+  testWidgets('a "| HH:MM" task shows its due time and it can be removed',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final bytes = Uint8List.fromList(
+      File('test/fixtures/pixel.png').readAsBytesSync(),
+    );
+    final capture = PendingCapture(
+      pageId: '20261127-bbbb',
+      imageBytes: bytes,
+      capturedAt: DateTime.utc(2026, 11, 27, 8),
+      meaning: MeaningResult(
+        detectedGlyph: '·',
+        regions: [
+          for (final (i, line) in ['high:', '- bolt | 16:50', '- Call mum'].indexed)
+            OcrRegion(
+              id: 'n$i',
+              text: line,
+              confidence: 0.9,
+              bbox: [0.1, 0.1 + i * 0.1, 0.5, 0.08],
+            ),
+        ],
+        pageGenre: 'task_list',
+      ),
+      symbolId: 'daily-tasks',
+    );
+    DailyTodoistPlan? sentPlan;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: capture,
+          todoistPlanner: DailyTodoistPlanner(
+            clock: () => DateTime(2026, 11, 27, 9),
+          ),
+          todoistLinker: (plan, pageId) async =>
+              LedgerLinker.link(plan, const [], pageId: pageId),
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {
+            sentPlan = plan;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextField, 'bolt'), findsOneWidget);
+    expect(find.text('due 27 Nov 16:50'), findsOneWidget);
+    // "Call mum" has nothing written next to it: no due chip.
+    expect(find.byKey(const ValueKey('plan-due')), findsOneWidget);
+    expect(find.byKey(const ValueKey('plan-link-checked')), findsOneWidget);
+
+    await tester.tap(find.byTooltip('No due date'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('plan-due')), findsNothing);
+
+    await tapText(tester, 'Send 2 to Todoist');
+    expect(sentPlan!.effectiveCreates.map((c) => c.dueDate), [null, null]);
+  });
 }

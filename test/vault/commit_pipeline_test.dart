@@ -605,6 +605,7 @@ class _FakeTodoistClient extends TodoistClient {
     int? priority,
     String? parentId,
     DateTime? dueDate,
+    bool dueHasTime = false,
     String? description,
     String? requestId,
   }) async {
@@ -623,6 +624,8 @@ class _FakeTodoistClient extends TodoistClient {
     String? content,
     int? priority,
     String? description,
+    DateTime? dueDate,
+    bool dueHasTime = false,
   }) async {
     return created.firstWhere((t) => t.id == taskId);
   }

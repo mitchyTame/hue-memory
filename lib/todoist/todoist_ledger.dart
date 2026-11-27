@@ -18,6 +18,7 @@ class LedgerEntry {
     this.priority,
     this.pageId,
     this.nodeId,
+    this.due,
     this.status = LedgerStatus.open,
     this.completedAt,
   });
@@ -34,6 +35,9 @@ class LedgerEntry {
   /// Capture page ID the task last came from.
   final String? pageId;
   final String? nodeId;
+
+  /// Due as last sent (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`), null for none.
+  final String? due;
   final DateTime createdAt;
   final LedgerStatus status;
   final DateTime? completedAt;
@@ -45,6 +49,7 @@ class LedgerEntry {
     int? priority,
     bool clearPriority = false,
     String? pageId,
+    String? due,
     LedgerStatus? status,
     DateTime? completedAt,
   }) {
@@ -56,6 +61,7 @@ class LedgerEntry {
       priority: clearPriority ? null : (priority ?? this.priority),
       pageId: pageId ?? this.pageId,
       nodeId: nodeId,
+      due: due ?? this.due,
       status: status ?? this.status,
       completedAt: completedAt ?? this.completedAt,
     );
@@ -68,6 +74,7 @@ class LedgerEntry {
         'priority': ?priority,
         'pageId': ?pageId,
         'nodeId': ?nodeId,
+        'due': ?due,
         'createdAt': createdAt.toIso8601String(),
         'status': status.name,
         if (completedAt != null) 'completedAt': completedAt!.toIso8601String(),
@@ -81,6 +88,7 @@ class LedgerEntry {
       priority: json['priority'] is int ? json['priority'] as int : null,
       pageId: json['pageId'] as String?,
       nodeId: json['nodeId'] as String?,
+      due: json['due'] as String?,
       createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}') ??
           DateTime.fromMillisecondsSinceEpoch(0),
       status: json['status'] == 'completed'

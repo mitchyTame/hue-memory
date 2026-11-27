@@ -235,4 +235,35 @@ void main() {
     );
     expect(a, isNot(b));
   });
+
+  test('a due time is sent as due_datetime in UTC; a day as due_date', () async {
+    final bodies = <Map<String, dynamic>>[];
+    final mock = MockClient((request) async {
+      bodies.add(jsonDecode(request.body) as Map<String, dynamic>);
+      return http.Response(
+        jsonEncode({'id': 't1', 'content': 'bolt'}),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final client = TodoistClient(apiToken: 'tok', httpClient: mock);
+    final local = DateTime(2026, 11, 27, 16, 50);
+    await client.createInboxTask(
+      content: 'bolt',
+      dueDate: local,
+      dueHasTime: true,
+    );
+    await client.createInboxTask(content: 'Call mum');
+    await client.updateTask('t1', dueDate: local, dueHasTime: true);
+
+    final u = local.toUtc();
+    final expected = '${u.year}-${u.month.toString().padLeft(2, '0')}-'
+        '${u.day.toString().padLeft(2, '0')}T'
+        '${u.hour.toString().padLeft(2, '0')}:'
+        '${u.minute.toString().padLeft(2, '0')}:00Z';
+    expect(bodies[0]['due_datetime'], expected);
+    expect(bodies[0].containsKey('due_date'), isFalse);
+    expect(bodies[1].keys.where((k) => k.startsWith('due')), isEmpty);
+    expect(bodies[2]['due_datetime'], expected);
+  });
 }

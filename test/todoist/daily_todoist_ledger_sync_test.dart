@@ -382,6 +382,8 @@ class _FailingUpdateClient extends ScriptedTodoistClient {
     String? content,
     int? priority,
     String? description,
+    DateTime? dueDate,
+    bool dueHasTime = false,
   }) async {
     throw TodoistApiException('Todoist error 500', statusCode: 500);
   }

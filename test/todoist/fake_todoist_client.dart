@@ -13,6 +13,9 @@ class ScriptedTodoistClient extends TodoistClient {
   final List<TodoistTask> created = [];
   final Map<String, String?> parentIds = {};
   final Map<String, int?> priorities = {};
+
+  /// Task id → (due, has time) as sent on create.
+  final Map<String, ({DateTime? due, bool hasTime})> dues = {};
   final List<String> closedIds = [];
 
   /// Task content → error thrown by [createInboxTask] while set.
@@ -40,6 +43,9 @@ class ScriptedTodoistClient extends TodoistClient {
   /// (task id, content, priority) per [updateTask] call.
   final List<({String id, String? content, int? priority})> updates = [];
 
+  /// Task id → due sent by the latest [updateTask] that carried one.
+  final Map<String, ({DateTime? due, bool hasTime})> updatedDues = {};
+
   @override
   Future<Map<String, TodoistLabel>> ensureLabels(Iterable<String> names) async {
     if (labelError != null) throw labelError!;
@@ -60,6 +66,7 @@ class ScriptedTodoistClient extends TodoistClient {
     int? priority,
     String? parentId,
     DateTime? dueDate,
+    bool dueHasTime = false,
     String? description,
     String? requestId,
   }) async {
@@ -78,6 +85,7 @@ class ScriptedTodoistClient extends TodoistClient {
     if (requestId != null) _byRequestId[requestId] = task;
     parentIds[task.id] = parentId;
     priorities[task.id] = priority;
+    dues[task.id] = (due: dueDate, hasTime: dueHasTime);
     if (createThenTimeout.remove(content)) {
       throw TimeoutException('response lost');
     }
@@ -90,11 +98,16 @@ class ScriptedTodoistClient extends TodoistClient {
     String? content,
     int? priority,
     String? description,
+    DateTime? dueDate,
+    bool dueHasTime = false,
   }) async {
     if (updateNotFound.contains(taskId)) {
       throw TodoistApiException('Todoist error 404', statusCode: 404);
     }
     updates.add((id: taskId, content: content, priority: priority));
+    if (dueDate != null) {
+      updatedDues[taskId] = (due: dueDate, hasTime: dueHasTime);
+    }
     return TodoistTask(id: taskId, content: content ?? '');
   }
 

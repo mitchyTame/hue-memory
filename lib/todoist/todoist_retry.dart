@@ -21,11 +21,13 @@ class FailedTodoistItem {
     this.nodeId,
     this.parentNodeId,
     this.dueDate,
+    this.dueHasTime = false,
     this.extraParentNodeIds = const [],
     this.requestId,
     this.updateTodoistId,
     this.previousContent,
     this.previousPriority,
+    this.previousDue,
     this.remoteMissing = false,
   });
 
@@ -64,11 +66,13 @@ class FailedTodoistItem {
       nodeId: create.nodeId,
       parentNodeId: create.parentNodeId,
       dueDate: create.dueDate,
+      dueHasTime: create.dueHasTime,
       extraParentNodeIds: create.extraParentNodeIds,
       requestId: create.requestId,
       updateTodoistId: create.updateTodoistId,
       previousContent: create.previousContent,
       previousPriority: create.previousPriority,
+      previousDue: create.previousDue,
       remoteMissing: remoteMissing,
     );
   }
@@ -89,11 +93,13 @@ class FailedTodoistItem {
   final String? nodeId;
   final String? parentNodeId;
   final DateTime? dueDate;
+  final bool dueHasTime;
   final List<String> extraParentNodeIds;
   final String? requestId;
   final String? updateTodoistId;
   final String? previousContent;
   final int? previousPriority;
+  final String? previousDue;
 
   /// The task this item would update no longer exists in Todoist.
   final bool remoteMissing;
@@ -108,11 +114,13 @@ class FailedTodoistItem {
       nodeId: nodeId,
       parentNodeId: parentNodeId,
       dueDate: dueDate,
+      dueHasTime: dueHasTime,
       extraParentNodeIds: extraParentNodeIds,
       requestId: requestId,
       updateTodoistId: updateTodoistId,
       previousContent: previousContent,
       previousPriority: previousPriority,
+      previousDue: previousDue,
     );
     return recreate ? create.copyWith(clearUpdate: true) : create;
   }
@@ -127,11 +135,13 @@ class FailedTodoistItem {
       nodeId: nodeId,
       parentNodeId: parentNodeId,
       dueDate: dueDate,
+      dueHasTime: dueHasTime,
       extraParentNodeIds: extraParentNodeIds,
       requestId: requestId,
       updateTodoistId: updateTodoistId,
       previousContent: previousContent,
       previousPriority: previousPriority,
+      previousDue: previousDue,
       remoteMissing: remoteMissing,
     );
   }
@@ -145,11 +155,13 @@ class FailedTodoistItem {
         'nodeId': ?nodeId,
         'parentNodeId': ?parentNodeId,
         if (dueDate != null) 'dueDate': dueDate!.toIso8601String(),
+        if (dueHasTime) 'dueTime': true,
         if (extraParentNodeIds.isNotEmpty) 'extra': extraParentNodeIds,
         'requestId': ?requestId,
         'updateId': ?updateTodoistId,
         'prevContent': ?previousContent,
         'prevPriority': ?previousPriority,
+        'prevDue': ?previousDue,
         if (remoteMissing) 'missing': true,
       };
 
@@ -168,12 +180,14 @@ class FailedTodoistItem {
       nodeId: json['nodeId'] as String?,
       parentNodeId: json['parentNodeId'] as String?,
       dueDate: DateTime.tryParse('${json['dueDate'] ?? ''}'),
+      dueHasTime: json['dueTime'] == true,
       extraParentNodeIds: extra is List ? [for (final e in extra) '$e'] : const [],
       requestId: json['requestId'] as String?,
       updateTodoistId: json['updateId'] as String?,
       previousContent: json['prevContent'] as String?,
       previousPriority:
           json['prevPriority'] is int ? json['prevPriority'] as int : null,
+      previousDue: json['prevDue'] as String?,
       remoteMissing: json['missing'] == true,
     );
   }

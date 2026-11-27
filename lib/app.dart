@@ -735,8 +735,12 @@ class _HomeNavigatorState extends State<_HomeNavigator> {
     DailyTodoistPlan plan,
     String pageId,
   ) async {
-    final entries = await widget.todoistLedgerStore.read();
-    return LedgerLinker.link(plan, entries, pageId: pageId);
+    final sync = await _resolveDailyTodoistSync();
+    if (sync == null) {
+      final entries = await widget.todoistLedgerStore.read();
+      return LedgerLinker.link(plan, entries, pageId: pageId);
+    }
+    return sync.linkPlan(plan, pageId: pageId, includeLive: true);
   }
 
   Future<void> _discardTodoistRetries() async {

@@ -96,14 +96,25 @@ void main() {
       expect(linked.newCount, 1);
     });
 
-    test('one recurring task does not drag a new page onto an old one', () {
+    test('one carried-over task links on its own, not the whole page', () {
       final linked = LedgerLinker.link(
         _plan(['Call dentist', 'Buy milk', 'Water plants', 'Gym']),
         earlier,
         pageId: 'new-page',
       );
       expect(linked.hasLinkedPage, isFalse);
-      expect(linked.creates.every((t) => t.match == null), isTrue);
+      expect(linked.creates[0].match?.todoistId, 't1');
+      expect(linked.creates.skip(1).every((t) => t.match == null), isTrue);
+      expect(linked.rememberedCount, 3);
+    });
+
+    test('a loosely similar task on an unrelated page is not linked', () {
+      final linked = LedgerLinker.link(
+        _plan(['Call the dentist today', 'Buy milk', 'Water plants', 'Gym']),
+        earlier,
+        pageId: 'new-page',
+      );
+      expect(linked.hasLinks, isFalse);
     });
 
     test('a single-item page matching exactly is treated as a re-capture', () {

@@ -1,56 +1,11 @@
 import 'dart:math';
 
 import 'daily_todoist_plan.dart';
+import 'task_text.dart';
+import 'todoist_client.dart';
 import 'todoist_ledger.dart';
 
-/// Normalising and comparing task text across captures.
-class TaskText {
-  const TaskText._();
-
-  static String normalize(String raw) {
-    var t = raw.trim().toLowerCase();
-    t = t.replaceFirst(RegExp(r'^[-*+·•]\s+'), '');
-    t = t.replaceFirst(RegExp(r'^\[([ xX])\]\s*'), '');
-    t = t.replaceFirst(RegExp(r'^(☐|☑|☒|□|■)\s*'), '');
-    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return t;
-  }
-
-  /// 0..1 — 1 for the same text; word overlap (Jaccard) or, for OCR typos,
-  /// a close edit distance. Two different short tasks ("Call mum" /
-  /// "Call dad") stay well below [LedgerLinker.threshold].
-  static double similarity(String a, String b) {
-    final x = normalize(a);
-    final y = normalize(b);
-    if (x.isEmpty || y.isEmpty) return 0;
-    if (x == y) return 1;
-    final tx = _tokens(x);
-    final ty = _tokens(y);
-    final union = {...tx, ...ty}.length;
-    final jaccard = union == 0 ? 0.0 : tx.intersection(ty).length / union;
-    final longest = max(x.length, y.length);
-    final typo = 1 - _editDistance(x, y) / longest;
-    return max(jaccard, typo >= 0.85 ? typo : 0.0);
-  }
-
-  static Set<String> _tokens(String s) => {
-        for (final t in s.split(RegExp(r'[^\p{L}\p{N}]+', unicode: true)))
-          if (t.isNotEmpty) t,
-      };
-
-  static int _editDistance(String a, String b) {
-    var prev = List<int>.generate(b.length + 1, (i) => i);
-    for (var i = 1; i <= a.length; i++) {
-      final cur = List<int>.filled(b.length + 1, 0)..[0] = i;
-      for (var j = 1; j <= b.length; j++) {
-        final cost = a.codeUnitAt(i - 1) == b.codeUnitAt(j - 1) ? 0 : 1;
-        cur[j] = min(min(cur[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
-      }
-      prev = cur;
-    }
-    return prev[b.length];
-  }
-}
+export 'task_text.dart';
 
 /// Recognises a re-captured page: its items are matched to the Todoist tasks
 /// an earlier capture created, so sending updates them instead of duplicating.
@@ -59,25 +14,33 @@ class TaskText {
 class LedgerLinker {
   const LedgerLinker._();
 
-  /// Minimum [TaskText.similarity] for an item to match an earlier task.
+  /// Minimum [TaskText.similarity] for an item to match a task of the
+  /// earlier page it was recognised as.
   static const double threshold = 0.6;
+
+  /// Stricter bar for matching a single item to any open task (another
+  /// page's ledger entry, or a live Todoist task) — near-identical only.
+  static const double strictThreshold = 0.8;
 
   static DailyTodoistPlan link(
     DailyTodoistPlan plan,
     List<LedgerEntry> entries, {
     String? pageId,
   }) {
+    final open = [for (final e in entries) if (e.isOpen) e];
     final byPage = <String, List<LedgerEntry>>{};
-    for (final e in entries) {
+    for (final e in open) {
       final page = e.pageId;
-      if (!e.isOpen || page == null || page.isEmpty) continue;
+      if (page == null || page.isEmpty) continue;
       (byPage[page] ??= []).add(e);
     }
     final candidates = [
       for (var i = 0; i < plan.creates.length; i++)
         if (plan.creates[i].content.trim().isNotEmpty) i,
     ];
-    if (byPage.isEmpty || candidates.isEmpty) return plan;
+    if (open.isEmpty || candidates.isEmpty) {
+      return plan.withLinks(matches: const {}, rememberedCount: open.length);
+    }
 
     String? chosen;
     var byId = false;
@@ -91,7 +54,7 @@ class LedgerLinker {
       var bestCount = 0;
       DateTime? bestAt;
       for (final page in byPage.entries) {
-        final count = _assign(plan, page.value).length;
+        final count = _assign(plan, page.value, threshold, const {}).length;
         if (count < need) continue;
         final at = page.value
             .map((e) => e.createdAt)
@@ -103,27 +66,68 @@ class LedgerLinker {
         }
       }
     }
-    if (chosen == null) return plan;
+
+    final matches = <int, LedgerMatch>{
+      if (chosen != null) ..._assign(plan, byPage[chosen]!, threshold, const {}),
+    };
+    // Items the page link left over can still be the same open task.
+    final taken = {for (final m in matches.values) m.todoistId};
+    final rest = [for (final e in open) if (!taken.contains(e.todoistId)) e];
+    matches.addAll(_assign(plan, rest, strictThreshold, matches.keys.toSet()));
 
     return plan.withLinks(
-      matches: _assign(plan, byPage[chosen]!),
+      matches: matches,
       linkedPageId: chosen,
       linkedByPageId: byId,
+      rememberedCount: open.length,
     );
   }
 
-  /// One-to-one best matches, highest similarity first.
+  /// Match the items still unmatched against the open Todoist tasks, so tasks
+  /// the ledger does not know (created before it existed, on another device,
+  /// or by hand) are updated instead of duplicated.
+  static DailyTodoistPlan linkLive(
+    DailyTodoistPlan plan,
+    List<TodoistTask> openTasks,
+  ) {
+    final taken = {
+      for (final t in plan.creates)
+        if (t.match != null) t.match!.todoistId,
+    };
+    final done = {
+      for (var i = 0; i < plan.creates.length; i++)
+        if (plan.creates[i].match != null) i,
+    };
+    final pool = [
+      for (final t in openTasks)
+        if (!taken.contains(t.id))
+          LedgerEntry(
+            todoistId: t.id,
+            content: t.content,
+            priority: t.priority,
+            createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+          ),
+    ];
+    final found = _assign(plan, pool, strictThreshold, done, fromLive: true);
+    return plan.withLinks(matches: found, liveChecked: true);
+  }
+
+  /// One-to-one best matches at or above [min], highest similarity first.
   static Map<int, LedgerMatch> _assign(
     DailyTodoistPlan plan,
     List<LedgerEntry> entries,
-  ) {
+    double min,
+    Set<int> skip, {
+    bool fromLive = false,
+  }) {
     final pairs = <({int index, int entry, double score})>[];
     for (var i = 0; i < plan.creates.length; i++) {
+      if (skip.contains(i)) continue;
       final content = plan.creates[i].content;
       if (content.trim().isEmpty) continue;
       for (var j = 0; j < entries.length; j++) {
         final score = TaskText.similarity(content, entries[j].content);
-        if (score >= threshold) pairs.add((index: i, entry: j, score: score));
+        if (score >= min) pairs.add((index: i, entry: j, score: score));
       }
     }
     pairs.sort((a, b) {
@@ -141,6 +145,8 @@ class LedgerLinker {
         content: e.content,
         priority: e.priority,
         pageId: e.pageId,
+        due: e.due,
+        fromLive: fromLive,
       );
     }
     return out;

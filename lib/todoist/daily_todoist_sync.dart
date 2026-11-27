@@ -169,13 +169,31 @@ class DailyTodoistSync {
 
   /// Match [plan]'s items against tasks an earlier capture created, so a
   /// re-captured page updates them (see [LedgerLinker]). No network.
+  ///
+  /// With [includeLive], items the ledger does not know are also matched
+  /// against the open Todoist tasks (one network read; skipped on error).
   Future<DailyTodoistPlan> linkPlan(
     DailyTodoistPlan plan, {
     String? pageId,
+    bool includeLive = false,
+    Duration liveTimeout = const Duration(seconds: 8),
   }) async {
     final ledger = _ledger;
-    if (ledger == null) return plan;
-    return LedgerLinker.link(plan, await ledger.read(), pageId: pageId);
+    var linked = ledger == null
+        ? plan
+        : LedgerLinker.link(plan, await ledger.read(), pageId: pageId);
+    final unmatched = linked.creates.any(
+      (t) => t.match == null && t.content.trim().isNotEmpty,
+    );
+    if (includeLive && unmatched) {
+      try {
+        final open = await _client.listOpenTasks().timeout(liveTimeout);
+        linked = LedgerLinker.linkLive(linked, open);
+      } catch (_) {
+        // Offline / slow: the ledger result stands.
+      }
+    }
+    return linked;
   }
 
   /// Send what is still included in [plan]. Never throws for Todoist / network
@@ -363,8 +381,11 @@ class DailyTodoistSync {
 
       if (isUpdate) {
         final id = planned.updateTodoistId!;
+        final dueChanged =
+            planned.dueKey != null && planned.dueKey != planned.previousDue;
         final same = planned.content == planned.previousContent &&
-            planned.priority == planned.previousPriority;
+            planned.priority == planned.previousPriority &&
+            !dueChanged;
         if (same) {
           unchanged++;
           if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
@@ -381,6 +402,8 @@ class DailyTodoistSync {
             priority: planned.priority == planned.previousPriority
                 ? null
                 : (planned.priority ?? 1),
+            dueDate: dueChanged ? planned.dueDate : null,
+            dueHasTime: dueChanged && planned.dueHasTime,
           );
           updated++;
           if (planned.nodeId != null) todoistIdByNode[planned.nodeId!] = id;
@@ -425,6 +448,7 @@ class DailyTodoistSync {
           priority: item.priority,
           parentId: parentId,
           dueDate: item.dueDate,
+          dueHasTime: item.dueHasTime,
           requestId: item.requestId,
         );
         if (item.nodeId != null && item.nodeId!.isNotEmpty) {
@@ -632,6 +656,7 @@ class DailyTodoistSync {
           priority: item.priority,
           pageId: pageId,
           nodeId: item.nodeId,
+          due: item.dueKey,
           createdAt: _clock(),
         ),
       );
@@ -670,6 +695,7 @@ class DailyTodoistSync {
           priority: item.priority,
           clearPriority: item.priority == null,
           pageId: pageId,
+          due: item.dueKey,
         ),
       );
     } catch (e) {
@@ -724,24 +750,37 @@ class DailyTodoistSync {
     List<TodoistTask> openTasks,
     String doneText,
   ) {
-    final needle = normalizeTaskText(doneText);
+    // Compared on the core text, so `bolt | 16:50` (paper) still finds `bolt`
+    // (Todoist, once the time became a due date) and a tick / strike-through
+    // on the done line does not matter.
+    final needle = TaskText.core(doneText);
     if (needle.isEmpty) return null;
 
     TodoistTask? exact;
     TodoistTask? contains;
     for (final task in openTasks) {
-      final hay = normalizeTaskText(task.content);
+      final hay = TaskText.core(task.content);
       if (hay.isEmpty) continue;
       if (hay == needle) {
         exact = task;
         break;
       }
-      if (hay.contains(needle) || needle.contains(hay)) {
-        // Prefer longer overlap; keep first reasonable contains.
+      if (_containsWords(hay, needle) || _containsWords(needle, hay)) {
         contains ??= task;
       }
     }
     return exact ?? contains;
+  }
+
+  /// [part] appears in [whole] on word boundaries (`bolt` in `fix bolt`,
+  /// not in `bolts`).
+  static bool _containsWords(String whole, String part) {
+    if (part.length > whole.length) return false;
+    final re = RegExp(
+      '(?:^|[^\\p{L}\\p{N}])${RegExp.escape(part)}(?:\$|[^\\p{L}\\p{N}])',
+      unicode: true,
+    );
+    return re.hasMatch(whole);
   }
 
   static String normalizeTaskText(String raw) => TaskText.normalize(raw);

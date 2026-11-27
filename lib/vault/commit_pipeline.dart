@@ -365,7 +365,7 @@ class CommitPipeline {
       markdown: _dailyMarkdownFor(input),
     );
     return sync.execute(
-      await sync.linkPlan(plan, pageId: capture.pageId),
+      await sync.linkPlan(plan, pageId: capture.pageId, includeLive: true),
       pageId: capture.pageId,
     );
   }

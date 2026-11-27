@@ -12,12 +12,20 @@ class LedgerMatch {
     required this.content,
     this.priority,
     this.pageId,
+    this.due,
+    this.fromLive = false,
   });
 
   final String todoistId;
   final String content;
   final int? priority;
   final String? pageId;
+
+  /// [DailyTodoistCreate.dueKey] the task already has, when known.
+  final String? due;
+
+  /// Matched against the open Todoist tasks rather than the local ledger.
+  final bool fromLive;
 }
 
 /// One reviewable Todoist create (checkbox + editable text + priority).
@@ -95,6 +103,8 @@ class DailyTodoistPlan {
     this.sectionLabels = const [],
     this.linkedPageId,
     this.linkedByPageId = false,
+    this.rememberedCount,
+    this.liveChecked = false,
   });
 
   factory DailyTodoistPlan.fromParse(DailyTodoistParseResult parsed) {
@@ -123,6 +133,15 @@ class DailyTodoistPlan {
   final bool linkedByPageId;
 
   bool get hasLinkedPage => linkedPageId != null;
+
+  /// Open ledger entries the linker compared against (null = not linked).
+  final int? rememberedCount;
+
+  /// The open Todoist tasks were also checked for matches.
+  final bool liveChecked;
+
+  /// At least one item matched an earlier task (ledger or live).
+  bool get hasLinks => creates.any((t) => t.match != null);
 
   int get updateCount =>
       creates.where((t) => _taskSendable(t) && t.isUpdate).length;
@@ -181,6 +200,7 @@ class DailyTodoistPlan {
       updateTodoistId: m.todoistId,
       previousContent: m.content,
       previousPriority: m.priority,
+      previousDue: m.due,
     );
   }
 
@@ -278,8 +298,10 @@ class DailyTodoistPlan {
   /// Record which earlier task each item matches (see [LedgerLinker]).
   DailyTodoistPlan withLinks({
     required Map<int, LedgerMatch> matches,
-    required String? linkedPageId,
-    required bool linkedByPageId,
+    String? linkedPageId,
+    bool linkedByPageId = false,
+    int? rememberedCount,
+    bool? liveChecked,
   }) {
     final next = [
       for (var i = 0; i < creates.length; i++)
@@ -291,9 +313,20 @@ class DailyTodoistPlan {
       creates: next,
       done: done,
       sectionLabels: sectionLabels,
-      linkedPageId: linkedPageId,
-      linkedByPageId: linkedByPageId,
+      linkedPageId: linkedPageId ?? this.linkedPageId,
+      linkedByPageId: linkedByPageId || this.linkedByPageId,
+      rememberedCount: rememberedCount ?? this.rememberedCount,
+      liveChecked: liveChecked ?? this.liveChecked,
     );
+  }
+
+  /// Remove a task's due date before sending.
+  DailyTodoistPlan clearTaskDue(int index) {
+    final next = List<PlannedTask>.from(creates);
+    next[index] = next[index].copyWith(
+      create: next[index].create.copyWith(clearDue: true),
+    );
+    return _with(creates: next);
   }
 
   DailyTodoistPlan setDoneIncluded(int index, bool included) {
@@ -318,6 +351,8 @@ class DailyTodoistPlan {
       sectionLabels: sectionLabels,
       linkedPageId: linkedPageId,
       linkedByPageId: linkedByPageId,
+      rememberedCount: rememberedCount,
+      liveChecked: liveChecked,
     );
   }
 }
@@ -350,7 +385,9 @@ class DailyTodoistPlanner {
       );
       if (mind.hasWork) return DailyTodoistPlan.fromParse(mind.sync);
     }
-    return DailyTodoistPlan.fromParse(_parser.parse(markdown));
+    return DailyTodoistPlan.fromParse(
+      _parser.parse(markdown, pageDate: _clock()),
+    );
   }
 
   /// Same, deriving the mindmap edges from the capture's Gemini canvas so the
