@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
@@ -124,6 +125,7 @@ class TodoistClient {
     String? parentId,
     DateTime? dueDate,
     String? description,
+    String? requestId,
   }) async {
     final desc = description?.trim();
     final body = <String, dynamic>{
@@ -140,7 +142,11 @@ class TodoistClient {
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks'),
-      headers: _headers,
+      headers: {
+        ..._headers,
+        if (requestId != null && requestId.isNotEmpty)
+          'X-Request-Id': requestId,
+      },
       body: jsonEncode(body),
     );
     _ensureOk(res);
@@ -149,12 +155,17 @@ class TodoistClient {
     );
   }
 
-  /// Patch task fields (used to attach extra mindmap parent links).
+  /// Patch task fields: description (extra mindmap parent links), or the
+  /// text / priority of a task created by an earlier capture.
   Future<TodoistTask> updateTask(
     String taskId, {
+    String? content,
+    int? priority,
     String? description,
   }) async {
     final body = <String, dynamic>{
+      'content': ?content,
+      'priority': ?priority,
       'description': ?description,
     };
     final res = await _http.post(
@@ -180,6 +191,19 @@ class TodoistClient {
         statusCode: res.statusCode,
       );
     }
+  }
+
+  /// Random UUID v4 for Todoist's `X-Request-Id` idempotency header: a repeat
+  /// of the same create (e.g. after a timeout) returns the original task.
+  static String newRequestId([Random? random]) {
+    final rng = random ?? Random.secure();
+    final b = List<int>.generate(16, (_) => rng.nextInt(256));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    String hex(int from, int to) => [
+          for (var i = from; i < to; i++) b[i].toRadixString(16).padLeft(2, '0'),
+        ].join();
+    return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
   }
 
   /// Fetch every page of a cursor-paginated list endpoint (`results` + `next_cursor`).
@@ -298,6 +322,9 @@ class TodoistApiException implements Exception {
 
   /// HTTP status when the failure came from a Todoist response.
   final int? statusCode;
+
+  /// The task (or endpoint) no longer exists — deleted or completed remotely.
+  bool get isNotFound => statusCode == 404;
 
   @override
   String toString() => message;

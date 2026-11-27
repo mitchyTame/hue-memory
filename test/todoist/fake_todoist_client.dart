@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:http/http.dart' as http;
 import 'package:hue_memory/todoist/todoist_client.dart';
 
@@ -19,6 +21,25 @@ class ScriptedTodoistClient extends TodoistClient {
   Object? labelError;
   final Set<String> closeErrors = {};
 
+  /// Task ids that answer 404 (deleted / completed remotely) on close/update.
+  final Set<String> closeNotFound = {};
+  final Set<String> updateNotFound = {};
+
+  /// Content → the create succeeds server-side but the response is lost.
+  final Set<String> createThenTimeout = {};
+
+  /// Runs just before each create is accepted (e.g. to inspect a store).
+  Future<void> Function(String content)? beforeCreate;
+
+  int listCalls = 0;
+
+  /// Every X-Request-Id received by [createInboxTask], in order.
+  final List<String?> requestIds = [];
+  final Map<String, TodoistTask> _byRequestId = {};
+
+  /// (task id, content, priority) per [updateTask] call.
+  final List<({String id, String? content, int? priority})> updates = [];
+
   @override
   Future<Map<String, TodoistLabel>> ensureLabels(Iterable<String> names) async {
     if (labelError != null) throw labelError!;
@@ -27,6 +48,7 @@ class ScriptedTodoistClient extends TodoistClient {
 
   @override
   Future<List<TodoistTask>> listOpenTasks() async {
+    listCalls++;
     if (listError != null) throw listError!;
     return List.unmodifiable(open);
   }
@@ -39,27 +61,48 @@ class ScriptedTodoistClient extends TodoistClient {
     String? parentId,
     DateTime? dueDate,
     String? description,
+    String? requestId,
   }) async {
+    requestIds.add(requestId);
+    await beforeCreate?.call(content);
     final error = createErrors[content];
     if (error != null) throw error;
+    final seen = requestId == null ? null : _byRequestId[requestId];
+    if (seen != null) return seen;
     final task = TodoistTask(
       id: 'new-${created.length + 1}',
       content: content,
       labels: labels,
     );
     created.add(task);
+    if (requestId != null) _byRequestId[requestId] = task;
     parentIds[task.id] = parentId;
     priorities[task.id] = priority;
+    if (createThenTimeout.remove(content)) {
+      throw TimeoutException('response lost');
+    }
     return task;
   }
 
   @override
-  Future<TodoistTask> updateTask(String taskId, {String? description}) async {
-    return created.firstWhere((t) => t.id == taskId);
+  Future<TodoistTask> updateTask(
+    String taskId, {
+    String? content,
+    int? priority,
+    String? description,
+  }) async {
+    if (updateNotFound.contains(taskId)) {
+      throw TodoistApiException('Todoist error 404', statusCode: 404);
+    }
+    updates.add((id: taskId, content: content, priority: priority));
+    return TodoistTask(id: taskId, content: content ?? '');
   }
 
   @override
   Future<void> closeTask(String taskId) async {
+    if (closeNotFound.contains(taskId)) {
+      throw TodoistApiException('Todoist error 404', statusCode: 404);
+    }
     if (closeErrors.contains(taskId)) {
       throw TodoistApiException('Todoist error 500', statusCode: 500);
     }

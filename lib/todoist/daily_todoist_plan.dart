@@ -5,27 +5,60 @@ import '../writers/canvas_writer.dart';
 import 'daily_mindmap_parser.dart';
 import 'daily_todoist_parser.dart';
 
+/// An earlier Todoist task (from the ledger) that a re-captured item matches.
+class LedgerMatch {
+  const LedgerMatch({
+    required this.todoistId,
+    required this.content,
+    this.priority,
+    this.pageId,
+  });
+
+  final String todoistId;
+  final String content;
+  final int? priority;
+  final String? pageId;
+}
+
 /// One reviewable Todoist create (checkbox + editable text + priority).
+///
+/// When a re-capture matched an earlier task, [match] is set and — unless the
+/// user switched it off ([useMatch]) — sending updates that task instead of
+/// creating a duplicate.
 class PlannedTask {
   const PlannedTask({
     required this.key,
     required this.create,
     this.included = true,
+    this.match,
+    this.useMatch = true,
   });
 
   /// Stable within one plan (`c0`, `c1`, …) — survives edits.
   final String key;
   final DailyTodoistCreate create;
   final bool included;
+  final LedgerMatch? match;
+  final bool useMatch;
 
   String get content => create.content;
   int? get priority => create.priority;
 
-  PlannedTask copyWith({DailyTodoistCreate? create, bool? included}) {
+  /// Sending will update an existing Todoist task.
+  bool get isUpdate => match != null && useMatch;
+
+  PlannedTask copyWith({
+    DailyTodoistCreate? create,
+    bool? included,
+    LedgerMatch? match,
+    bool? useMatch,
+  }) {
     return PlannedTask(
       key: key,
       create: create ?? this.create,
       included: included ?? this.included,
+      match: match ?? this.match,
+      useMatch: useMatch ?? this.useMatch,
     );
   }
 }
@@ -60,6 +93,8 @@ class DailyTodoistPlan {
     this.creates = const [],
     this.done = const [],
     this.sectionLabels = const [],
+    this.linkedPageId,
+    this.linkedByPageId = false,
   });
 
   factory DailyTodoistPlan.fromParse(DailyTodoistParseResult parsed) {
@@ -79,6 +114,20 @@ class DailyTodoistPlan {
   final List<PlannedTask> creates;
   final List<PlannedDone> done;
   final List<String> sectionLabels;
+
+  /// Earlier capture this page was recognised as a re-capture of (set by
+  /// [LedgerLinker]); null for a page seen for the first time.
+  final String? linkedPageId;
+
+  /// True when [linkedPageId] is this very page ID, not just similar text.
+  final bool linkedByPageId;
+
+  bool get hasLinkedPage => linkedPageId != null;
+
+  int get updateCount =>
+      creates.where((t) => _taskSendable(t) && t.isUpdate).length;
+  int get newCount =>
+      creates.where((t) => _taskSendable(t) && !t.isUpdate).length;
 
   /// Anything to review on screen (items, done lines or label-only sections).
   bool get hasItems =>
@@ -120,8 +169,19 @@ class DailyTodoistPlan {
     };
     return [
       for (final t in sendable)
-        _normalized(t.create.copyWith(content: t.content.trim()), nodeIds),
+        _normalized(_forSend(t), nodeIds),
     ];
+  }
+
+  static DailyTodoistCreate _forSend(PlannedTask t) {
+    final base = t.create.copyWith(content: t.content.trim());
+    final m = t.match;
+    if (m == null || !t.useMatch) return base.copyWith(clearUpdate: true);
+    return base.copyWith(
+      updateTodoistId: m.todoistId,
+      previousContent: m.content,
+      previousPriority: m.priority,
+    );
   }
 
   static DailyTodoistCreate _normalized(
@@ -207,6 +267,35 @@ class DailyTodoistPlan {
     return _with(creates: next);
   }
 
+  /// Switch a matched item between "update the earlier task" and "new task".
+  DailyTodoistPlan setTaskUpdate(int index, bool update) {
+    if (creates[index].match == null) return this;
+    final next = List<PlannedTask>.from(creates);
+    next[index] = next[index].copyWith(useMatch: update);
+    return _with(creates: next);
+  }
+
+  /// Record which earlier task each item matches (see [LedgerLinker]).
+  DailyTodoistPlan withLinks({
+    required Map<int, LedgerMatch> matches,
+    required String? linkedPageId,
+    required bool linkedByPageId,
+  }) {
+    final next = [
+      for (var i = 0; i < creates.length; i++)
+        matches.containsKey(i)
+            ? creates[i].copyWith(match: matches[i], useMatch: true)
+            : creates[i],
+    ];
+    return DailyTodoistPlan(
+      creates: next,
+      done: done,
+      sectionLabels: sectionLabels,
+      linkedPageId: linkedPageId,
+      linkedByPageId: linkedByPageId,
+    );
+  }
+
   DailyTodoistPlan setDoneIncluded(int index, bool included) {
     final next = List<PlannedDone>.from(done);
     next[index] = next[index].copyWith(included: included);
@@ -227,6 +316,8 @@ class DailyTodoistPlan {
       creates: creates ?? this.creates,
       done: done ?? this.done,
       sectionLabels: sectionLabels,
+      linkedPageId: linkedPageId,
+      linkedByPageId: linkedByPageId,
     );
   }
 }

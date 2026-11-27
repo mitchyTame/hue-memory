@@ -10,6 +10,10 @@ class DailyTodoistCreate {
     this.parentNodeId,
     this.dueDate,
     this.extraParentNodeIds = const [],
+    this.requestId,
+    this.updateTodoistId,
+    this.previousContent,
+    this.previousPriority,
   });
 
   final String content;
@@ -33,6 +37,20 @@ class DailyTodoistCreate {
   /// via description after create — Todoist allows one `parent_id` only).
   final List<String> extraParentNodeIds;
 
+  /// Todoist `X-Request-Id` for this create, fixed on the first attempt so a
+  /// retry cannot create the task twice.
+  final String? requestId;
+
+  /// Set when a re-capture matched a task from the ledger: this item then
+  /// updates that Todoist task instead of creating a new one.
+  final String? updateTodoistId;
+
+  /// What the ledger recorded for [updateTodoistId] (to skip no-op updates).
+  final String? previousContent;
+  final int? previousPriority;
+
+  bool get isUpdate => updateTodoistId != null;
+
   DailyTodoistCreate copyWith({
     String? content,
     int? priority,
@@ -40,6 +58,11 @@ class DailyTodoistCreate {
     String? parentNodeId,
     bool clearParent = false,
     List<String>? extraParentNodeIds,
+    String? requestId,
+    String? updateTodoistId,
+    String? previousContent,
+    int? previousPriority,
+    bool clearUpdate = false,
   }) {
     return DailyTodoistCreate(
       content: content ?? this.content,
@@ -49,6 +72,13 @@ class DailyTodoistCreate {
       parentNodeId: clearParent ? null : (parentNodeId ?? this.parentNodeId),
       dueDate: dueDate,
       extraParentNodeIds: extraParentNodeIds ?? this.extraParentNodeIds,
+      requestId: clearUpdate ? null : (requestId ?? this.requestId),
+      updateTodoistId:
+          clearUpdate ? null : (updateTodoistId ?? this.updateTodoistId),
+      previousContent:
+          clearUpdate ? null : (previousContent ?? this.previousContent),
+      previousPriority:
+          clearUpdate ? null : (previousPriority ?? this.previousPriority),
     );
   }
 }

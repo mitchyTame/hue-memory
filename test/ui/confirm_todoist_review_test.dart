@@ -6,6 +6,8 @@ import 'package:hue_memory/capture/pending_capture.dart';
 import 'package:hue_memory/ocr/ocr_client.dart';
 import 'package:hue_memory/theme/app_theme.dart';
 import 'package:hue_memory/todoist/daily_todoist_plan.dart';
+import 'package:hue_memory/todoist/ledger_linker.dart';
+import 'package:hue_memory/todoist/todoist_ledger.dart';
 import 'package:hue_memory/todoist/todoist_retry.dart';
 import 'package:hue_memory/ui/confirm_shell.dart';
 import 'package:hue_memory/ui/todoist_retry_card.dart';
@@ -230,5 +232,134 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('todoist-discard-button')));
     expect(retried, 1);
     expect(discarded, 1);
+  });
+
+  testWidgets('a re-capture shows update vs new and sends what is chosen',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final earlier = [
+      LedgerEntry(
+        todoistId: 'old-1',
+        content: 'Call the dentist',
+        pageId: 'earlier-page',
+        createdAt: DateTime.utc(2026, 11, 26),
+      ),
+      LedgerEntry(
+        todoistId: 'old-2',
+        content: 'Pay rent',
+        pageId: 'earlier-page',
+        createdAt: DateTime.utc(2026, 11, 26),
+      ),
+    ];
+    String? linkedFor;
+    DailyTodoistPlan? sentPlan;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: _capture(),
+          todoistPlanner: DailyTodoistPlanner(),
+          todoistLinker: (plan, pageId) async {
+            linkedFor = pageId;
+            return LedgerLinker.link(plan, earlier, pageId: pageId);
+          },
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {
+            sentPlan = plan;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+
+    expect(linkedFor, '20261127-p7k2');
+    expect(find.byKey(const ValueKey('plan-linked-banner')), findsOneWidget);
+    expect(find.text('update'), findsNWidgets(2));
+    expect(find.text('new'), findsNothing);
+    expect(find.byKey(const ValueKey('plan-was')), findsOneWidget);
+    expect(find.text('was: Call the dentist'), findsOneWidget);
+
+    // Switch "Pay rent" to a new task.
+    await tester.tap(find.byKey(const ValueKey('plan-link')).at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('update'), findsOneWidget);
+    expect(find.text('new'), findsOneWidget);
+
+    await tapText(tester, 'Send 3 to Todoist');
+    expect(sentPlan!.effectiveCreates.map((c) => c.updateTodoistId), [
+      'old-1',
+      null,
+    ]);
+  });
+
+  testWidgets('a first-time page shows no update/new badges', (tester) async {
+    tester.view.physicalSize = const Size(900, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: _capture(),
+          todoistPlanner: DailyTodoistPlanner(),
+          todoistLinker: (plan, pageId) async =>
+              LedgerLinker.link(plan, const [], pageId: pageId),
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('plan-link')), findsNothing);
+    expect(find.byKey(const ValueKey('plan-linked-banner')), findsNothing);
+  });
+
+  testWidgets('retry card offers Recreate for tasks gone from Todoist',
+      (tester) async {
+    var recreated = 0;
+    var retried = 0;
+    await tester.pumpWidget(
+      host(
+        Scaffold(
+          body: TodoistRetryCard(
+            batches: [
+              TodoistRetryBatch(
+                createdAt: DateTime.utc(2026, 11, 27),
+                items: const [
+                  FailedTodoistItem(
+                    kind: FailedItemKind.update,
+                    content: 'Call dentist today',
+                    error: 'Task was deleted or completed in Todoist',
+                    updateTodoistId: 'old-1',
+                    remoteMissing: true,
+                  ),
+                ],
+              ),
+            ],
+            onRetry: () => retried++,
+            onRecreate: () => recreated++,
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('todoist-missing-note')), findsOneWidget);
+    expect(find.byKey(const ValueKey('todoist-retry-button')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('todoist-recreate-button')));
+    expect(recreated, 1);
+    expect(retried, 0);
   });
 }
