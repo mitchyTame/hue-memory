@@ -1,0 +1,234 @@
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:hue_memory/capture/pending_capture.dart';
+import 'package:hue_memory/ocr/ocr_client.dart';
+import 'package:hue_memory/theme/app_theme.dart';
+import 'package:hue_memory/todoist/daily_todoist_plan.dart';
+import 'package:hue_memory/todoist/todoist_retry.dart';
+import 'package:hue_memory/ui/confirm_shell.dart';
+import 'package:hue_memory/ui/todoist_retry_card.dart';
+import 'package:material_ui/material_ui.dart';
+
+PendingCapture _capture() {
+  final bytes = Uint8List.fromList(
+    File('test/fixtures/pixel.png').readAsBytesSync(),
+  );
+  return PendingCapture(
+    pageId: '20261127-p7k2',
+    imageBytes: bytes,
+    capturedAt: DateTime.utc(2026, 11, 27, 8),
+    meaning: MeaningResult(
+      detectedGlyph: '·',
+      regions: [
+        for (final (i, line) in [
+          'high:',
+          '- Call dentist',
+          '- Pay rent',
+          'done:',
+          '- Ship release',
+        ].indexed)
+          OcrRegion(
+            id: 'n$i',
+            text: line,
+            confidence: 0.9,
+            bbox: [0.1, 0.1 + i * 0.1, 0.5, 0.08],
+          ),
+      ],
+      pageGenre: 'task_list',
+    ),
+    symbolId: 'daily-tasks',
+  );
+}
+
+void main() {
+  Widget host(Widget child) => MaterialApp(theme: AppTheme.light(), home: child);
+
+  Future<void> tapText(WidgetTester tester, String text) async {
+    final f = find.text(text);
+    await tester.ensureVisible(f);
+    await tester.pumpAndSettle();
+    await tester.tap(f);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('· daily shows a review checklist before anything is sent',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    var sent = 0;
+    var committed = 0;
+    DailyTodoistPlan? sentPlan;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: _capture(),
+          todoistPlanner: DailyTodoistPlanner(),
+          onCommit: ({
+            required symbolId,
+            required title,
+            required noteBody,
+            required links,
+            inkGhost = true,
+            regions,
+          }) async {
+            committed++;
+          },
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {
+            sent++;
+            sentPlan = plan;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Save'), findsNothing);
+
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+
+    expect(sent, 0);
+    expect(committed, 0);
+    expect(find.text('Review Todoist tasks'), findsOneWidget);
+    expect(find.text('Send 3 to Todoist'), findsOneWidget);
+    expect(find.widgetWithText(TextField, 'Call dentist'), findsOneWidget);
+    expect(find.text('Mark done in Todoist'), findsOneWidget);
+
+    // Skip "Pay rent", edit "Call dentist", make it P1.
+    await tester.tap(find.byKey(const ValueKey('plan-include')).at(1));
+    await tester.pumpAndSettle();
+    expect(find.text('Send 2 to Todoist'), findsOneWidget);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Call dentist'),
+      'Call the dentist',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('plan-priority-P2')).first);
+    await tester.pumpAndSettle();
+
+    await tapText(tester, 'Send 2 to Todoist');
+
+    expect(sent, 1);
+    expect(committed, 0);
+    expect(sentPlan!.effectiveCreates.map((c) => c.content), [
+      'Call the dentist',
+    ]);
+    expect(sentPlan!.effectiveCreates.single.priority, 3);
+    expect(sentPlan!.effectiveDone, ['Ship release']);
+  });
+
+  testWidgets('Edit nodes returns from the checklist without sending',
+      (tester) async {
+    tester.view.physicalSize = const Size(900, 2000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    var sent = 0;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: _capture(),
+          todoistPlanner: DailyTodoistPlanner(),
+          onSendTodoist: ({
+            required title,
+            required noteBody,
+            required regions,
+            required plan,
+          }) async {
+            sent++;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit nodes'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Review'), findsOneWidget);
+    expect(find.text('Review Todoist tasks'), findsNothing);
+    expect(sent, 0);
+  });
+
+  testWidgets('without a planner · daily still saves directly',
+      (tester) async {
+    var committed = 0;
+    await tester.pumpWidget(
+      host(
+        ConfirmShell(
+          capture: _capture(),
+          onCommit: ({
+            required symbolId,
+            required title,
+            required noteBody,
+            required links,
+            inkGhost = true,
+            regions,
+          }) async {
+            committed++;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Save'), findsOneWidget);
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+    expect(committed, 1);
+  });
+
+  testWidgets('retry card names the failure and the failed items',
+      (tester) async {
+    var retried = 0;
+    var discarded = 0;
+    await tester.pumpWidget(
+      host(
+        Scaffold(
+          body: TodoistRetryCard(
+            batches: [
+              TodoistRetryBatch(
+                createdAt: DateTime.utc(2026, 11, 27),
+                items: const [
+                  FailedTodoistItem(
+                    kind: FailedItemKind.create,
+                    content: 'Buy milk',
+                    error: "Couldn't reach Todoist (check your connection)",
+                  ),
+                  FailedTodoistItem(
+                    kind: FailedItemKind.done,
+                    content: 'Ship release',
+                    error: "Couldn't reach Todoist (check your connection)",
+                  ),
+                ],
+              ),
+            ],
+            onRetry: () => retried++,
+            onDiscard: () => discarded++,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('2 Todoist items did not send'), findsOneWidget);
+    expect(find.textContaining('check your connection'), findsOneWidget);
+    expect(find.text('• Buy milk'), findsOneWidget);
+    expect(find.text('✓ Ship release'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('todoist-retry-button')));
+    await tester.tap(find.byKey(const ValueKey('todoist-discard-button')));
+    expect(retried, 1);
+    expect(discarded, 1);
+  });
+}

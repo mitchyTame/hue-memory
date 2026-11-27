@@ -6,6 +6,7 @@ import '../gemini/capture_coordinator.dart';
 import '../gemini/obsidian_canvas_from_gemini.dart';
 import '../ocr/ocr_client.dart';
 import '../symbols/symbol_router.dart';
+import '../todoist/daily_todoist_plan.dart';
 import '../todoist/daily_todoist_sync.dart';
 import '../writers/canvas_writer.dart';
 import '../writers/link_writer.dart';
@@ -26,6 +27,7 @@ class CommitInput {
     this.dailyMarkdown,
     this.inkGhost = true,
     this.regions,
+    this.todoistPlan,
     @Deprecated('Personal v2: Mitch links in Obsidian — ignored on commit')
     this.weaveSuggestedWikilinks = false,
   });
@@ -52,6 +54,10 @@ class CommitInput {
 
   /// Edited mindmap labels from confirm (△). Falls back to capture regions.
   final List<OcrRegion>? regions;
+
+  /// Reviewed · daily checklist from the confirm screen. When set, exactly
+  /// this plan is sent to Todoist (no re-parsing).
+  final DailyTodoistPlan? todoistPlan;
 
   /// Ignored — personal v2 never auto-weaves `[[wikilinks]]`.
   @Deprecated('Personal v2: Mitch links in Obsidian')
@@ -340,46 +346,23 @@ class CommitPipeline {
     );
   }
 
-  /// · mindmap (hub→branch→leaf) first; section markdown as fallback.
+  /// Sends the reviewed [CommitInput.todoistPlan]; with no plan (queue /
+  /// legacy callers) plans from the capture first — mindmap hub→branch→leaf,
+  /// else section markdown.
   Future<DailyTodoistSyncResult> _syncDailyTodoist({
     required CommitInput input,
     required DailyTodoistSync sync,
-  }) async {
+  }) {
+    final reviewed = input.todoistPlan;
+    if (reviewed != null) return sync.execute(reviewed);
+
     final capture = input.capture;
-    final regionList = input.regions ?? capture.meaning.regions;
-    final fromGemini = CaptureCoordinator.canvasFromMeaning(
-      MeaningResult(
-        detectedGlyph: capture.meaning.detectedGlyph,
-        regions: regionList,
-        pageGenre: capture.meaning.pageGenre,
-        threadTick: capture.meaning.threadTick,
-        rawJson: capture.meaning.rawJson,
+    return sync.execute(
+      sync.planner.planFromMeaning(
+        meaning: capture.meaning,
+        regions: input.regions ?? capture.meaning.regions,
+        markdown: _dailyMarkdownFor(input),
       ),
-    );
-
-    var regions = regionList;
-    var edges = const <CanvasEdge>[];
-    if (fromGemini != null) {
-      final edited = ObsidianCanvasFromGemini.applyLabelEdits(
-        textNodes: fromGemini.nodes,
-        edited: regionList,
-      );
-      regions = [
-        for (final n in edited)
-          OcrRegion(
-            id: n.id,
-            text: (n.text ?? '').trim(),
-            confidence: 0.85,
-            bbox: const [0.1, 0.1, 0.3, 0.08],
-          ),
-      ];
-      edges = fromGemini.edges;
-    }
-
-    return sync.syncDaily(
-      markdown: _dailyMarkdownFor(input),
-      regions: regions,
-      edges: edges,
     );
   }
 

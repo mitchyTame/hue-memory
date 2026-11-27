@@ -6,6 +6,7 @@ import '../symbols/default_packs.dart';
 import '../symbols/symbol_models.dart';
 import '../symbols/symbol_router.dart';
 import '../theme/hue_atmosphere.dart';
+import '../todoist/daily_todoist_plan.dart';
 import '../theme/memory_hues.dart';
 import '../vault/daily_note_path.dart';
 import '../writers/link_writer.dart';
@@ -19,6 +20,15 @@ typedef ConfirmCommitCallback = Future<void> Function({
   bool inkGhost,
   List<OcrRegion>? regions,
 });
+
+/// Sends a reviewed · daily checklist (title is the ISO day).
+typedef ConfirmTodoistSendCallback =
+    Future<void> Function({
+      required String title,
+      required String noteBody,
+      required List<OcrRegion> regions,
+      required DailyTodoistPlan plan,
+    });
 
 /// Confirm-on-photo — photo hero, symbol chips, edits, Commit.
 ///
@@ -34,6 +44,8 @@ class ConfirmShell extends StatefulWidget {
     this.onCommit,
     this.onCancel,
     this.committing = false,
+    this.todoistPlanner,
+    this.onSendTodoist,
   });
 
   final PendingCapture capture;
@@ -42,6 +54,11 @@ class ConfirmShell extends StatefulWidget {
   final ConfirmCommitCallback? onCommit;
   final VoidCallback? onCancel;
   final bool committing;
+
+  /// When both are set, · daily pages get a review checklist before anything
+  /// is sent to Todoist; otherwise Save commits directly as before.
+  final DailyTodoistPlanner? todoistPlanner;
+  final ConfirmTodoistSendCallback? onSendTodoist;
 
   @override
   State<ConfirmShell> createState() => _ConfirmShellState();
@@ -56,6 +73,14 @@ class _ConfirmShellState extends State<ConfirmShell> {
   late List<OcrRegion> _regions;
   late List<TextEditingController> _nodeControllers;
   int? _focusedNode;
+
+  DailyTodoistPlan? _plan;
+  final List<TextEditingController> _taskControllers = [];
+  final List<TextEditingController> _doneControllers = [];
+
+  bool get _reviewEnabled =>
+      widget.todoistPlanner != null && widget.onSendTodoist != null;
+  bool get _reviewing => _isDaily && _reviewEnabled && _plan != null;
 
   @override
   void initState() {
@@ -96,6 +121,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
     final wasDaily = _isDaily;
     setState(() {
       _selectedId = id;
+      _discardPlan();
       if (_isDaily && !wasDaily) {
         if (DailyNoteDate.tryParse(_titleController.text) == null) {
           _titleController.text = _captureDayIso();
@@ -127,6 +153,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
     for (final c in _nodeControllers) {
       c.dispose();
     }
+    _discardPlan();
     super.dispose();
   }
 
@@ -193,9 +220,20 @@ class _ConfirmShellState extends State<ConfirmShell> {
     return title.isNotEmpty;
   }
 
-  Future<void> _commit() async {
-    final callback = widget.onCommit;
-    if (callback == null || widget.committing) return;
+  void _discardPlan() {
+    for (final c in _taskControllers) {
+      c.dispose();
+    }
+    for (final c in _doneControllers) {
+      c.dispose();
+    }
+    _taskControllers.clear();
+    _doneControllers.clear();
+    _plan = null;
+  }
+
+  /// Validated commit title, or null (after telling the user why).
+  String? _validatedTitle() {
     // Typed field only — never append OCR body, region ids, or draft hint.
     final title = _titleController.text.trim();
     if (_isDaily) {
@@ -207,50 +245,184 @@ class _ConfirmShellState extends State<ConfirmShell> {
             backgroundColor: MemoryHues.danger,
           ),
         );
-        return;
+        return null;
       }
-    } else if (title.isEmpty) {
+      return DailyNoteDate.formatIso(day);
+    }
+    if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Type a title / filename before saving'),
           backgroundColor: MemoryHues.danger,
         ),
       );
-      return;
+      return null;
     }
-    // Pull latest text from controllers for mindmap nodes (△ and ·).
-    if (_editMindmapNodes) {
-      for (var i = 0; i < _regions.length && i < _nodeControllers.length; i++) {
-        final t = _nodeControllers[i].text;
-        final r = _regions[i];
-        if (r.text != t) {
-          _regions[i] = OcrRegion(
-            id: r.id,
-            text: t,
-            confidence: r.confidence,
-            bbox: r.bbox,
-          );
-        }
+    return title;
+  }
+
+  /// Pull latest text from controllers for mindmap nodes (△ and ·).
+  void _syncRegionsFromControllers() {
+    if (!_editMindmapNodes) return;
+    for (var i = 0; i < _regions.length && i < _nodeControllers.length; i++) {
+      final t = _nodeControllers[i].text;
+      final r = _regions[i];
+      if (r.text != t) {
+        _regions[i] = OcrRegion(
+          id: r.id,
+          text: t,
+          confidence: r.confidence,
+          bbox: r.bbox,
+        );
       }
     }
-    final commitTitle = _isDaily
-        ? DailyNoteDate.formatIso(DailyNoteDate.tryParse(title)!)
-        : title;
-    // · daily: mirror nodes into section markdown for fallback sync.
-    final noteBody = _isDaily && _editMindmapNodes
+  }
+
+  /// · daily: mirror nodes into section markdown for fallback sync.
+  String _noteBodyForCommit() {
+    return _isDaily && _editMindmapNodes
         ? _regions
-            .map((r) => r.text.trim())
-            .where((t) => t.isNotEmpty)
-            .join('\n')
+              .map((r) => r.text.trim())
+              .where((t) => t.isNotEmpty)
+              .join('\n')
         : _bodyController.text;
+  }
+
+  /// Daily step 1 → 2: parse the fixed nodes into an editable checklist.
+  void _review() {
+    if (widget.committing || !_reviewEnabled) return;
+    if (_validatedTitle() == null) return;
+    _syncRegionsFromControllers();
+    final plan = widget.todoistPlanner!.planFromMeaning(
+      meaning: widget.capture.meaning,
+      regions: List<OcrRegion>.from(_regions),
+      markdown: _noteBodyForCommit(),
+    );
+    setState(() {
+      _discardPlan();
+      _plan = plan;
+      for (final t in plan.creates) {
+        _taskControllers.add(TextEditingController(text: t.content));
+      }
+      for (final d in plan.done) {
+        _doneControllers.add(TextEditingController(text: d.content));
+      }
+    });
+  }
+
+  void _backToNodes() {
+    if (widget.committing) return;
+    setState(_discardPlan);
+  }
+
+  void _updatePlan(DailyTodoistPlan Function(DailyTodoistPlan) edit) {
+    final plan = _plan;
+    if (plan == null) return;
+    setState(() => _plan = edit(plan));
+  }
+
+  Future<void> _sendReviewed() async {
+    final plan = _plan;
+    final callback = widget.onSendTodoist;
+    if (plan == null || callback == null || widget.committing) return;
+    final commitTitle = _validatedTitle();
+    if (commitTitle == null) return;
+    await callback(
+      title: commitTitle,
+      noteBody: _noteBodyForCommit(),
+      regions: List<OcrRegion>.from(_regions),
+      plan: plan,
+    );
+  }
+
+  Future<void> _commit() async {
+    if (_isDaily && _reviewEnabled) {
+      if (_reviewing) {
+        await _sendReviewed();
+      } else {
+        _review();
+      }
+      return;
+    }
+    final callback = widget.onCommit;
+    if (callback == null || widget.committing) return;
+    final commitTitle = _validatedTitle();
+    if (commitTitle == null) return;
+    _syncRegionsFromControllers();
     await callback(
       symbolId: _selectedId,
       title: commitTitle,
-      noteBody: noteBody,
+      noteBody: _noteBodyForCommit(),
       links: const [],
       inkGhost: _isCanvas ? _inkGhost : true,
       regions: _editMindmapNodes ? List<OcrRegion>.from(_regions) : null,
     );
+  }
+
+  String get _primaryLabel {
+    if (_isDaily && _reviewEnabled) {
+      final plan = _plan;
+      if (plan == null) return 'Review';
+      final n = plan.includedCount;
+      return n == 0 ? 'Send' : 'Send $n to Todoist';
+    }
+    return 'Save';
+  }
+
+  List<Widget> _reviewChildren(TextTheme textTheme) {
+    final plan = _plan!;
+    final enabled = !widget.committing;
+    final labelOnly = plan.labelOnlySections;
+    return [
+      Text('Review Todoist tasks', style: textTheme.titleLarge),
+      const SizedBox(height: 4),
+      Text(
+        'Nothing has been sent yet. Untick to skip, tap text to edit, '
+        'pick a priority. Skipping a task also skips its subtasks.',
+        style: textTheme.bodySmall?.copyWith(color: MemoryHues.inkMuted),
+      ),
+      const SizedBox(height: 12),
+      if (!plan.hasItems)
+        Text(
+          'No tasks found on this page. Go back and check the date hub, '
+          'branches and leaves.',
+          style: textTheme.bodyMedium,
+        ),
+      for (var i = 0; i < plan.creates.length; i++)
+        _PlanTaskTile(
+          key: ValueKey(plan.creates[i].key),
+          task: plan.creates[i],
+          depth: plan.depthOf(i),
+          controller: _taskControllers[i],
+          enabled: enabled,
+          onIncluded: (v) => _updatePlan((p) => p.setTaskIncluded(i, v)),
+          onText: (t) => _updatePlan((p) => p.setTaskContent(i, t)),
+          onPriority: (v) => _updatePlan((p) => p.setTaskPriority(i, v)),
+        ),
+      if (plan.done.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Text('Mark done in Todoist', style: textTheme.labelLarge),
+        const SizedBox(height: 6),
+        for (var i = 0; i < plan.done.length; i++)
+          _PlanDoneTile(
+            key: ValueKey(plan.done[i].key),
+            item: plan.done[i],
+            controller: _doneControllers[i],
+            enabled: enabled,
+            onIncluded: (v) => _updatePlan((p) => p.setDoneIncluded(i, v)),
+            onText: (t) => _updatePlan((p) => p.setDoneContent(i, t)),
+          ),
+      ],
+      if (labelOnly.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            'Also creates label${labelOnly.length == 1 ? '' : 's'}: '
+            '${labelOnly.join(', ')}',
+            style: textTheme.labelMedium?.copyWith(color: MemoryHues.inkMuted),
+          ),
+        ),
+    ];
   }
 
   @override
@@ -317,7 +489,9 @@ class _ConfirmShellState extends State<ConfirmShell> {
                         Expanded(
                           child: ListView(
                             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                            children: [
+                            children: _reviewing
+                                ? _reviewChildren(textTheme)
+                                : [
                               Text(
                                 _editMindmapNodes
                                     ? (_isDaily
@@ -491,9 +665,17 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                     : widget.onCancel,
                                 child: const Text('Cancel'),
                               ),
+                              if (_reviewing)
+                                TextButton(
+                                  onPressed:
+                                      widget.committing ? null : _backToNodes,
+                                  child: const Text('Edit nodes'),
+                                ),
                               const Spacer(),
                               FilledButton(
-                                onPressed: widget.committing || !_titleOk
+                                onPressed: widget.committing ||
+                                        !_titleOk ||
+                                        (_reviewing && !_plan!.hasWork)
                                     ? null
                                     : _commit,
                                 child: widget.committing
@@ -504,7 +686,7 @@ class _ConfirmShellState extends State<ConfirmShell> {
                                           strokeWidth: 2,
                                         ),
                                       )
-                                    : const Text('Save'),
+                                    : Text(_primaryLabel),
                               ),
                             ],
                           ),
@@ -601,3 +783,198 @@ class _NodeEditTile extends StatelessWidget {
   }
 }
 
+/// Todoist UI names: P1 = urgent (API 4) … P4 = none.
+const List<({String label, int? api})> _priorityChoices = [
+  (label: 'P1', api: 4),
+  (label: 'P2', api: 3),
+  (label: 'P3', api: 2),
+  (label: 'P4', api: null),
+];
+
+class _PlanTaskTile extends StatelessWidget {
+  const _PlanTaskTile({
+    super.key,
+    required this.task,
+    required this.depth,
+    required this.controller,
+    required this.enabled,
+    required this.onIncluded,
+    required this.onText,
+    required this.onPriority,
+  });
+
+  final PlannedTask task;
+  final int depth;
+  final TextEditingController controller;
+  final bool enabled;
+  final ValueChanged<bool> onIncluded;
+  final ValueChanged<String> onText;
+  final ValueChanged<int?> onPriority;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final included = task.included;
+    final isSub = task.create.parentNodeId != null;
+    return Padding(
+      padding: EdgeInsets.only(bottom: 8, left: 20.0 * depth.clamp(0, 3)),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: included ? MemoryHues.paper : MemoryHues.paperElevated,
+          border: Border.all(color: MemoryHues.rule),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(4, 4, 8, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Checkbox(
+                    key: const ValueKey('plan-include'),
+                    value: included,
+                    onChanged: enabled ? (v) => onIncluded(v ?? false) : null,
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: TextField(
+                        key: const ValueKey('plan-text'),
+                        controller: controller,
+                        enabled: enabled && included,
+                        minLines: 1,
+                        maxLines: 3,
+                        onChanged: onText,
+                        style: textTheme.titleMedium?.copyWith(
+                          color: included
+                              ? MemoryHues.ink
+                              : MemoryHues.inkMuted,
+                          decoration: included
+                              ? null
+                              : TextDecoration.lineThrough,
+                        ),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          hintText: 'Task',
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (isSub)
+                      Text(
+                        'subtask',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: MemoryHues.inkMuted,
+                        ),
+                      )
+                    else if (task.create.label.isNotEmpty)
+                      Text(
+                        '#${task.create.label}',
+                        style: textTheme.labelSmall?.copyWith(
+                          color: MemoryHues.inkMuted,
+                        ),
+                      ),
+                    for (final c in _priorityChoices)
+                      ChoiceChip(
+                        key: ValueKey('plan-priority-${c.label}'),
+                        label: Text(c.label),
+                        visualDensity: VisualDensity.compact,
+                        selected: task.priority == c.api,
+                        onSelected: enabled && included
+                            ? (_) => onPriority(c.api)
+                            : null,
+                        selectedColor: MemoryHues.accentSoft,
+                        side: BorderSide(
+                          color: task.priority == c.api
+                              ? MemoryHues.accent
+                              : MemoryHues.rule,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlanDoneTile extends StatelessWidget {
+  const _PlanDoneTile({
+    super.key,
+    required this.item,
+    required this.controller,
+    required this.enabled,
+    required this.onIncluded,
+    required this.onText,
+  });
+
+  final PlannedDone item;
+  final TextEditingController controller;
+  final bool enabled;
+  final ValueChanged<bool> onIncluded;
+  final ValueChanged<String> onText;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: item.included ? MemoryHues.paper : MemoryHues.paperElevated,
+          border: Border.all(color: MemoryHues.rule),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Checkbox(
+              key: const ValueKey('plan-include'),
+              value: item.included,
+              onChanged: enabled ? (v) => onIncluded(v ?? false) : null,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+                child: TextField(
+                  key: const ValueKey('plan-text'),
+                  controller: controller,
+                  enabled: enabled && item.included,
+                  minLines: 1,
+                  maxLines: 3,
+                  onChanged: onText,
+                  style: textTheme.titleMedium?.copyWith(
+                    color: item.included ? MemoryHues.ink : MemoryHues.inkMuted,
+                    decoration: item.included
+                        ? null
+                        : TextDecoration.lineThrough,
+                  ),
+                  decoration: const InputDecoration(
+                    border: InputBorder.none,
+                    isDense: true,
+                    hintText: 'Done item',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
