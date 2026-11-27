@@ -53,6 +53,23 @@ void main() {
     expect(draft.edges.first.toNode, 'b');
   });
 
+  test(
+    'bot canvases keep the 24-node cap; diagram path allows busy dailies',
+    () {
+      final nodes = [
+        for (var i = 1; i <= 40; i++) '{"id":"n$i","type":"text","text":"N$i"}',
+      ];
+      final raw = '{"nodes":[${nodes.join(',')}],"edges":[]}';
+      expect(parser.parse(raw).textNodes, hasLength(24));
+      expect(
+        const ObsidianCanvasFromGemini(
+          maxTextNodes: ObsidianCanvasFromGemini.diagramMaxTextNodes,
+        ).parse(raw).textNodes,
+        hasLength(40),
+      );
+    },
+  );
+
   test('invalid JSON throws GeminiException not FormatException', () {
     expect(
       () => parser.parse('not-json-at-all {{{'),

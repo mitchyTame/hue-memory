@@ -112,6 +112,53 @@ void main() {
     await client.closeTask('new1');
   });
 
+  test(
+    'ensureLabels reuses existing spelling and creates only missing names',
+    () async {
+      final createdNames = <String>[];
+      final mock = MockClient((request) async {
+        if (request.method == 'GET' && request.url.path == '/api/v1/labels') {
+          return http.Response(
+            jsonEncode({
+              'results': [
+                {'id': 'l1', 'name': 'Deshan'},
+                {'id': 'l2', 'name': 'high'},
+              ],
+              'next_cursor': null,
+            }),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        if (request.method == 'POST' && request.url.path == '/api/v1/labels') {
+          final name =
+              (jsonDecode(request.body) as Map<String, dynamic>)['name']
+                  as String;
+          createdNames.add(name);
+          return http.Response(
+            jsonEncode({'id': 'new-$name', 'name': name}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }
+        return http.Response(
+          'unexpected ${request.method} ${request.url}',
+          500,
+        );
+      });
+
+      final client = TodoistClient(apiToken: 'tok', httpClient: mock);
+      final out = await client.ensureLabels(['deshan', 'high', 'zoë', 'thabo']);
+
+      expect(createdNames, ['zoë', 'thabo']);
+      expect(out['deshan']!.name, 'Deshan');
+      expect(out['deshan']!.id, 'l1');
+      expect(out['high']!.id, 'l2');
+      expect(out['zoë']!.id, 'new-zoë');
+      expect(out['thabo']!.name, 'thabo');
+    },
+  );
+
   test('verifyConnection fails clearly on 410 deprecated', () async {
     final mock = MockClient((request) async {
       return http.Response('This endpoint is deprecated.', 410);

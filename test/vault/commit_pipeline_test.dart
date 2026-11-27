@@ -388,6 +388,97 @@ Ignore this prose
     expect(await vault.exists('Organising/Daily/2026-11-20.md'), isFalse);
   });
 
+  test(
+    'daily-tasks mindmap with inward-drawn edges labels every name',
+    () async {
+      final regions = [
+        const OcrRegion(
+          id: 'hub',
+          text: "Fri 27 Nov '26",
+          confidence: 0.9,
+          bbox: [0.4, 0.4, 0.2, 0.08],
+        ),
+        const OcrRegion(
+          id: 'zoe',
+          text: 'Zoë',
+          confidence: 0.9,
+          bbox: [0.1, 0.2, 0.2, 0.08],
+        ),
+        const OcrRegion(
+          id: 'piano',
+          text: 'Book piano lesson',
+          confidence: 0.9,
+          bbox: [0.05, 0.1, 0.2, 0.08],
+        ),
+        const OcrRegion(
+          id: 'deshan',
+          text: 'Deshan',
+          confidence: 0.9,
+          bbox: [0.7, 0.2, 0.2, 0.08],
+        ),
+        const OcrRegion(
+          id: 'walk',
+          text: 'Walk Sunday @ 07:30',
+          confidence: 0.9,
+          bbox: [0.8, 0.1, 0.2, 0.08],
+        ),
+        const OcrRegion(
+          id: 'thabo',
+          text: 'Thabo',
+          confidence: 0.9,
+          bbox: [0.4, 0.8, 0.2, 0.08],
+        ),
+      ];
+      final capture = PendingCapture(
+        pageId: '20261127-p7k2',
+        imageBytes: _tinyPng(),
+        capturedAt: DateTime.utc(2026, 11, 27, 8),
+        meaning: MeaningResult(
+          detectedGlyph: '·',
+          regions: regions,
+          pageGenre: 'visual',
+          rawJson: {
+            'canvas_nodes': [
+              for (final r in regions)
+                {
+                  'id': r.id,
+                  'type': 'text',
+                  'text': r.text,
+                  'x': 0,
+                  'y': 0,
+                  'width': 120,
+                  'height': 48,
+                },
+            ],
+            'canvas_edges': [
+              {'id': 'e1', 'fromNode': 'zoe', 'toNode': 'hub'},
+              {'id': 'e2', 'fromNode': 'piano', 'toNode': 'zoe'},
+              {'id': 'e3', 'fromNode': 'hub', 'toNode': 'deshan'},
+              {'id': 'e4', 'fromNode': 'deshan', 'toNode': 'walk'},
+              {'id': 'e5', 'fromNode': 'hub', 'toNode': 'thabo'},
+            ],
+          },
+        ),
+      );
+
+      final result = await pipeline.commit(
+        CommitInput(
+          capture: capture,
+          symbolId: 'daily-tasks',
+          title: '2026-11-27',
+          noteBody: '',
+          regions: regions,
+        ),
+      );
+
+      expect(result.todoistSync?.labels, ['zoë', 'deshan', 'thabo']);
+      expect(
+        todoist.created.map((t) => '${t.labels.single}:${t.content}').toList(),
+        ['zoë:Book piano lesson', 'deshan:Walk Sunday @ 07:30'],
+      );
+    },
+  );
+
   test('daily-tasks unmatched done is recorded for Settings UI', () async {
     todoist.openTasks = [
       const TodoistTask(id: '1', content: 'Known task'),
@@ -499,8 +590,8 @@ class _FakeTodoistClient extends TodoistClient {
   final List<String> closedIds = [];
 
   @override
-  Future<Map<String, String>> ensureLabels(Iterable<String> names) async {
-    return {for (final n in names) n: 'id-$n'};
+  Future<Map<String, TodoistLabel>> ensureLabels(Iterable<String> names) async {
+    return {for (final n in names) n: TodoistLabel(id: 'id-$n', name: n)};
   }
 
   @override

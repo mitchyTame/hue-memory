@@ -43,7 +43,9 @@ class CaptureCoordinator {
     required this.geminiSettings,
     required this.ocr,
     GeminiClient Function(GeminiSettings settings)? geminiFactory,
-    ObsidianCanvasFromGemini canvasParser = const ObsidianCanvasFromGemini(),
+    ObsidianCanvasFromGemini canvasParser = const ObsidianCanvasFromGemini(
+      maxTextNodes: ObsidianCanvasFromGemini.diagramMaxTextNodes,
+    ),
     this.prepareImage,
   })  : _geminiFactory = geminiFactory ??
             ((s) => GeminiClient(apiKey: s.apiKey, model: s.model)),

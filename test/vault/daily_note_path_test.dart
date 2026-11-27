@@ -89,4 +89,45 @@ void main() {
       expect(DailyNoteDate.tryParse('2026-13-01'), isNull);
     });
   });
+
+  group('DailyNoteDate.tryParseLoose', () {
+    final ref = DateTime(2026, 11, 27);
+
+    test('keeps strict formats', () {
+      expect(DailyNoteDate.tryParseLoose("19 Oct '26"), DateTime(2026, 10, 19));
+      expect(DailyNoteDate.tryParseLoose('2026-11-20'), DateTime(2026, 11, 20));
+    });
+
+    test('handwritten hub variants', () {
+      expect(
+        DailyNoteDate.tryParseLoose("Fri 27 Nov '26"),
+        DateTime(2026, 11, 27),
+      );
+      expect(
+        DailyNoteDate.tryParseLoose('Friday, 27th November 2026'),
+        DateTime(2026, 11, 27),
+      );
+      expect(
+        DailyNoteDate.tryParseLoose('Nov 27, 2026'),
+        DateTime(2026, 11, 27),
+      );
+      expect(DailyNoteDate.tryParseLoose('27/11/26'), DateTime(2026, 11, 27));
+      expect(DailyNoteDate.tryParseLoose('27.11.2026'), DateTime(2026, 11, 27));
+      expect(
+        DailyNoteDate.tryParseLoose("Fri\n27 Nov '26"),
+        DateTime(2026, 11, 27),
+      );
+      expect(
+        DailyNoteDate.tryParseLoose('Fri 27 Nov', reference: ref),
+        DateTime(2026, 11, 27),
+      );
+    });
+
+    test('rejects names and tasks', () {
+      expect(DailyNoteDate.tryParseLoose('Deshan'), isNull);
+      expect(DailyNoteDate.tryParseLoose('Walk Sunday @ 07:30'), isNull);
+      expect(DailyNoteDate.tryParseLoose('Book Car Service'), isNull);
+      expect(DailyNoteDate.tryParseLoose('31/02/26'), isNull);
+    });
+  });
 }

@@ -194,8 +194,11 @@ class GeminiClient {
         '"width":200,"height":80,"color":"1"}],'
         '"edges":[{"id":"e1","fromNode":"a","fromSide":"right",'
         '"toNode":"b","toSide":"left"}]}. '
-        'Include every major labeled box (hub + branches). '
-        'Edges should connect ideas (hierarchical OK). '
+        'Include every written label as its own node: the hub, every branch '
+        'name, and every item hanging off a branch — one node per item; '
+        'never merge a branch name with its items in one node. '
+        'Add one edge for every drawn line, from the hub outward '
+        '(hub → branch → item). '
         'Do NOT invent a photo/file node — the app injects the page photo. '
         'Text ≤80 chars per node. Coordinates are Canvas pixels (may be '
         'negative). Prefer a clear hub near 0,0 with satellites around it.\n\n'
@@ -208,7 +211,8 @@ class GeminiClient {
           DataPart(mimeType, imageBytes),
         ]),
       ],
-      maxOutputTokens: 4096,
+      // Busy dailies (hub + names + tasks) overflow 4096 and truncate JSON.
+      maxOutputTokens: 8192,
     );
   }
 
