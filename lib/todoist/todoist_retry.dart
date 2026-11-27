@@ -22,6 +22,9 @@ class FailedTodoistItem {
     this.parentNodeId,
     this.dueDate,
     this.dueHasTime = false,
+    this.dueString,
+    this.duePhrase,
+    this.reopen = false,
     this.extraParentNodeIds = const [],
     this.requestId,
     this.updateTodoistId,
@@ -67,6 +70,9 @@ class FailedTodoistItem {
       parentNodeId: create.parentNodeId,
       dueDate: create.dueDate,
       dueHasTime: create.dueHasTime,
+      dueString: create.dueString,
+      duePhrase: create.duePhrase,
+      reopen: create.reopen,
       extraParentNodeIds: create.extraParentNodeIds,
       requestId: create.requestId,
       updateTodoistId: create.updateTodoistId,
@@ -77,11 +83,17 @@ class FailedTodoistItem {
     );
   }
 
-  factory FailedTodoistItem.forDone(String content, String error) {
+  /// [todoistId]: the task the review linked this done line to.
+  factory FailedTodoistItem.forDone(
+    String content,
+    String error, {
+    String? todoistId,
+  }) {
     return FailedTodoistItem(
       kind: FailedItemKind.done,
       content: content,
       error: error,
+      updateTodoistId: todoistId,
     );
   }
 
@@ -94,6 +106,9 @@ class FailedTodoistItem {
   final String? parentNodeId;
   final DateTime? dueDate;
   final bool dueHasTime;
+  final String? dueString;
+  final String? duePhrase;
+  final bool reopen;
   final List<String> extraParentNodeIds;
   final String? requestId;
   final String? updateTodoistId;
@@ -115,6 +130,9 @@ class FailedTodoistItem {
       parentNodeId: parentNodeId,
       dueDate: dueDate,
       dueHasTime: dueHasTime,
+      dueString: dueString,
+      duePhrase: duePhrase,
+      reopen: reopen,
       extraParentNodeIds: extraParentNodeIds,
       requestId: requestId,
       updateTodoistId: updateTodoistId,
@@ -136,6 +154,9 @@ class FailedTodoistItem {
       parentNodeId: parentNodeId,
       dueDate: dueDate,
       dueHasTime: dueHasTime,
+      dueString: dueString,
+      duePhrase: duePhrase,
+      reopen: reopen,
       extraParentNodeIds: extraParentNodeIds,
       requestId: requestId,
       updateTodoistId: updateTodoistId,
@@ -156,6 +177,9 @@ class FailedTodoistItem {
         'parentNodeId': ?parentNodeId,
         if (dueDate != null) 'dueDate': dueDate!.toIso8601String(),
         if (dueHasTime) 'dueTime': true,
+        'dueString': ?dueString,
+        'duePhrase': ?duePhrase,
+        if (reopen) 'reopen': true,
         if (extraParentNodeIds.isNotEmpty) 'extra': extraParentNodeIds,
         'requestId': ?requestId,
         'updateId': ?updateTodoistId,
@@ -181,6 +205,9 @@ class FailedTodoistItem {
       parentNodeId: json['parentNodeId'] as String?,
       dueDate: DateTime.tryParse('${json['dueDate'] ?? ''}'),
       dueHasTime: json['dueTime'] == true,
+      dueString: json['dueString'] as String?,
+      duePhrase: json['duePhrase'] as String?,
+      reopen: json['reopen'] == true,
       extraParentNodeIds: extra is List ? [for (final e in extra) '$e'] : const [],
       requestId: json['requestId'] as String?,
       updateTodoistId: json['updateId'] as String?,

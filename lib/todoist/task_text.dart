@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'due_phrase.dart';
+
 /// A `| HH:MM` time written after a task on paper.
 class TaskTime {
   const TaskTime(this.hour, this.minute);
@@ -29,42 +31,49 @@ class TaskText {
     r'^(?:[-*+·•]\s+)?(?:\[[xX✓✔]\]|[☑☒■✓✔✅])',
   );
   static final RegExp _doneTrail = RegExp(r'[☑☒✓✔✅]\uFE0F?\s*$');
-  static final RegExp _strike = RegExp(r'^~~(.+)~~$');
+  /// Strike-through as OCR / Gemini writes it: `~~text~~`, `~text~`,
+  /// `<s>`/`<del>`/`<strike>` tags, or combining strike characters.
+  static final RegExp _strikeTags =
+      RegExp(r'</?(?:s|del|strike)>', caseSensitive: false);
+  static final RegExp _strikeChars = RegExp('[\u0335\u0336]');
+  static final RegExp _tildeStrike = RegExp(r'^~{1,2}(?=\S)(.+?)~{1,2}');
 
-  static String normalize(String raw) {
-    var t = raw.trim().toLowerCase();
-    final strike = _strike.firstMatch(t);
-    if (strike != null) t = strike.group(1)!.trim();
+  static ({String text, bool struck}) _unstrike(String raw) {
+    var t = raw.trim().replaceFirst(_leadMarks, '').trim();
+    var struck = false;
+    if (_strikeChars.hasMatch(t)) {
+      struck = true;
+      t = t.replaceAll(_strikeChars, '');
+    }
+    if (_strikeTags.hasMatch(t) && RegExp(r'^<(?:s|del|strike)>', caseSensitive: false).hasMatch(t)) {
+      struck = true;
+    }
+    t = t.replaceAll(_strikeTags, '');
+    final tilde = _tildeStrike.firstMatch(t);
+    if (tilde != null) {
+      struck = true;
+      t = '${tilde.group(1)!}${t.substring(tilde.end)}';
+    }
+    // A word struck out mid-line is a correction, not a done mark.
+    if (!struck) t = t.replaceAll(RegExp(r'\s*~~[^~]+~~'), '');
+    t = t.replaceAll('~~', '');
     t = t.replaceFirst(_leadMarks, '');
     t = t.replaceFirst(_trailMarks, '');
-    final inner = _strike.firstMatch(t.trim());
-    if (inner != null) t = inner.group(1)!;
-    t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return t;
+    return (text: t.replaceAll(RegExp(r'\s+'), ' ').trim(), struck: struck);
   }
 
+  static String normalize(String raw) => _unstrike(raw).text.toLowerCase();
+
   /// True when the line carries a done mark: `[x]`, a tick / ticked box
-  /// before or after the text, or `~~strike-through~~`.
+  /// before or after the text, or a strike-through (either is enough).
   static bool isTicked(String raw) {
     final t = raw.trim();
     if (t.isEmpty) return false;
-    return _doneLead.hasMatch(t) ||
-        _doneTrail.hasMatch(t) ||
-        _strike.hasMatch(t) ||
-        _strike.hasMatch(t.replaceFirst(_leadMarks, '').trim());
+    return _doneLead.hasMatch(t) || _doneTrail.hasMatch(t) || _unstrike(t).struck;
   }
 
   /// The task text with done marks removed, original casing kept.
-  static String withoutMarks(String raw) {
-    var t = raw.trim();
-    final strike = _strike.firstMatch(t);
-    if (strike != null) t = strike.group(1)!.trim();
-    t = t.replaceFirst(_leadMarks, '');
-    t = t.replaceFirst(_trailMarks, '');
-    final inner = _strike.firstMatch(t.trim());
-    if (inner != null) t = inner.group(1)!;
-    return t.replaceAll(RegExp(r'\s+'), ' ').trim();
-  }
+  static String withoutMarks(String raw) => _unstrike(raw).text;
 
   static const _sep = r'(?:\s*[|@–—-]\s*|\s+)';
   static const _months =
@@ -83,7 +92,9 @@ class TaskText {
   /// `post office`). Falls back to [normalize] when nothing would be left.
   static String core(String raw) {
     final full = normalize(raw);
-    var t = full;
+    final dated = DuePhrase.extract(withoutMarks(raw), pageDate: _anyDay);
+    var t = dated == null ? full : normalize(dated.content);
+    if (t.isEmpty) t = full;
     var changed = true;
     while (changed) {
       changed = false;
@@ -97,6 +108,8 @@ class TaskText {
     }
     return t.isEmpty ? full : t;
   }
+
+  static final DateTime _anyDay = DateTime(2000);
 
   static final RegExp _pipeTime = RegExp(
     r'\s*\|\s*(\d{1,2})[:.h](\d{2})\s*(am|pm)?\s*$',
@@ -119,6 +132,34 @@ class TaskText {
     final content = raw.substring(0, m.start).trim();
     if (content.isEmpty) return null;
     return (content: content, time: TaskTime(hour, minute));
+  }
+
+  /// Index of the candidate a done line refers to: the same [core] text,
+  /// else one containing the other on word boundaries (`bolt` in
+  /// `fix bolt`, not in `bolts`). Null when none does.
+  static int? findDoneMatch(List<String> candidates, String doneText) {
+    final needle = core(doneText);
+    if (needle.isEmpty) return null;
+    int? contains;
+    for (var i = 0; i < candidates.length; i++) {
+      final hay = core(candidates[i]);
+      if (hay.isEmpty) continue;
+      if (hay == needle) return i;
+      if (contains == null &&
+          (_containsWords(hay, needle) || _containsWords(needle, hay))) {
+        contains = i;
+      }
+    }
+    return contains;
+  }
+
+  static bool _containsWords(String whole, String part) {
+    if (part.length > whole.length) return false;
+    final re = RegExp(
+      '(?:^|[^\\p{L}\\p{N}])${RegExp.escape(part)}(?:\$|[^\\p{L}\\p{N}])',
+      unicode: true,
+    );
+    return re.hasMatch(whole);
   }
 
   /// 0..1 — 1 for the same task; word overlap (Jaccard) or, for OCR typos,

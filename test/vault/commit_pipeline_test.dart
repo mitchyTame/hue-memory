@@ -474,7 +474,7 @@ Ignore this prose
       expect(result.todoistSync?.labels, ['zoë', 'deshan', 'thabo']);
       expect(
         todoist.created.map((t) => '${t.labels.single}:${t.content}').toList(),
-        ['zoë:Book piano lesson', 'deshan:Walk Sunday @ 07:30'],
+        ['zoë:Book piano lesson', 'deshan:Walk'],
       );
     },
   );
@@ -606,6 +606,7 @@ class _FakeTodoistClient extends TodoistClient {
     String? parentId,
     DateTime? dueDate,
     bool dueHasTime = false,
+    String? dueString,
     String? description,
     String? requestId,
   }) async {
@@ -626,6 +627,7 @@ class _FakeTodoistClient extends TodoistClient {
     String? description,
     DateTime? dueDate,
     bool dueHasTime = false,
+    String? dueString,
   }) async {
     return created.firstWhere((t) => t.id == taskId);
   }

@@ -61,12 +61,16 @@ class CaptureCoordinator {
   ///
   /// Legacy: [forcedSymbolId] `visual` still forces diagram when
   /// [forceDiagram] is omitted.
+  ///
+  /// [dailyTasks]: the · daily chip was picked, so the diagram prompt also
+  /// asks Gemini to flag ticked / struck-through tasks as done.
   Future<CoordinatedCapture> run({
     required Uint8List imageBytes,
     String? imageMimeType,
     String? extensionHint,
     String? forcedSymbolId,
     bool? forceDiagram,
+    bool dailyTasks = false,
   }) async {
     final force = forceDiagram ?? (forcedSymbolId == 'visual');
     final geminiCfg = await geminiSettings.read();
@@ -103,6 +107,7 @@ class CaptureCoordinator {
           extensionHint: extensionHint,
           geminiCfg: geminiCfg,
           forced: force,
+          dailyTasks: dailyTasks,
         );
       case CaptureClass.photoOnly:
         return _photoOnlyPath();
@@ -171,6 +176,7 @@ class CaptureCoordinator {
     String? extensionHint,
     required GeminiSettings geminiCfg,
     required bool forced,
+    bool dailyTasks = false,
   }) async {
     if (!geminiCfg.shouldUseLive) {
       // No Gemini: empty editable nodes — confirm can still save ghost + labels.
@@ -210,8 +216,9 @@ class CaptureCoordinator {
       final raw = await client.diagramCanvasJson(
         imageBytes: prepared.bytes,
         mimeType: prepared.mime,
+        dailyTasks: dailyTasks,
       );
-      final draft = _canvasParser.parse(raw);
+      final draft = _canvasParser.parse(raw, markDone: dailyTasks);
       final meaning = MeaningResult(
         detectedGlyph: '△',
         regions: draft.regions,

@@ -1,4 +1,5 @@
 import '../vault/daily_note_markdown.dart';
+import 'due_phrase.dart';
 import 'task_text.dart';
 
 /// One Inbox create from a daily section / mindmap node.
@@ -11,12 +12,15 @@ class DailyTodoistCreate {
     this.parentNodeId,
     this.dueDate,
     this.dueHasTime = false,
+    this.dueString,
+    this.duePhrase,
     this.extraParentNodeIds = const [],
     this.requestId,
     this.updateTodoistId,
     this.previousContent,
     this.previousPriority,
     this.previousDue,
+    this.reopen = false,
   });
 
   final String content;
@@ -33,15 +37,63 @@ class DailyTodoistCreate {
   /// Mindmap parent **task** node id → Todoist `parent_id` subtask.
   final String? parentNodeId;
 
-  /// Due date, only when the page wrote one for this task (a `| HH:MM`
-  /// time lands on the page date). No date on paper → no due date.
+  /// Due date, only when the page wrote one for this task (relative words
+  /// and a bare time resolve against the page date). No date on paper → no
+  /// due date.
   final DateTime? dueDate;
 
   /// [dueDate] carries a time of day (Todoist `due_datetime`).
   final bool dueHasTime;
 
-  /// `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM` (local), for comparing captures.
-  String? get dueKey => dueKeyOf(dueDate, hasTime: dueHasTime);
+  /// Sent as Todoist `due_string` when the phrase is left to Todoist to read
+  /// (recurrence such as `every 1st`). Mutually exclusive with [dueDate].
+  final String? dueString;
+
+  /// The date words as written on paper (without `@` / `|`).
+  final String? duePhrase;
+
+  bool get hasDue => dueDate != null || dueString != null;
+
+  /// `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` (local) or the Todoist due string, for
+  /// comparing captures.
+  String? get dueKey =>
+      dueString ?? dueKeyOf(dueDate, hasTime: dueHasTime);
+
+  /// What the review checklist shows for this due, or null.
+  String? get dueLabel {
+    if (dueString != null) {
+      return DuePhrase.describe(TaskDue.todoist(dueString!));
+    }
+    final d = dueDate;
+    if (d == null) return null;
+    return DuePhrase.describe(
+      TaskDue.at(duePhrase ?? '', d, hasTime: dueHasTime),
+    );
+  }
+
+  /// This create with [due] (or no due when null).
+  DailyTodoistCreate withDue(TaskDue? due) {
+    final cleared = copyWith(clearDue: true);
+    if (due == null) return cleared;
+    return DailyTodoistCreate(
+      content: content,
+      label: label,
+      priority: priority,
+      nodeId: nodeId,
+      parentNodeId: parentNodeId,
+      dueDate: due.date,
+      dueHasTime: due.date != null && due.hasTime,
+      dueString: due.date == null ? due.dueString : null,
+      duePhrase: due.phrase,
+      extraParentNodeIds: extraParentNodeIds,
+      requestId: requestId,
+      updateTodoistId: updateTodoistId,
+      previousContent: previousContent,
+      previousPriority: previousPriority,
+      previousDue: previousDue,
+      reopen: reopen,
+    );
+  }
 
   static String? dueKeyOf(DateTime? due, {required bool hasTime}) {
     if (due == null) return null;
@@ -72,6 +124,10 @@ class DailyTodoistCreate {
 
   bool get isUpdate => updateTodoistId != null;
 
+  /// The matched task is completed in Todoist and the user chose to send it
+  /// again: reopen it before updating.
+  final bool reopen;
+
   DailyTodoistCreate copyWith({
     String? content,
     int? priority,
@@ -84,6 +140,7 @@ class DailyTodoistCreate {
     String? previousContent,
     int? previousPriority,
     String? previousDue,
+    bool? reopen,
     bool clearUpdate = false,
     DateTime? dueDate,
     bool? dueHasTime,
@@ -97,6 +154,8 @@ class DailyTodoistCreate {
       parentNodeId: clearParent ? null : (parentNodeId ?? this.parentNodeId),
       dueDate: clearDue ? null : (dueDate ?? this.dueDate),
       dueHasTime: clearDue ? false : (dueHasTime ?? this.dueHasTime),
+      dueString: clearDue ? null : dueString,
+      duePhrase: clearDue ? null : duePhrase,
       extraParentNodeIds: extraParentNodeIds ?? this.extraParentNodeIds,
       requestId: clearUpdate ? null : (requestId ?? this.requestId),
       updateTodoistId:
@@ -106,6 +165,7 @@ class DailyTodoistCreate {
       previousPriority:
           clearUpdate ? null : (previousPriority ?? this.previousPriority),
       previousDue: clearUpdate ? null : (previousDue ?? this.previousDue),
+      reopen: clearUpdate ? false : (reopen ?? this.reopen),
     );
   }
 }
@@ -248,9 +308,10 @@ class DailyTodoistParser {
     unicode: true,
   );
 
-  /// A task line under a create section. A trailing `| HH:MM` becomes a due
-  /// time on [pageDate] and is removed from the text; with no time written
-  /// there is no due date at all.
+  /// A task line under a create section. A date phrase (`tomorrow @ 4pm`,
+  /// `| 16:50`, `every 1st`) becomes the due and is removed from the text;
+  /// relative words resolve against [pageDate] (today when the page has no
+  /// date). With no date written there is no due date at all.
   static DailyTodoistCreate taskFromText({
     required String text,
     required String label,
@@ -259,16 +320,14 @@ class DailyTodoistParser {
     String? parentNodeId,
     DateTime? pageDate,
   }) {
-    final timed = pageDate == null ? null : TaskText.splitPipeTime(text);
+    final found = DuePhrase.extract(text, pageDate: pageDate ?? DateTime.now());
     return DailyTodoistCreate(
-      content: timed?.content ?? text,
+      content: found?.content ?? text,
       label: label,
       priority: priority,
       nodeId: nodeId,
       parentNodeId: parentNodeId,
-      dueDate: timed?.time.on(pageDate!),
-      dueHasTime: timed != null,
-    );
+    ).withDue(found?.due);
   }
 
   /// [pageDate] is the day the page is for; it only matters for `| HH:MM`.

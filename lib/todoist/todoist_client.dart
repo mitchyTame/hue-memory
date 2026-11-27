@@ -125,6 +125,7 @@ class TodoistClient {
     String? parentId,
     DateTime? dueDate,
     bool dueHasTime = false,
+    String? dueString,
     String? description,
     String? requestId,
   }) async {
@@ -135,7 +136,7 @@ class TodoistClient {
       'priority': ?priority,
       'parent_id': ?parentId,
       'description': ?(desc == null || desc.isEmpty ? null : desc),
-      ...dueFields(dueDate, hasTime: dueHasTime),
+      ...dueFields(dueDate, hasTime: dueHasTime, dueString: dueString),
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks'),
@@ -161,12 +162,13 @@ class TodoistClient {
     String? description,
     DateTime? dueDate,
     bool dueHasTime = false,
+    String? dueString,
   }) async {
     final body = <String, dynamic>{
       'content': ?content,
       'priority': ?priority,
       'description': ?description,
-      ...dueFields(dueDate, hasTime: dueHasTime),
+      ...dueFields(dueDate, hasTime: dueHasTime, dueString: dueString),
     };
     final res = await _http.post(
       Uri.parse('$baseUrl/tasks/$taskId'),
@@ -179,9 +181,29 @@ class TodoistClient {
     );
   }
 
-  Future<void> closeTask(String taskId) async {
+  Future<void> closeTask(String taskId) => _postAction(taskId, 'close');
+
+  /// Reopen a completed task (only when the user chose to in review).
+  Future<void> reopenTask(String taskId) => _postAction(taskId, 'reopen');
+
+  /// One task by id, open or completed. Null when Todoist no longer has it
+  /// (404, or flagged deleted).
+  Future<TodoistTask?> getTask(String taskId) async {
+    final res = await _http.get(
+      Uri.parse('$baseUrl/tasks/$taskId'),
+      headers: _headers,
+    );
+    if (res.statusCode == 404) return null;
+    _ensureOk(res);
+    final task = TodoistTask.fromJson(
+      jsonDecode(res.body) as Map<String, dynamic>,
+    );
+    return task.deleted ? null : task;
+  }
+
+  Future<void> _postAction(String taskId, String action) async {
     final res = await _http.post(
-      Uri.parse('$baseUrl/tasks/$taskId/close'),
+      Uri.parse('$baseUrl/tasks/$taskId/$action'),
       headers: _headers,
     );
     if (res.statusCode != 204 &&
@@ -193,9 +215,19 @@ class TodoistClient {
     }
   }
 
-  /// Todoist due fields: `due_date` for a day, `due_datetime` (UTC) when a
-  /// time of day was written. Nothing when [due] is null.
-  static Map<String, String> dueFields(DateTime? due, {required bool hasTime}) {
+  /// Todoist due fields: `due_string` (+ `due_lang: en`) when Todoist should
+  /// read the phrase itself (recurrence), else `due_date` for a day or
+  /// `due_datetime` (UTC) when a time of day was written. `@` is never sent.
+  /// Nothing when there is no due.
+  static Map<String, String> dueFields(
+    DateTime? due, {
+    required bool hasTime,
+    String? dueString,
+  }) {
+    final phrase = dueString?.replaceAll(RegExp(r'\s*@\s*'), ' ').trim();
+    if (phrase != null && phrase.isNotEmpty) {
+      return {'due_string': phrase, 'due_lang': 'en'};
+    }
     if (due == null) return const {};
     if (hasTime) {
       final u = due.toUtc();
@@ -313,6 +345,8 @@ class TodoistTask {
     required this.content,
     this.labels = const [],
     this.priority,
+    this.completed = false,
+    this.deleted = false,
   });
 
   final String id;
@@ -321,6 +355,12 @@ class TodoistTask {
 
   /// Todoist API priority (1 = none … 4 = urgent); null when not reported.
   final int? priority;
+
+  /// Todoist `checked` — the task is completed.
+  final bool completed;
+
+  /// Todoist `is_deleted`.
+  final bool deleted;
 
   factory TodoistTask.fromJson(Map<String, dynamic> json) {
     final rawLabels = json['labels'];
@@ -338,6 +378,8 @@ class TodoistTask {
         final int p when p > 1 => p,
         _ => null,
       },
+      completed: json['checked'] == true || json['is_completed'] == true,
+      deleted: json['is_deleted'] == true,
     );
   }
 }

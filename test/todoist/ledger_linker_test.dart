@@ -122,7 +122,7 @@ void main() {
       expect(linked.creates.single.match?.todoistId, 't2');
     });
 
-    test('completed entries are not matched', () {
+    test('completed entries from another page are not matched', () {
       final linked = LedgerLinker.link(
         _plan(['Call dentist', 'Pay rent']),
         [

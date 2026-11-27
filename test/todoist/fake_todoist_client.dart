@@ -16,6 +16,17 @@ class ScriptedTodoistClient extends TodoistClient {
 
   /// Task id → (due, has time) as sent on create.
   final Map<String, ({DateTime? due, bool hasTime})> dues = {};
+
+  /// Task id → Todoist `due_string` sent on create / update.
+  final Map<String, String> dueStrings = {};
+
+  /// Tasks completed in Todoist (returned by [getTask] with checked).
+  final Map<String, TodoistTask> completed = {};
+
+  /// [getTask] answers 404 for [deletedIds] and for ids it never saw.
+  final List<String> getTaskCalls = [];
+  final Set<String> deletedIds = {};
+  final List<String> reopenedIds = [];
   final List<String> closedIds = [];
 
   /// Task content → error thrown by [createInboxTask] while set.
@@ -67,6 +78,7 @@ class ScriptedTodoistClient extends TodoistClient {
     String? parentId,
     DateTime? dueDate,
     bool dueHasTime = false,
+    String? dueString,
     String? description,
     String? requestId,
   }) async {
@@ -86,6 +98,7 @@ class ScriptedTodoistClient extends TodoistClient {
     parentIds[task.id] = parentId;
     priorities[task.id] = priority;
     dues[task.id] = (due: dueDate, hasTime: dueHasTime);
+    if (dueString != null) dueStrings[task.id] = dueString;
     if (createThenTimeout.remove(content)) {
       throw TimeoutException('response lost');
     }
@@ -100,6 +113,7 @@ class ScriptedTodoistClient extends TodoistClient {
     String? description,
     DateTime? dueDate,
     bool dueHasTime = false,
+    String? dueString,
   }) async {
     if (updateNotFound.contains(taskId)) {
       throw TodoistApiException('Todoist error 404', statusCode: 404);
@@ -108,6 +122,7 @@ class ScriptedTodoistClient extends TodoistClient {
     if (dueDate != null) {
       updatedDues[taskId] = (due: dueDate, hasTime: dueHasTime);
     }
+    if (dueString != null) dueStrings[taskId] = dueString;
     return TodoistTask(id: taskId, content: content ?? '');
   }
 
@@ -120,7 +135,38 @@ class ScriptedTodoistClient extends TodoistClient {
       throw TodoistApiException('Todoist error 500', statusCode: 500);
     }
     closedIds.add(taskId);
+    for (final t in [...open, ...created].where((t) => t.id == taskId)) {
+      completed[taskId] =
+          TodoistTask(id: t.id, content: t.content, completed: true);
+    }
     open.removeWhere((t) => t.id == taskId);
+  }
+
+  @override
+  Future<TodoistTask?> getTask(String taskId) async {
+    getTaskCalls.add(taskId);
+    for (final t in open) {
+      if (t.id == taskId) return t;
+    }
+    final done = completed[taskId];
+    if (done != null) {
+      return TodoistTask(id: done.id, content: done.content, completed: true);
+    }
+    if (deletedIds.contains(taskId) || closedIds.contains(taskId)) return null;
+    for (final t in created) {
+      if (t.id == taskId) return t;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> reopenTask(String taskId) async {
+    final done = completed.remove(taskId);
+    if (done == null) {
+      throw TodoistApiException('Todoist error 404', statusCode: 404);
+    }
+    reopenedIds.add(taskId);
+    open.add(TodoistTask(id: done.id, content: done.content));
   }
 }
 

@@ -17,6 +17,7 @@ class LedgerEntry {
     this.label = '',
     this.priority,
     this.pageId,
+    this.pageDay,
     this.nodeId,
     this.due,
     this.status = LedgerStatus.open,
@@ -34,6 +35,11 @@ class LedgerEntry {
 
   /// Capture page ID the task last came from.
   final String? pageId;
+
+  /// `YYYY-MM-DD` the page was for (its hub date, else the capture day).
+  /// A completed task is only recognised again on a page for the same day,
+  /// so a task written daily is not taken as already done.
+  final String? pageDay;
   final String? nodeId;
 
   /// Due as last sent (`YYYY-MM-DD` or `YYYY-MM-DDTHH:MM`), null for none.
@@ -49,6 +55,7 @@ class LedgerEntry {
     int? priority,
     bool clearPriority = false,
     String? pageId,
+    String? pageDay,
     String? due,
     LedgerStatus? status,
     DateTime? completedAt,
@@ -60,6 +67,7 @@ class LedgerEntry {
       label: label,
       priority: clearPriority ? null : (priority ?? this.priority),
       pageId: pageId ?? this.pageId,
+      pageDay: pageDay ?? this.pageDay,
       nodeId: nodeId,
       due: due ?? this.due,
       status: status ?? this.status,
@@ -73,6 +81,7 @@ class LedgerEntry {
         'label': label,
         'priority': ?priority,
         'pageId': ?pageId,
+        'pageDay': ?pageDay,
         'nodeId': ?nodeId,
         'due': ?due,
         'createdAt': createdAt.toIso8601String(),
@@ -87,6 +96,7 @@ class LedgerEntry {
       label: '${json['label'] ?? ''}',
       priority: json['priority'] is int ? json['priority'] as int : null,
       pageId: json['pageId'] as String?,
+      pageDay: json['pageDay'] as String?,
       nodeId: json['nodeId'] as String?,
       due: json['due'] as String?,
       createdAt: DateTime.tryParse('${json['createdAt'] ?? ''}') ??
